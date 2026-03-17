@@ -4,14 +4,13 @@ on:
   schedule:
     # Runs at 00:00 UTC every single day
     - cron: '0 0 * * *'
-  # Allows you to trigger the run manually from the GitHub Actions tab
   workflow_dispatch: 
 
 jobs:
   pull-prices:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to commit the new CSV to the repo
+      contents: write 
 
     steps:
       - name: Checkout Repository
@@ -28,9 +27,9 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev libssl-dev
 
       - name: Install R Packages
-        # Dropping the 'repos' argument forces GitHub to use the fast binaries
+        # Pointing to the Posit Package Manager guarantees fast Ubuntu binaries
         run: |
-          install.packages(c("tidyverse", "jsonlite", "httr"))
+          install.packages(c("tidyverse", "jsonlite", "httr"), repos = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")
         shell: Rscript {0}
 
       - name: Run Daily Price Scraper
