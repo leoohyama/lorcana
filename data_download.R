@@ -1,137 +1,90 @@
 library(tidyverse)
 library(jsonlite)
 library(httr)
+library(tidyverse)
+
+#this is historic data as off 3/17/2026
+#this will be fed into our models
 
 
-# Lorcast has a bulk-style endpoint that includes prices
-lorcast_url <- "https://api.lorcast.com/v0/sets"
-raw_data <- fromJSON(lorcast_url)
+# --- STEP 3: Fetch Prices from JustTCG ---
+api_key <- "tcg_ed83c7138fff417098cd323bcdaaaa8b"
+base_url <- "https://api.justtcg.com/v1/cards"
+target_cards<-readRDS("data/enchanteds/enchanted_list.rds")
 
-#get unique ids for every set
-set_ids<-raw_data$results %>%
-  select(id, name)
 
-#create empty list
-list_of_data = list()
+# Split the IDs into batches of 20 (JustTCG free tier limit per request)
+card_batches <- split(target_cards$tcgplayer_id, ceiling(seq_along(target_cards$tcgplayer_id)/20))
 
-#now loop over unique set ids to get all cards
-for(i in 1:nrow(set_ids)){
-  lorcast_set_url  <- paste0("https://api.lorcast.com/v0/sets/", set_ids$id[i], "/cards")
-  raw_data <- fromJSON(lorcast_set_url)
+all_price_data <- list()
+
+message(paste("Fetching prices from JustTCG in", length(card_batches), "batches..."))
+for(i in seq_along(card_batches)) {
+  # 1. Keep the payload strictly focused on identifying the cards
+  payload <- map(card_batches[[i]], ~ list(
+    tcgplayerId = as.character(.x),
+    condition = "NM"
+  ))
   
-  # 1. Flatten the 'type' list into a character vector
-  # This converts list("Action", "Song") -> "Action Song"
-  type_flat <- map_chr(raw_data$type, ~ paste(.x, collapse = " "))
-  type_inks <- map_chr(raw_data$inks, ~ paste(.x, collapse = " "))
-
-  
-  image_urls <- raw_data$image_uris$digital$normal
-  price_list_nonfoil <- raw_data$prices$usd
-  price_list_foil <- raw_data$prices$usd_foil
-  setname <-raw_data$set$name
-  
-  # 2. Add the flattened type to your data
-  combined_data <- cbind(raw_data, 
-                          setname,
-                         type_clean = type_flat, 
-                         type_inks = type_inks,
-                         price_list_nonfoil, 
-                         price_list_foil, 
-                         
-                         image_urls)
-  
-  list_of_data[[i]] <- combined_data %>%
-    select(-c('prices', 'image_uris', 'type')) # Drop the original list 'type'
-}
-
-final_df <- bind_rows(list_of_data)%>% mutate(type_inks = case_when(
-  type_inks == "" ~ NA,
-  type_inks == "NA" ~ NA,
-  is.na(type_inks) ~ NA,
-  type_inks == ink ~ NA,
-  TRUE ~ type_inks
-)) %>%
-  mutate(ink = ifelse(!is.na(type_inks),type_inks, ink )) %>%
-  relocate(type_inks, .after = inks) 
-
-#now we download images
-
-
-# 1. Create a root folder for all images
-root_dir <- "lorcana_images"
-if (!dir.exists(root_dir)) dir.create(root_dir)
-
-# 2. Function to download and organize by [Set Name] -> [ID].avif
-download_organized_images <- function(url, set_name, card_id) {
-  
-  # Clean up the set name so it's a valid folder name (removes special chars)
-  safe_set_name <- str_replace_all(set_name, "[^[:alnum:]]", "_")
-  set_path <- file.path(root_dir, safe_set_name)
-  
-  # Create the set folder if it doesn't exist yet
-  if (!dir.exists(set_path)) {
-    dir.create(set_path, recursive = TRUE)
-  }
-  
-  # Define the final file path
-  # We use the .avif extension since that's what the Lorcast URLs use
-  dest_file <- file.path(set_path, paste0(card_id, ".avif"))
-  
-  # Download only if the file doesn't already exist (skips duplicates)
-  if (!file.exists(dest_file)) {
-    tryCatch({
-      download.file(url, dest_file, mode = "wb", quiet = TRUE)
-    }, error = function(e) {
-      message(paste("Error downloading ID:", card_id, "from set:", set_name))
-    })
-  }
-}
-
-# 3. Increase timeout for long downloads
-options(timeout = max(1000, getOption("timeout")))
-
-# 4. Run the download
-# This assumes your columns are named 'image_urls', 'name' (for set), and 'id'
-# Adjust names if your final_df uses something else!
-pwalk(list(
-  final_df$image_urls, 
-  final_df$setname, 
-  final_df$id
-), download_organized_images)
-
-
-
-# 1. Recreate the path logic to see what SHOULD be there
-# We use the same 'safe_set_name' logic we used in the download function
-final_df_checked <- final_df %>%
-  mutate(
-    safe_set_name = str_replace_all(setname, "[^[:alnum:]]", "_"),
-    expected_path = file.path("lorcana_images", safe_set_name, paste0(id, ".avif")),
-    # Check if the file actually exists on your computer
-    download_successful = file.exists(expected_path)
+  # 2. Move the duration and stats rules to the query parameters
+  response <- POST(
+    url = base_url,
+    query = list(
+      priceHistoryDuration = "180d",
+      include_statistics = "allTime"
+    ),
+    add_headers(`X-API-Key` = api_key, `Content-Type` = "application/json"),
+    body = toJSON(payload, auto_unbox = TRUE)
   )
+  
+  if(status_code(response) == 200) {
+    # Parse the response and unnest the variants to get the price
+    batch_data <- fromJSON(content(response, "text"), flatten = TRUE)$data
+    if(length(batch_data) > 0) {
+      all_price_data[[i]] <- as_tibble(batch_data) %>% unnest(variants, names_sep = "_")
+    }
+  } else {
+    warning(paste("Batch", i, "failed with status", status_code(response)))
+  }
+  
+  # A tiny pause so we don't accidentally get blocked for spamming the server
+  Sys.sleep(0.5)
+}
 
-# 2. Extract the failures into a separate tibble
-failed_downloads <- final_df_checked %>%
-  filter(!download_successful)
+# 1. Combine all the batches from your list into one master dataframe
+master_df <- bind_rows(all_price_data)
+master_df$tcgplayerId
+# 2. Create Table A: Card Metadata
+# We select the identifiers and drop the heavy list-columns
+card_metadata <- master_df %>%
+  select(
+    card_id = tcgplayerId,                  # The main card ID
+    name, 
+    set, 
+    variant_id = variants_id,      # The specific ID for this finish/condition
+    condition = variants_condition, 
+    printing = variants_printing
+  ) %>%
+  distinct() # Ensure we only have one row per card variant
 
-# 3. Clean your training data (Keep only the ones that actually downloaded)
-clean_training_df <- final_df_checked %>%
-  filter(download_successful)
+# 3. Create Table B: Price History (Time-Series)
+# We keep the IDs so we can join it back to the metadata later, then unnest
+price_history_long <- master_df %>%
+  select(card_id = tcgplayerId, variant_id = variants_id, variants_priceHistory) %>%
+  # This cracks open the list of dataframes into a long format
+  unnest(variants_priceHistory) %>%
+  # Decode the Unix timestamps and clean up column names
+  mutate(
+    timestamp = as_datetime(t),
+    date = as_date(timestamp),     # Extracts just the YYYY-MM-DD
+    price = p
+  ) %>%
+  # Drop the old 'p' and 't' columns to keep it clean
+  select(card_id, variant_id, timestamp, date, price)
 
-# Summary
-print(paste("Successful downloads:", nrow(clean_training_df)))
-print(paste("Failed downloads:", nrow(failed_downloads)))
+# Look at your beautiful new relational data:
+print("Card Metadata:")
+head(card_metadata)
 
-# Look at the failures to see why they broke
-head(failed_downloads)
-
-#remove the failed downloads from the final dataset
-
-final_df_save=final_df %>%
-  filter_out(id %in% failed_downloads$id)
-
-saveRDS(final_df, file = "data/tabular/final_data.rds")
-
-final=read.csv("lorcana_test_predictions.csv")
-dput(final)
+print("Price History:")
+head(price_history_long)

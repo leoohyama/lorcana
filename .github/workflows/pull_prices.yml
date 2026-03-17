@@ -1,9 +1,9 @@
-name: Scrape Lorcana Prices
+name: Scrape Daily Prices
 
 on:
   schedule:
-    # Runs at 00:00 UTC on every 2nd day of the month
-    - cron: '0 0 */2 * *'
+    # Runs at 00:00 UTC every single day
+    - cron: '0 0 * * *'
   # Allows you to trigger the run manually from the GitHub Actions tab
   workflow_dispatch: 
 
@@ -11,7 +11,7 @@ jobs:
   pull-prices:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed so the bot can commit the new CSV to the repo
+      contents: write # Needed to commit the new CSV to the repo
 
     steps:
       - name: Checkout Repository
@@ -22,25 +22,26 @@ jobs:
         with:
           r-version: 'release'
 
-      # jsonlite/httr/tidyverse often need curl under the hood on Linux
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libcurl4-openssl-dev libssl-dev
 
       - name: Install R Packages
+        # Dropping the 'repos' argument forces GitHub to use the fast binaries
         run: |
-          install.packages(c("tidyverse", "jsonlite"), repos = "https://cloud.r-project.org")
+          install.packages(c("tidyverse", "jsonlite", "httr"))
         shell: Rscript {0}
 
-      - name: Run Price Scraper
-        # Update this path if you saved the R script in a specific folder!
-        run: Rscript pull_prices.R 
+      - name: Run Daily Price Scraper
+        env:
+          JUSTTCG_API_KEY: ${{ secrets.JUSTTCG_API_KEY }}
+        run: Rscript pull_daily_prices.R 
 
       - name: Commit and Push Data
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git add data/running_data/*
-          git commit -m "Automated price pull: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git commit -m "Automated daily price pull: $(date +'%Y-%m-%d')" || echo "No changes to commit"
           git push

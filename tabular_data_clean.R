@@ -11,7 +11,7 @@ pre_process_df = readRDS(file = "data/tabular/final_data.rds")
 
 columns<-pre_process_df %>%
   mutate(price_list_foil = as.numeric(price_list_foil),
-        price_list_nonfoil= as.numeric(price_list_foil)) %>%%
+        price_list_nonfoil= as.numeric(price_list_foil)) %>%
   mutate(final_price = ifelse(is.na(price_list_foil), price_list_nonfoil, price_list_foil)) %>%
   select(id, name, released_at,type_clean, cost,ink, strength, willpower, lore, rarity, final_price)   %>%
   mutate(final_price = as.numeric(final_price))
