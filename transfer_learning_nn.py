@@ -5,9 +5,18 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
 from torchvision.models import resnet18, ResNet18_Weights
 from PIL import Image
-import pandas as pd
 import os
 import pillow_avif # Essential for parsing the .avif card scans
+
+# --- 1. SETUP DEVICE (Cross-Platform) ---
+if torch.cuda.is_available():
+    device = torch.device("cuda") # Triggers on your Windows gaming rig
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")  # Triggers on your Macbook Pro
+else:
+    device = torch.device("cpu")  # Fallback
+
+print(f"✅ Using device: {device}")
 
 # --- 1. SETUP DEVICE ---
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
