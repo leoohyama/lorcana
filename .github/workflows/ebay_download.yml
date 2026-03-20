@@ -44,7 +44,7 @@ jobs:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
         # Make sure this filename matches your actual R script's name!
-        run: Rscript update_ebay_listings.R 
+        run: Rscript ebay_api_download.R 
 
       # 5. Commit and Push the new CSV
       - name: Commit and push changes
