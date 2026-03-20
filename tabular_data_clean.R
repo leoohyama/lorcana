@@ -3,7 +3,7 @@ require(tidyverse)
 
 
 #read in the data
-pre_process_df = readRDS(file = "data/tabular/final_data.rds")
+pre_process_df_meta = readRDS(file = "data/enchanteds/enchanted_list.rds")
 
 #first select only the relevant columns we need 
 #combine pricing

@@ -1,0 +1,58 @@
+name: eBay Daily Market Float
+
+# Controls when the workflow will run
+on:
+  schedule:
+    # Runs at 00:30 UTC every day (Staggered to avoid git conflicts)
+    - cron: '30 0 * * *'
+  
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: write # Required to push the new CSVs back to your repo
+
+jobs:
+  run-ebay-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the repository
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2. Set up R
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+
+      # 3. Install required R packages (Using pak for speed)
+      - name: Install dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::tidyverse
+            any::httr
+            any::jsonlite
+            any::base64enc
+
+      # 4. Run the Scraper Script
+      - name: Run eBay API Script
+        env:
+          # This maps your GitHub Secrets to the Sys.getenv() calls in your script
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+        # Make sure this filename matches your actual R script's name!
+        run: Rscript update_ebay_listings.R 
+
+      # 5. Commit and Push the new CSV
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions Bot"
+          # Only add files in the granular_listings folder to avoid accidental commits
+          git add data/granular_listings/*
+          # If there are no changes, this prevents the action from failing
+          git diff-index --quiet HEAD || git commit -m "Automated daily eBay inventory pull"
+          git push

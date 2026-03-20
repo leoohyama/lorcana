@@ -86,5 +86,10 @@ price_history_long <- master_df %>%
 print("Card Metadata:")
 head(card_metadata)
 
+saveRDS(card_metadata, "data/tabular/card_metadata.rds")
+
+
 print("Price History:")
 head(price_history_long)
+
+saveRDS(price_history_long, "data/tabular/price_history_long_initial.rds")

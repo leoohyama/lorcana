@@ -23,17 +23,25 @@ all_lorcast_cards <- bind_rows(list_of_data)
 
 # --- STEP 2: Filter and Extract Image Data ---
 message("Filtering for Enchanted and Iconic cards...")
-
+all_lorcast_cards$purchase_uris
 target_cards <- all_lorcast_cards %>%
   filter(rarity %in% c("Enchanted", "Iconic", "Epic")) %>%
-  # Unpack the nested columns for the images and set names right here
   mutate(
     image_url = image_uris$digital$normal,
-    set_name = set$name
+    set_name = set$name,
+    
+    # 1. Flatten the 'inks' list column into a single string separated by a space
+    ink_flat = map_chr(inks, ~ paste(.x, collapse = " ")),
+    
+    # 2. Handle edge cases (turn empty strings into NA)
+    ink_flat = na_if(ink_flat, ""),
+    
+    # 3. Coalesce: Use 'ink_flat' if it exists, otherwise fall back to the basic 'ink' column
+    ink_clean = coalesce(ink_flat, ink)
   ) %>%
-  # Keep exactly what we need for the next script AND the download loop
-  select(id, tcgplayer_id, name, set_name, rarity, image_url) %>%
-  filter(!is.na(tcgplayer_id)) 
+  # Make sure to select your newly created 'ink_clean' column here!
+  select(id, tcgplayer_id, name, version, set_name, rarity,released_at, cost, inkwell, ink_clean, image_url) %>%
+  filter(!is.na(tcgplayer_id))
 
 # Save the target list for your Price Tracking script
 saveRDS(target_cards, "data/enchanteds/enchanted_list.rds")
