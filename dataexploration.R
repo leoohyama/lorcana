@@ -1,23 +1,62 @@
-#here we explore the data for both justtcg and ebay
-
 library(tidyverse)
 
-#let's first load ebay data
-#We first need to conctenate the files
+# ==========================================
+# 1. Load the Data
+# ==========================================
+ebayfile_path <- "data/granular_listings/"
+filenames <- list.files(ebayfile_path, pattern = "\\.csv$", full.names = TRUE)
 
-ebaydata_list = list()
+# Map and Bind in one swoop (No loops or rbinds needed!)
+fullset <- map_dfr(filenames, read_csv)
 
-#get file path and list of filenames for the ebay data drop directory
 
-ebayfile_path<-file.path("data/granular_listings/")
-filenames<-list.files(ebayfile_path)
-length(filenames)
 
-for(i in 1:length(filenames)){
-  ebaydata_list[[i]] = read.csv(paste0(ebayfile_path, filenames[[i]]))
-}
+# ==========================================
+# 2. Clean and Flag
+# ==========================================
+fullset <- fullset %>%
+  mutate(
+    language = case_when(
+      str_detect(tolower(listing_title), "japanese|jpn|\\bjp\\b") ~ "Japanese",
+      str_detect(tolower(listing_title), "chinese|\\bchn\\b|\\bcn\\b") ~ "Chinese",
+      str_detect(tolower(listing_title), "french|\\bfr\\b") ~ "French",
+      str_detect(tolower(listing_title), "german|\\bger\\b") ~ "German",
+      str_detect(tolower(listing_title), "italian|\\bita\\b") ~ "Italian",
+      TRUE ~ "English" 
+    ),
+    # Create a clean display name for the dashboard
+    cardname = paste(name, version, rarity, sep = " - "),
+    
+    # --- UPGRADED: Catch spaces AND apostrophes ---
+    folder_name = str_replace_all(set_name, "[ ']", "_")
+  )
 
-#join ebay data together
-fullset = do.call(rbind, ebaydata_list)
-fullset
 
+# ==========================================
+# 3. Aggregate for the Dashboard (The Daily Dive)
+# ==========================================
+daily_dive <- fullset %>%
+  # Group by Date first, then the card dimensions
+  group_by(date_pulled, set_name, id, cardname, tcgplayer_id, language, is_graded) %>%
+  summarise(
+    active_listings = n(),
+    
+    # Calculate daily pricing metrics inside the summarise!
+    # Using 5th percentile to automatically slice off the fake/proxy cards
+    true_floor_price = quantile(price_val, probs = 0.05, na.rm = TRUE),
+    avg_ask_price    = mean(price_val, na.rm = TRUE),
+    max_ask_price    = max(price_val, na.rm = TRUE),
+    
+    .groups = "drop" # This ungroups the data so it doesn't cause issues later
+  ) %>%
+  arrange(date_pulled, cardname)
+
+
+# ==========================================
+# 4. Save the Dashboard Feed
+# ==========================================
+# Save this lightweight, aggregated file specifically for your Shiny app to read
+dir.create("data/shiny_prep", recursive = TRUE, showWarnings = FALSE)
+write_rds(daily_dive, "data/shiny_prep/daily_summary.rds")
+
+message("Data prep complete. Ready for Shiny!")
