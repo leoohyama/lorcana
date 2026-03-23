@@ -3,7 +3,7 @@ name: eBay Daily Market Float
 # Controls when the workflow will run
 on:
   schedule:
-    # Runs at 00:30 UTC every day (Staggered to avoid git conflicts)
+    # Runs at 00:30 UTC every day 
     - cron: '30 0 * * *'
   
   # Allows you to run this workflow manually from the Actions tab
@@ -20,6 +20,8 @@ jobs:
       # 1. Checkout the repository
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Ensures the bot downloads the full git history for a clean rebase
 
       # 2. Set up R
       - name: Setup R
@@ -27,7 +29,7 @@ jobs:
         with:
           r-version: 'release'
 
-      # 3. Install required R packages (Using pak for speed)
+      # 3. Install required R packages 
       - name: Install dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
@@ -40,10 +42,8 @@ jobs:
       # 4. Run the Scraper Script
       - name: Run eBay API Script
         env:
-          # This maps your GitHub Secrets to the Sys.getenv() calls in your script
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-        # Make sure this filename matches your actual R script's name!
         run: Rscript ebay_api_download.R 
 
       # 5. Commit and Push the new CSV
@@ -51,8 +51,13 @@ jobs:
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions Bot"
+          
+          # NEW: Pull any changes you made to the repo locally to avoid git collisions!
+          git pull --rebase origin main
+          
           # Only add files in the granular_listings folder to avoid accidental commits
           git add data/granular_listings/*
-          # If there are no changes, this prevents the action from failing
-          git diff-index --quiet HEAD || git commit -m "Automated daily eBay inventory pull"
-          git push
+          
+          # Commit and Push
+          git diff-index --quiet HEAD || git commit -m "Automated dual-route eBay inventory pull"
+          git push origin main
