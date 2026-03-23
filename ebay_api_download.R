@@ -1,9 +1,8 @@
-
-
 library(tidyverse) # Handles purrr, dplyr, readr, stringr, etc.
 library(httr)      # Handles API GET/POST requests
 library(jsonlite)  # Handles JSON parsing
 library(base64enc) # Handles the OAuth encoding
+library(arrow)     # Handles high-performance Parquet saving
 
 # ==========================================
 # --- CONFIGURATION & SECRETS ---
@@ -48,7 +47,7 @@ if (is.null(ebay_token) || ebay_token == "") {
 # ==========================================
 get_ebay_active_listings <- function(card_name, version, rarity, token, epid_code = NA_character_) {
   
-  # --- INTERNAL HELPER: Now accepts a 'source_name' so we can tag the data ---
+  # --- INTERNAL HELPER: Fetches and parses JSON ---
   fetch_and_parse <- function(query_params, source_name) {
     res <- GET(
       url = "https://api.ebay.com/buy/browse/v1/item_summary/search",
@@ -72,8 +71,6 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
           seller_name   = if ("seller" %in% names(items)) items$seller$username else NA_character_,
           feedback_pct  = if ("seller" %in% names(items)) as.numeric(items$seller$feedbackPercentage) else NA_real_,
           feedback_num  = if ("seller" %in% names(items)) as.numeric(items$seller$feedbackScore) else NA_real_,
-          
-          # --- NEW: Tag the row with where it came from! ---
           pull_source   = source_name
         )
         
@@ -87,7 +84,7 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
       }
     }
     
-    # Fallback tibble (MUST include the new pull_source column!)
+    # Fallback tibble
     return(tibble(
       item_id = character(), listing_title = character(), price_val = numeric(), 
       listing_type = character(), item_url = character(), is_graded = logical(), 
@@ -97,14 +94,44 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
     ))
   }
   
-  # --- ROUTE A: The Text Search ---
-  # Creating the string variable separately so we can print it and see what we are actually searching
-  search_string <- trimws(paste("Lorcana", card_name, version, rarity))
+  # --- ROUTE A: The Text Search (API-SIDE STRICT MATCH) ---
+  api_name    <- str_replace_all(card_name, "-", " ") %>% str_squish()
+  api_version <- str_replace_all(version, "-", " ") %>% str_squish()
+  
+  search_string <- trimws(paste0("Lorcana ", api_name, " ", api_version, " \"", rarity, "\""))
+  search_string <- str_replace_all(search_string, "\\s+", " ")
+  
   message("    -> Searching Text: '", search_string, "'")
   
-  text_query <- list(q = search_string, category_ids = "183454", limit = 200)
+  text_query <- list(q = search_string,  limit = 200)
   text_results <- fetch_and_parse(text_query, "Text")
-  message("    -> Text Results Found: ", nrow(text_results))
+  
+  message("    -> Text Results Fetched: ", nrow(text_results))
+  
+  # 2. R-SIDE CLEAN: The "Nuclear" Match 
+  if (nrow(text_results) > 0) {
+    
+    strict_name    <- str_replace_all(card_name, "[[:punct:]]|\\s+", "") %>% tolower()
+    strict_version <- str_replace_all(version, "[[:punct:]]|\\s+", "") %>% tolower()
+    strict_rarity  <- str_replace_all(rarity, "[[:punct:]]|\\s+", "") %>% tolower()
+    
+    text_results <- text_results %>%
+      mutate(
+        safe_title = str_replace_all(listing_title, "[[:punct:]]|\\s+", "") %>% tolower()
+      ) %>%
+      filter(
+        str_detect(safe_title, strict_name) & 
+        str_detect(safe_title, strict_rarity)
+      )
+    
+    if (strict_version != "") {
+      text_results <- text_results %>% filter(str_detect(safe_title, strict_version))
+    }
+    
+    text_results <- text_results %>% select(-safe_title)
+  }
+  
+  message("    -> Text Results Kept: ", nrow(text_results))
   
   # --- ROUTE B: The EPID Search ---
   if (!is.na(epid_code) && epid_code != "") {
@@ -116,7 +143,6 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
   }
   
   # --- ROUTE C: The Master Merge ---
-  # If a listing is in BOTH, distinct() keeps the first one it sees (which will be tagged 'Text')
   combined_results <- bind_rows(text_results, epid_results) %>%
     distinct(item_id, .keep_all = TRUE)
   
@@ -126,26 +152,42 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
 }
 
 # ==========================================
-# --- STEP 3: Execute the Pull ---
+# --- STEP 3: Execute the Pull (TESTING MODE) ---
 # ==========================================
-message("Starting diagnostic eBay listings pull...")
+message("Starting strict eBay listings pull (TESTING FIRST 10 ONLY)...")
 
 granular_ebay_data <- master_target_cards %>%
   mutate(
     active_listings = pmap(list(name, version, rarity, epid), ~ {
-      message(paste("Fetching:", ..1))
+      message(paste("Fetching:", ..1, "-", ..2))
       Sys.sleep(0.5) 
       get_ebay_active_listings(..1, ..2, ..3, ebay_token, ..4)
     })
   ) %>%
   unnest(active_listings) %>%
-  mutate(date_pulled = Sys.Date())
+  mutate(date_pulled = Sys.Date()) %>%
+  select(
+    tcgplayer_id, 
+    item_id, 
+    price_val, 
+    listing_type,
+    seller_name,
+    feedback_pct,
+    feedback_num,
+    posted_date,
+    is_graded, 
+    date_pulled, 
+    pull_source,
+    listing_title
+  )
+
 
 # ==========================================
-# --- STEP 4: Save the Dataset ---
+# --- STEP 4: Save the Dataset as Parquet ---
 # ==========================================
 dir.create("data/granular_listings", recursive = TRUE, showWarnings = FALSE)
-file_name <- paste0("data/granular_listings/active_inventory_", Sys.Date(), ".csv")
-write_csv(granular_ebay_data, file_name)
 
-message("Pipeline complete! Diagnostic snapshot saved.")
+file_name <- paste0("data/granular_listings/test_inventory_", Sys.Date(), ".parquet")
+write_parquet(granular_ebay_data, file_name)
+
+message("Test complete! Compressed Parquet snapshot saved.")

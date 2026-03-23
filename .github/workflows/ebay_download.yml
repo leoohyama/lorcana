@@ -38,6 +38,7 @@ jobs:
             any::httr
             any::jsonlite
             any::base64enc
+            any::arrow
 
       # 4. Run the Scraper Script
       - name: Run eBay API Script
@@ -52,11 +53,11 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions Bot"
           
-          # 1. Stage the new CSV files FIRST
-          git add data/granular_listings/*
+          # 1. Stage the new Parquet files FIRST
+          git add data/granular_listings/*.parquet
           
           # 2. Commit them locally so Git knows they are safe
-          git diff-index --quiet HEAD || git commit -m "Automated dual-route eBay inventory pull"
+          git diff-index --quiet HEAD || git commit -m "Automated daily eBay Parquet data pull"
           
           # 3. NOW pull and rebase (Git safely stacks the bot's commit on top of your remote changes)
           git pull --rebase origin main

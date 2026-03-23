@@ -1,21 +1,32 @@
 library(tidyverse)
+library(arrow) # Required for high-performance Parquet handling
 
 # ==========================================
-# 1. Load the Data
+# 1. Load the Data (The Arrow Way)
 # ==========================================
-ebayfile_path <- "data/granular_listings/"
-filenames <- list.files(ebayfile_path, pattern = "\\.csv$", full.names = TRUE)
+# open_dataset() scans the entire folder. It is incredibly fast because it 
+# only "looks" at the files without loading them into RAM yet.
+ds <- open_dataset("data/granular_listings/", format = "parquet")
 
-# Map and Bind in one swoop (No loops or rbinds needed!)
-fullset <- map_dfr(filenames, read_csv)
+# We collect() to pull the data into your R session for processing.
+# This replaces the old map_dfr(list.files...) loop.
+fullset_lean <- ds %>% collect()
 
+# Load the Master Reference Table (The Metadata)
+# This contains the name, set_name, id, and rarity that we dropped from the daily pulls.
+master_target_cards <- read_csv("data/target_cards_with_epids.csv", col_types = cols(epid = col_character())) %>%
+  mutate(version = replace_na(version, ""))
 
 
 # ==========================================
-# 2. Clean and Flag
+# 2. Join and Enrich
 # ==========================================
-fullset <- fullset %>%
+# We join the lean daily data with our master reference using tcgplayer_id.
+# This "re-attaches" the descriptive text to the numbers.
+fullset <- fullset_lean %>%
+  inner_join(master_target_cards, by = "tcgplayer_id") %>%
   mutate(
+    # Language detection (Requires 'listing_title' to be in your scraper's select()!)
     language = case_when(
       str_detect(tolower(listing_title), "japanese|jpn|\\bjp\\b") ~ "Japanese",
       str_detect(tolower(listing_title), "chinese|\\bchn\\b|\\bcn\\b") ~ "Chinese",
@@ -24,10 +35,11 @@ fullset <- fullset %>%
       str_detect(tolower(listing_title), "italian|\\bita\\b") ~ "Italian",
       TRUE ~ "English" 
     ),
-    # Create a clean display name for the dashboard
+    
+    # Create the display name for the dashboard
     cardname = paste(name, version, rarity, sep = " - "),
     
-    # --- UPGRADED: Catch spaces AND apostrophes ---
+    # Format the folder name for your image paths (converts spaces/apostrophes to underscores)
     folder_name = str_replace_all(set_name, "[ ']", "_")
   )
 
@@ -36,27 +48,39 @@ fullset <- fullset %>%
 # 3. Aggregate for the Dashboard (The Daily Dive)
 # ==========================================
 daily_dive <- fullset %>%
-  # Group by Date first, then the card dimensions
-  group_by(date_pulled, set_name, id, cardname, tcgplayer_id, language, is_graded) %>%
+  # We group by everything the Shiny app needs to display or filter
+  group_by(
+    date_pulled, 
+    set_name, 
+    folder_name, 
+    id, 
+    cardname, 
+    tcgplayer_id, 
+    language, 
+    is_graded
+  ) %>%
   summarise(
     active_listings = n(),
     
-    # Calculate daily pricing metrics inside the summarise!
-    # Using 5th percentile to automatically slice off the fake/proxy cards
+    # Calculate daily pricing metrics
+    # 5th percentile helps ignore "proxy" or "fake" outliers at the bottom
     true_floor_price = quantile(price_val, probs = 0.05, na.rm = TRUE),
     avg_ask_price    = mean(price_val, na.rm = TRUE),
     max_ask_price    = max(price_val, na.rm = TRUE),
     
-    .groups = "drop" # This ungroups the data so it doesn't cause issues later
+    .groups = "drop" 
   ) %>%
-  arrange(date_pulled, cardname)
+  arrange(desc(date_pulled), cardname)
 
 
 # ==========================================
 # 4. Save the Dashboard Feed
 # ==========================================
-# Save this lightweight, aggregated file specifically for your Shiny app to read
+# This RDS file is what your Shiny app actually reads. 
+# It's tiny, fast, and contains all your historical trends.
 dir.create("data/shiny_prep", recursive = TRUE, showWarnings = FALSE)
 write_rds(daily_dive, "data/shiny_prep/daily_summary.rds")
 
-message("Data prep complete. Ready for Shiny!")
+message("--- Data Prep Complete ---")
+message(paste("Processed", nrow(fullset_lean), "total listings."))
+message("Joined metadata and updated 'daily_summary.rds'. Ready for Shiny!")
