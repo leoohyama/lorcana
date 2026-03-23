@@ -46,18 +46,20 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
         run: Rscript ebay_api_download.R 
 
-      # 5. Commit and Push the new CSV
+      # 5. Commit, Rebase, and Push
       - name: Commit and push changes
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions Bot"
           
-          # NEW: Pull any changes you made to the repo locally to avoid git collisions!
-          git pull --rebase origin main
-          
-          # Only add files in the granular_listings folder to avoid accidental commits
+          # 1. Stage the new CSV files FIRST
           git add data/granular_listings/*
           
-          # Commit and Push
+          # 2. Commit them locally so Git knows they are safe
           git diff-index --quiet HEAD || git commit -m "Automated dual-route eBay inventory pull"
+          
+          # 3. NOW pull and rebase (Git safely stacks the bot's commit on top of your remote changes)
+          git pull --rebase origin main
+          
+          # 4. Push everything back up to GitHub
           git push origin main
