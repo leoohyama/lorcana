@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # Required to push the new CSVs back to your repo
+  contents: write # Required to push the new parquet files back to your repo
 
 jobs:
   run-ebay-scraper:

@@ -10,6 +10,11 @@ library(arrow)     # Handles high-performance Parquet saving
 ebay_client <- trimws(Sys.getenv("EBAY_CLIENT_ID"))
 ebay_secret <- trimws(Sys.getenv("EBAY_CLIENT_SECRET"))
 
+print(ebay_client)
+
+print(ebay_secret)
+
+
 if (ebay_client == "" || ebay_secret == "") {
   stop("Missing eBay API credentials. Check your environment variables.")
 }
@@ -152,7 +157,7 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, epid_cod
 }
 
 # ==========================================
-# --- STEP 3: Execute the Pull (TESTING MODE) ---
+# --- STEP 3: Execute the Pull ---
 # ==========================================
 message("Starting strict eBay listings pull (TESTING FIRST 10 ONLY)...")
 

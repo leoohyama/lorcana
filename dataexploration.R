@@ -6,7 +6,8 @@ library(arrow) # Required for high-performance Parquet handling
 # ==========================================
 # open_dataset() scans the entire folder. It is incredibly fast because it 
 # only "looks" at the files without loading them into RAM yet.
-ds <- open_dataset("data/granular_listings/", format = "parquet")
+ds <- open_dataset("data/granular_listings/", 
+  format = "parquet")
 
 # We collect() to pull the data into your R session for processing.
 # This replaces the old map_dfr(list.files...) loop.
@@ -71,6 +72,9 @@ daily_dive <- fullset %>%
     .groups = "drop" 
   ) %>%
   arrange(desc(date_pulled), cardname)
+
+
+unique(daily_dive$date_pulled)
 
 
 # ==========================================
