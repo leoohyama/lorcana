@@ -187,7 +187,7 @@ granular_ebay_data <- master_target_cards %>%
 # ==========================================
 dir.create("data/granular_listings", recursive = TRUE, showWarnings = FALSE)
 
-file_name <- paste0("data/granular_listings/test_inventory_", Sys.Date(), ".parquet")
+file_name <- paste0("data/granular_listings/ebay_inventory_", Sys.Date(), ".parquet")
 write_parquet(granular_ebay_data, file_name)
 
 message("Test complete! Compressed Parquet snapshot saved.")
