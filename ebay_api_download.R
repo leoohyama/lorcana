@@ -20,6 +20,8 @@ master_target_cards <- read_csv("data/target_cards_with_epids2.csv",
                                 col_types = cols(epid = col_character(), 
                                                  collector_number = col_character())) %>%
   mutate(version = replace_na(version, ""))
+colnames(master_target_cards)
+master_target_cards$...1
 
 # ==========================================
 # --- STEP 1: Get eBay OAuth Token ---
@@ -140,14 +142,11 @@ final_gold_scrape <- master_target_cards %>%
     folder_name = str_replace_all(set_name, "[ ']", "_"),
     language = "English" 
   ) %>%
-  select(cardname, set_name, folder_name, id, tcgplayer_id, item_id, 
-         price_val, is_graded, language, date_pulled, listing_title, 
-         posted_date, pull_source, listing_type)
+  select(item_id, id, price_val, is_graded, listing_type, 
+      listing_title, date_pulled, posted_date, pull_source) %>%
+  filter(!str_detect(listing_title, "D23"))
 
 
-#final check
-#remove any D23
-final_gold_scrape = final_gold_scrape %>% filter(!str_detect(listing_title, "D23"))
 
 # ==========================================
 # --- STEP 4: PUSH TO NEON (DAILY LOGIC) ---

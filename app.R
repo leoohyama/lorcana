@@ -6,6 +6,21 @@ library(thematic)
 library(DBI)
 library(RPostgres)
 
+# ==========================================
+# 0.5 LOAD STATIC CARD DICTIONARY (Memory Join)
+# ==========================================
+master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
+  # FORCE id to be character so it matches Neon's text type
+  mutate(
+    id = as.character(id), 
+    version = replace_na(version, ""),
+    cardname = paste(name, version, rarity, sep = " - "),
+    folder_name = str_replace_all(set_name, "[ ']", "_"),
+    language = "English" 
+  ) %>%
+  select(id, tcgplayer_id, cardname, set_name, folder_name, language) %>%
+  distinct(id, .keep_all = TRUE)
+
 # Style all ggplot2 figures to match the Darkly theme automatically
 thematic_shiny()
 
@@ -108,9 +123,24 @@ server <- function(input, output, session) {
         host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
         dbname   = "neondb", user = "neondb_owner",
         password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode  = "require")
+      
       df <- dbGetQuery(con, "SELECT * FROM lorcana_active_listings")
       dbDisconnect(con)
-      df %>% mutate(date_pulled = as.Date(date_pulled))
+      
+      # The Magic Memory Join! 
+      joined_df <- df %>% 
+        mutate(
+          date_pulled = as.Date(date_pulled),
+          id = as.character(id) # Force character here too
+        ) %>%
+        left_join(master_dict, by = "id")
+      
+      # DIAGNOSTIC: Check if it worked
+      if(any(is.na(joined_df$cardname))) {
+        warning("JOIN ALERT: Some IDs from Neon could not be found in the CSV dictionary!")
+      }
+      
+      return(joined_df)
     })
   })
 
