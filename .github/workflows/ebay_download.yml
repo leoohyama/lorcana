@@ -1,66 +1,45 @@
-name: eBay Daily Market Float
+name: eBay Daily Market Float (Cloud Edition)
 
-# Controls when the workflow will run
 on:
   schedule:
-    # Runs at 00:30 UTC every day 
-    - cron: '30 0 * * *'
-  
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-permissions:
-  contents: write # Required to push the new parquet files back to your repo
+    # 04:30 UTC perfectly aligns with 12:30 AM Eastern Time (EDT)
+    - cron: '30 4 * * *'
+  workflow_dispatch: # Allows manual triggering from the GitHub UI for testing
 
 jobs:
   run-ebay-scraper:
     runs-on: ubuntu-latest
 
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      # CRITICAL: Forces the Ubuntu runner and R's Sys.Date() to Eastern Time
+      TZ: 'America/New_York' 
+
     steps:
-      # 1. Checkout the repository
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Ensures the bot downloads the full git history for a clean rebase
 
-      # 2. Set up R
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: 'release'
+          # Uses pre-compiled binaries to install the tidyverse in seconds rather than minutes
+          use-public-rspm: true 
 
-      # 3. Install required R packages 
       - name: Install dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          packages: |
+          extra-packages: |
             any::tidyverse
             any::httr
             any::jsonlite
             any::base64enc
-            any::arrow
+            any::DBI
+            any::RPostgres
 
-      # 4. Run the Scraper Script
-      - name: Run eBay API Script
+      - name: Run eBay API & Push to Neon
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-        run: Rscript ebay_api_download.R 
-
-      # 5. Commit, Rebase, and Push
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions Bot"
-          
-          # 1. Stage the new Parquet files FIRST
-          git add data/granular_listings/*.parquet
-          
-          # 2. Commit them locally so Git knows they are safe
-          git diff-index --quiet HEAD || git commit -m "Automated daily eBay Parquet data pull"
-          
-          # 3. NOW pull and rebase (Git safely stacks the bot's commit on top of your remote changes)
-          git pull --rebase origin main
-          
-          # 4. Push everything back up to GitHub
-          git push origin main
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript ebay_api_download.R

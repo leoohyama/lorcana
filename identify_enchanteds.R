@@ -40,7 +40,7 @@ target_cards <- all_lorcast_cards %>%
     ink_clean = coalesce(ink_flat, ink)
   ) %>%
   # Make sure to select your newly created 'ink_clean' column here!
-  select(id, tcgplayer_id, name, version, set_name, rarity,released_at, cost, inkwell, ink_clean, image_url) %>%
+  select(id, tcgplayer_id, name, version, set_name, rarity,released_at, cost, inkwell, ink_clean, image_url,collector_number) %>%
   filter(!is.na(tcgplayer_id))
 
 # Save the target list for your Price Tracking script

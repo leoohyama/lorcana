@@ -88,3 +88,39 @@ write_rds(daily_dive, "data/shiny_prep/daily_summary.rds")
 message("--- Data Prep Complete ---")
 message(paste("Processed", nrow(fullset_lean), "total listings."))
 message("Joined metadata and updated 'daily_summary.rds'. Ready for Shiny!")
+
+
+# ==========================================
+# 3b. Aggregate Market-Wide Datasets
+# ==========================================
+# First, dynamically find the absolute most recent date in your dataset
+max_date <- max(fullset$date_pulled, na.rm = TRUE)
+
+# 1. General Market Overview (Float by date, rarity, and graded status)
+# Note: I added `name = "total_listings"` so the column isn't just called "n"
+listingoverview <- fullset %>%
+  count(date_pulled, rarity, is_graded, name = "total_listings") %>%
+  ungroup()
+
+# 2. Top 20 Most Listed Cards (Current Float)
+top20 <- fullset %>%
+  filter(date_pulled == max_date) %>% # <--- Filters for today's data only!
+  count(cardname, name = "total_active") %>%
+  arrange(desc(total_active)) %>%
+  head(20)
+
+
+# ==========================================
+# 4. Save the Dashboard Feeds
+# ==========================================
+dir.create("data/shiny_prep", recursive = TRUE, showWarnings = FALSE)
+
+# Save your original card-specific data
+write_rds(daily_dive, "data/shiny_prep/daily_summary.rds")
+
+# Save the two new market-wide datasets
+write_rds(listingoverview, "data/shiny_prep/market_overview.rds")
+write_rds(top20, "data/shiny_prep/top20_active.rds")
+
+message("--- Data Prep Complete ---")
+message("Saved daily_summary.rds, market_overview.rds, and top20_active.rds!")

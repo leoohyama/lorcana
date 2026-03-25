@@ -48,7 +48,7 @@ for(i in seq_along(card_batches)) {
   }
   
   # A tiny pause so we don't accidentally get blocked for spamming the server
-  Sys.sleep(0.5)
+  Sys.sleep(5)
 }
 
 # 1. Combine all the batches from your list into one master dataframe
