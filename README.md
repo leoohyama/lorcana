@@ -8,5 +8,27 @@ This is a repo containing scripts to that market data of the trading card game L
 The current workflow/schema for this project is as follows:
 <img width="1585" height="863" alt="image" src="https://github.com/user-attachments/assets/13e49a31-7878-49d9-a841-d6633839729e" />
 
+# Quick context
+Trading card games (TCGs) are a source of entertainment and fun for both players and/or collectors. Other popular examples of TCGs include Pokemon, Yu-Gi Oh, and Magic the Gathering. Disney Lorcana is a TCG that was introduced in 2023 and uses Disney's intellectual properties in their game and cards. Because of the wide appeal of Disney through tv, movies, and other forms of entertainment, Lorcana cards have become appreciated by collectors for a variety of reasons including but not limited to their artwork, rarity, and ability to spark nostalgia. Because of this, there is a secondary market for these cards that is both volatile and speculative. Here are a few examples of what leads to these market characteristcs. 
 
-# Context
+Rarity: Rarity of a card is tied to how often it is actually found when opening packs of cards. For example some cards can only be found in 1 out of 96 packs of cards. With a pack costing anywhere from $4-$8USD, the cost of finding some of these cards add up. Rarity is also an actual feature of a card. In Lorcana there are different levels of rarity classes that cards fall within. These include but are not limited to: "Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic". 
+
+Here is an example of one of the rarer cards in Lorcana, the Mickey Mouse Brave Little Tailor Card (Iconic Rarity):
+<img width="269" height="375" alt="image" src="https://github.com/user-attachments/assets/75a184fa-0ac4-4f5a-aeb0-7a4f7dd58c29" />
+
+
+Artwork: Certain cards in Lorcana are given special artwork that is often tied to their rarity. This not only makes such cards more exclusive but provide colelctors with even more incentive to collect. 
+
+Nostalgia: Disney characters are well-known and many adults today were brought up watching them. Certain characters can evoke powerful emotions and cards that represent these characters can provide intrinsic value. 
+
+# Dataflow
+
+## Data Sources
+
+## Data Storage
+
+## Automation
+
+# Forecasting models
+
+More soon!
