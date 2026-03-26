@@ -1,13 +1,26 @@
 library(tidyverse)
 library(jsonlite)
 library(httr)
+library(DBI)
+library(RPostgres)
 
+# ==========================================
 # --- STEP 1: Setup and Load Target Cards ---
-api_key <- "tcg_ed83c7138fff417098cd323bcdaaaa8b"
+# ==========================================
+# Pulling secrets from the environment for security
+api_key   <- trimws(Sys.getenv("JUSTTCG_API_KEY"))
+neon_pass <- trimws(Sys.getenv("NEON_PASSWORD"))
+
+if (api_key == "" || neon_pass == "") {
+  stop("Missing credentials. Check your .Renviron file or GitHub Secrets.")
+}
+
 base_url <- "https://api.justtcg.com/v1/cards"
 
-# Read the target cards you saved from your first script
-target_cards <- readRDS("data/enchanteds/enchanted_list.rds")
+# Read target cards from the master CSV to ensure consistency across all scripts
+target_cards <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
+  filter(!is.na(tcgplayer_id)) %>%
+  distinct(tcgplayer_id)
 
 # Split IDs into batches of 20 to respect the API limits
 card_batches <- split(target_cards$tcgplayer_id, ceiling(seq_along(target_cards$tcgplayer_id)/20))
@@ -15,6 +28,9 @@ all_price_data <- list()
 
 message(paste("Fetching daily prices from JustTCG in", length(card_batches), "batches..."))
 
+# ==========================================
+# --- STEP 2: Execute API Batches ---
+# ==========================================
 for(i in seq_along(card_batches)) {
   # 1. Keep the payload strictly focused on identifying the cards
   payload <- map(card_batches[[i]], ~ list(
@@ -31,7 +47,7 @@ for(i in seq_along(card_batches)) {
   
   # 3. Parse the data
   if(status_code(response) == 200) {
-    batch_data <- fromJSON(content(response, "text"), flatten = TRUE)$data
+    batch_data <- fromJSON(content(response, "text", encoding = "UTF-8"), flatten = TRUE)$data
     if(length(batch_data) > 0) {
       all_price_data[[i]] <- as_tibble(batch_data) %>% unnest(variants, names_sep = "_")
     }
@@ -48,24 +64,46 @@ for(i in seq_along(card_batches)) {
   }
 }
 
-# --- STEP 3: Clean and Save Data ---
-# Select only the specific columns you care about to keep the CSV clean
-daily_prices <- bind_rows(all_price_data) %>%
+# ==========================================
+# --- STEP 3: Clean & Format for Neon ---
+# ==========================================
+daily_prices_lean <- bind_rows(all_price_data) %>%
   select(
-    card_id = tcgplayerId,
-    name,
-    set,
-    variant_id = variants_id,
-    condition = variants_condition,
-    current_price = variants_price
+    tcgplayer_id = tcgplayerId,
+    market_price = variants_price
   ) %>%
-  mutate(pull_date = Sys.Date())
+  mutate(
+    tcgplayer_id = as.integer(tcgplayer_id),
+    market_price = as.numeric(market_price),
+    pull_date = Sys.Date()
+  ) %>%
+  # Safety catch: ensure no duplicates sneak in from the batching process
+  distinct(tcgplayer_id, pull_date, .keep_all = TRUE)
 
-# Save to the running data folder
-save_path <- "data/running_data"
-if (!dir.exists(save_path)) dir.create(save_path, recursive = TRUE)
+# ==========================================
+# --- STEP 4: Push to Neon Database ---
+# ==========================================
+if (nrow(daily_prices_lean) > 0) {
+  message("Pushing lean price data to Neon...")
+  
+  con <- dbConnect(RPostgres::Postgres(),
+    host = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
+    dbname = "neondb", user = "neondb_owner",
+    password = neon_pass, port = 5432, sslmode = "require"
+  )
 
-file_name <- file.path(save_path, paste0("daily_prices_", Sys.Date(), ".csv"))
-write_csv(daily_prices, file_name)
+  # 1. Clean out today's data (so you can run the script multiple times without duplicates)
+  dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", Sys.Date(), "';"))
+  
+  # 2. Add the new lean data to the existing table
+  dbWriteTable(con, "justtcg_prices", daily_prices_lean, append = TRUE) 
+  
+  dbDisconnect(con)
+  message("Neon push complete. Added ", nrow(daily_prices_lean), " rows.")
+} else {
+  message("No price data retrieved. Skipping database push.")
+}
 
-message(paste("Successfully saved daily prices to:", file_name))
+# --- STEP 1: Setup and Load Target Cards ---
+api_key <- "tcg_ed83c7138fff417098cd323bcdaaaa8b"
+base_url <- "https://api.justtcg.com/v1/cards"

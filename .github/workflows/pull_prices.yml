@@ -1,16 +1,19 @@
-name: Scrape Daily Prices
+name: JustTCG Daily Price Pull (Cloud Edition)
 
 on:
   schedule:
-    # Runs at 00:00 UTC every single day
-    - cron: '0 0 * * *'
+    # Runs at 05:00 UTC (1:00 AM Eastern Time) 
+    # This gives the markets time to reset after midnight
+    - cron: '0 5 * * *'
   workflow_dispatch: 
 
 jobs:
   pull-prices:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write 
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      TZ: 'America/New_York'
 
     steps:
       - name: Checkout Repository
@@ -20,27 +23,20 @@ jobs:
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: 'release'
+          use-public-rspm: true # Vital for fast tidyverse installs on Linux
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+      - name: Install R Dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::tidyverse
+            any::jsonlite
+            any::httr
+            any::DBI
+            any::RPostgres
 
-      - name: Install R Packages
-        # Pointing to the Posit Package Manager guarantees fast Ubuntu binaries
-        run: |
-          install.packages(c("tidyverse", "jsonlite", "httr"), repos = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")
-        shell: Rscript {0}
-
-      - name: Run Daily Price Scraper
+      - name: Run Daily Price Scraper & Push to Neon
         env:
           JUSTTCG_API_KEY: ${{ secrets.JUSTTCG_API_KEY }}
-        run: Rscript pull_daily_prices.R 
-
-      - name: Commit and Push Data
-        run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/running_data/*
-          git commit -m "Automated daily price pull: $(date +'%Y-%m-%d')" || echo "No changes to commit"
-          git push
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript pull_daily_prices.R
