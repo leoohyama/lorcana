@@ -11,8 +11,8 @@ id = '019d20fc-6f91-2655-2875-e9a4234976a7'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7'
 direct_url = 'https://019d20fc-6f91-2655-2875-e9a4234976a7.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7/history'
-deployed_at = '2026-03-25T15:14:49-04:00'
-bundle_id = '019d266b-89c7-97f9-2be4-243117bb981c'
+deployed_at = '2026-03-26T14:40:00-04:00'
+bundle_id = '019d2b70-b771-0a3b-caf1-07b310594ec3'
 files = [
   '.posit/publish/Lorcana Tracker-PCBI.toml',
   '.posit/publish/deployments/deployment-D6GA.toml',
@@ -276,6 +276,7 @@ files = [
   'data/running_data/daily_prices_2026-03-23.csv',
   'data/running_data/daily_prices_2026-03-24.csv',
   'data/running_data/daily_prices_2026-03-25.csv',
+  'data/running_data/daily_prices_2026-03-26.csv',
   'data/shiny_prep/daily_summary.rds',
   'data/shiny_prep/market_overview.rds',
   'data/shiny_prep/top20_active.rds',
