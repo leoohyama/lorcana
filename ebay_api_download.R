@@ -144,7 +144,7 @@ final_gold_scrape <- master_target_cards %>%
   ) %>%
   select(item_id, id, price_val, is_graded, listing_type, 
       listing_title, date_pulled, posted_date, pull_source) %>%
-  filter(!str_detect(listing_title, "D23"))
+  filter(!str_detect(listing_title, regex("D23|repack|pin|proxy|custom|oversized|coin|sleeve", ignore_case = TRUE)))
 
 
 
