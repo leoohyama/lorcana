@@ -22,12 +22,14 @@ Artwork: Certain cards in Lorcana are given special artwork that is often tied t
 Nostalgia: Disney characters are well-known and many adults today were brought up watching them. Certain characters can evoke powerful emotions and cards that represent these characters can provide intrinsic value. 
 
 # Dataflow
+The general flow/architecture for the ingestion and storage of new data depends on sourcing data from two sources (ebay and JustTCG), cleaning these data, uploading to a third-party PostgresSQL databases (Neon), and finally using a shinyapp deployed via Posit Connect Cloud to summarize and visualize these data.
 
 ## Data Sources
-
-## Data Storage
+Ebay listings are downlaoded using their developer api access every day. The listings are cleaned and filtered to minimize inclusion of data that don't represent specified cards. 
+JustTCG's api provide average pricing of cards that is updated daily. These prices are used rather than relying fully on ebay listings data as the latter can often be influenced by inclusion of outliers (e.g. extremely highly priced buy it now or best offers) among pther issues. 
 
 ## Automation
+All the API downloads, and data uploads are managed with Github Actions. 
 
 # Forecasting models
 
