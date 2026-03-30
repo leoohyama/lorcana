@@ -32,12 +32,28 @@ addResourcePath("card_photos", "data/enchanteds/images")
 # 1. USER INTERFACE (UI)
 # ==========================================
 ui <- page_navbar(
-  title = "Lorcana Market Float Explorer",
+  # Styled the main title to pop with the teal brand color
+  title = tags$span(style = "color: #18bc9c; font-weight: bold; font-size: 22px;", "Lorcana Market Float Explorer"),
   id = "main_nav",
   theme = bs_theme(version = 5, bootswatch = "darkly"),
   
+  nav_spacer(),
+  nav_item(
+    actionButton("refresh_db", " Refresh Data", icon = icon("sync"), class = "btn-info btn-sm")
+  ),
+  
   tags$head(
     tags$style(HTML("
+      /* --- NEW: High Contrast Navbar & Tabs --- */
+      .navbar { background-color: #0f171e !important; border-bottom: 2px solid #18bc9c; }
+      .navbar .nav-link { color: #ecf0f1 !important; font-size: 16px; opacity: 0.7; transition: 0.3s ease; }
+      .navbar .nav-link:hover { opacity: 1; color: #18bc9c !important; }
+      .navbar .nav-link.active { color: #18bc9c !important; font-weight: bold; opacity: 1; }
+      
+      .nav-underline .nav-link { color: #ecf0f1 !important; font-size: 15px; opacity: 0.6; }
+      .nav-underline .nav-link.active { color: #18bc9c !important; font-weight: bold; border-bottom: 3px solid #18bc9c !important; opacity: 1; }
+      
+      /* --- Existing Widget CSS --- */
       .flip-card { width: 140px; height: 196px; perspective: 1000px; cursor: pointer; }
       .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
       .flip-card-inner.is-flipped { transform: rotateY(180deg); }
@@ -49,8 +65,7 @@ ui <- page_navbar(
       .badge-rank { position: absolute; top: -10px; left: -15px; background-color: #f39c12; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.8); border: 2px solid #222; z-index: 20; }
       .staleness-box { background-color: #2b3e50; border-left: 5px solid #18bc9c; padding: 15px; border-radius: 5px; margin-bottom: 15px; }
       
-      /* Updated CSS: Re-enabling native scrollbars with custom styling */
-      .scrolling-wrapper { height: 600px; overflow-y: auto; overflow-x: hidden; position: relative; }
+      .scrolling-wrapper { height: 850px; overflow-y: auto; overflow-x: hidden; position: relative; }
       .scrolling-wrapper::-webkit-scrollbar { width: 8px; }
       .scrolling-wrapper::-webkit-scrollbar-track { background: #2b3e50; border-radius: 4px; }
       .scrolling-wrapper::-webkit-scrollbar-thumb { background: #18bc9c; border-radius: 4px; }
@@ -60,55 +75,39 @@ ui <- page_navbar(
       .red-text { color: #e74c3c; font-weight: bold; }
     ")),
     
-    # NEW: The JavaScript Auto-Scroller
     tags$script(HTML("
       document.addEventListener('DOMContentLoaded', function() {
         setInterval(function() {
           var ticker = document.getElementById('top10-ticker');
-          // Only auto-scroll if the mouse is NOT hovering over the gallery
           if (ticker && !ticker.matches(':hover')) {
-            ticker.scrollTop += 1; // Speed of the scroll (1px per tick)
-            
-            // If we hit the halfway point (the duplicated list), snap instantly to top
+            ticker.scrollTop += 1; 
             if (ticker.scrollTop >= (ticker.scrollHeight / 2)) {
               ticker.scrollTop = 0;
             }
           }
-        }, 30); // Runs every 30 milliseconds (~30fps)
+        }, 30); 
       });
     "))
   ),
 
-  sidebar = sidebar(
-    title = "Controls",
-    p(em("Tracking active float on eBay & market prices on JustTCG.", style = "color: #18bc9c; font-size: 12px;")),
-    actionButton("refresh_db", " Refresh Data", 
-                 icon = icon("sync"), 
-                 class = "btn-primary w-100 mb-3"),
-    hr(),
-    conditionalPanel(
-      condition = "input.main_nav === 'Ebay Data'",
-      uiOutput("card_selector_ui"),
-      br(),
-      uiOutput("sidebar_card_image") 
-    ),
-    conditionalPanel(
-      condition = "input.main_nav === 'Pricing'",
-      uiOutput("pricing_selector_ui")
-    )
-  ),
-
   nav_panel(title = "Market Overview", value = "Market Overview",
+    # --- NEW: Layout ratio changed to 9/3 (75% / 25%) to slim the Top 10 column ---
     layout_columns(
-      col_widths = c(8, 4), 
-      card(
-        card_header("Market Overview & Momentum"), 
+      col_widths = c(9, 3), 
+      div(
         uiOutput("momentum_statement"),
-        plotOutput("overview_plot", height = "500px")
+        navset_card_underline(
+          title = "Market Trends",
+          nav_panel("Active Listings (Volume)", 
+            plotOutput("overview_plot", height = "450px")
+          ),
+          nav_panel("Raw Float Value (Market Cap)", 
+            plotOutput("market_cap_plot", height = "450px")
+          )
+        )
       ),
       card(
         card_header("Top 10 Most Active Cards"), 
-        # Added the 'top10-ticker' ID so the JavaScript can grab it
         div(id = "top10-ticker", class = "scrolling-wrapper",
             uiOutput("top10_gallery")
         )
@@ -117,35 +116,49 @@ ui <- page_navbar(
   ),
   
   nav_panel(title = "Ebay Data", value = "Ebay Data",
-    uiOutput("staleness_statement"),
-    layout_columns(
-      col_widths = c(6, 6),
-      card(
-        card_header("Active Listings Trend (Float)"),
-        plotOutput("volume_plot", height = "350px")
+    layout_sidebar(
+      sidebar = sidebar(
+        title = "Card Controls",
+        uiOutput("card_selector_ui"),
+        br(),
+        uiOutput("sidebar_card_image")
+      ),
+      uiOutput("staleness_statement"),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(
+          card_header("Active Listings Trend (Float)"),
+          plotOutput("volume_plot", height = "350px")
+        ),
+        card(
+          card_header("Listing Age vs. Market Average"),
+          plotOutput("staleness_plot", height = "350px")
+        )
       ),
       card(
-        card_header("Listing Age vs. Market Average"),
-        plotOutput("staleness_plot", height = "350px")
+        card_header("Current Market Floor (Latest Pull)"), 
+        DTOutput("listings_table")
       )
-    ),
-    card(
-      card_header("Current Market Floor (Latest Pull)"), 
-      DTOutput("listings_table")
     )
   ),
   
   nav_panel(title = "Pricing", value = "Pricing",
-    layout_column_wrap(
-      width = 1,
-      card(
-        card_header("Historical Market Price Comparison (JustTCG)"),
-        full_screen = TRUE,
-        plotOutput("pricing_plot", height = "400px")
+    layout_sidebar(
+      sidebar = sidebar(
+        title = "Pricing Controls",
+        uiOutput("pricing_selector_ui")
       ),
-      card(
-        card_header("Selected Cards"),
-        uiOutput("pricing_images_ui")
+      layout_column_wrap(
+        width = 1,
+        card(
+          card_header("Historical Market Price Comparison (JustTCG)"),
+          full_screen = TRUE,
+          plotOutput("pricing_plot", height = "400px")
+        ),
+        card(
+          card_header("Selected Cards"),
+          uiOutput("pricing_images_ui")
+        )
       )
     )
   )
@@ -204,6 +217,52 @@ server <- function(input, output, session) {
       )
   })
 
+  market_movers <- reactive({
+    req(tcg_history())
+    tcg <- tcg_history() %>% filter(!is.na(market_price))
+    
+    if(nrow(tcg) == 0) return(NULL)
+    
+    latest_date <- max(tcg$pull_date, na.rm = TRUE)
+    target_past <- latest_date - 7
+    
+    past_dates <- unique(tcg$pull_date[tcg$pull_date <= target_past])
+    
+    if(length(past_dates) > 0) {
+      past_date <- max(past_dates)
+      time_label <- "7-Day"
+    } else {
+      past_date <- min(tcg$pull_date, na.rm = TRUE) 
+      days_diff <- as.numeric(latest_date - past_date)
+      if(days_diff < 2) return(NULL)
+      time_label <- paste0(days_diff, "-Day")
+    }
+    
+    latest_prices <- tcg %>% filter(pull_date == latest_date) %>% select(cardname, current = market_price)
+    past_prices <- tcg %>% filter(pull_date == past_date) %>% select(cardname, past = market_price)
+    
+    momentum <- latest_prices %>%
+      inner_join(past_prices, by = "cardname") %>%
+      filter(past >= 5) %>% 
+      mutate(
+        pct_change = ((current - past) / past) * 100,
+        abs_change = current - past
+      ) %>%
+      left_join(master_dict, by = "cardname") 
+    
+    if(nrow(momentum) == 0) return(NULL)
+    
+    top_pct_gainer <- momentum %>% arrange(desc(pct_change)) %>% slice(1) %>% mutate(Category = "Top % Gainer")
+    top_pct_loser  <- momentum %>% arrange(pct_change) %>% slice(1) %>% mutate(Category = "Top % Loser")
+    top_abs_gainer <- momentum %>% arrange(desc(abs_change)) %>% slice(1) %>% mutate(Category = "Top $ Gainer")
+    top_abs_loser  <- momentum %>% arrange(abs_change) %>% slice(1) %>% mutate(Category = "Top $ Loser")
+    
+    selected_movers <- bind_rows(top_pct_gainer, top_pct_loser, top_abs_gainer, top_abs_loser) %>%
+      mutate(Category = factor(Category, levels = c("Top % Gainer", "Top % Loser", "Top $ Gainer", "Top $ Loser")))
+      
+    list(data = selected_movers, time_label = time_label, past_date = past_date, latest_date = latest_date)
+  })
+
   output$card_selector_ui <- renderUI({
     req(daily_dive())
     cards <- sort(unique(daily_dive()$cardname))
@@ -232,58 +291,22 @@ server <- function(input, output, session) {
   })
 
   output$momentum_statement <- renderUI({
-    req(tcg_history())
-    tcg <- tcg_history() %>% filter(!is.na(market_price))
-    req(nrow(tcg) > 0)
+    movers_info <- market_movers()
     
-    latest_date <- max(tcg$pull_date, na.rm = TRUE)
-    target_past <- latest_date - 7
-    
-    # --- SMART TIME TRAVEL LOGIC ---
-    # Try to find data >= 7 days old. 
-    past_dates <- unique(tcg$pull_date[tcg$pull_date <= target_past])
-    
-    if(length(past_dates) > 0) {
-      past_date <- max(past_dates) # Closest to 7 days ago
-      time_label <- "7-Day"
-    } else {
-      # FALLBACK: If we don't have 7 days, just use the oldest data we DO have!
-      past_date <- min(tcg$pull_date, na.rm = TRUE) 
-      days_diff <- as.numeric(latest_date - past_date)
-      
-      if(days_diff == 0) {
-        return(tags$div(class="momentum-box", "Need at least 2 days of data to calculate market momentum. Check back tomorrow!"))
-      }
-      time_label <- paste0(days_diff, "-Day")
+    if(is.null(movers_info)) {
+      return(tags$div(class="momentum-box", "Gathering more data to calculate market momentum... Check back tomorrow!"))
     }
     
-    latest_prices <- tcg %>% filter(pull_date == latest_date) %>% select(cardname, current = market_price)
-    past_prices <- tcg %>% filter(pull_date == past_date) %>% select(cardname, past = market_price)
+    df <- movers_info$data
+    time_label <- movers_info$time_label
     
-    # Calculate both Percentage and Absolute Change
-    momentum <- latest_prices %>%
-      inner_join(past_prices, by = "cardname") %>%
-      filter(past >= 5) %>% 
-      mutate(
-        pct_change = ((current - past) / past) * 100,
-        abs_change = current - past
-      ) %>%
-      left_join(master_dict, by = "cardname") 
+    top_pct_gainer <- df %>% filter(Category == "Top % Gainer") %>% slice(1)
+    top_pct_loser  <- df %>% filter(Category == "Top % Loser") %>% slice(1)
+    top_abs_gainer <- df %>% filter(Category == "Top $ Gainer") %>% slice(1)
+    top_abs_loser  <- df %>% filter(Category == "Top $ Loser") %>% slice(1)
     
-    if(nrow(momentum) == 0) {
-      return(tags$div(class="momentum-box", "Not enough price variance to calculate market movers today."))
-    }
-    
-    # Isolate the 4 extremes
-    top_pct_gainer <- momentum %>% arrange(desc(pct_change)) %>% slice(1)
-    top_pct_loser  <- momentum %>% arrange(pct_change) %>% slice(1)
-    top_abs_gainer <- momentum %>% arrange(desc(abs_change)) %>% slice(1)
-    top_abs_loser  <- momentum %>% arrange(abs_change) %>% slice(1)
-    
-    # 1. Build the Text Statements using the dynamic time_label
     pct_gainer_txt <- sprintf("<span class='green-text'>▲ %s (+%.1f%%)</span>", top_pct_gainer$cardname, top_pct_gainer$pct_change)
     pct_loser_txt  <- sprintf("<span class='red-text'>▼ %s (%.1f%%)</span>", top_pct_loser$cardname, top_pct_loser$pct_change)
-    
     abs_gainer_txt <- sprintf("<span class='green-text'>▲ %s (+%s)</span>", top_abs_gainer$cardname, scales::dollar(top_abs_gainer$abs_change))
     abs_loser_txt  <- sprintf("<span class='red-text'>▼ %s (%s)</span>", top_abs_loser$cardname, scales::dollar(top_abs_loser$abs_change))
     
@@ -293,7 +316,6 @@ server <- function(input, output, session) {
       tags$div(style = "margin-top: 8px;", tags$strong(paste0(time_label, " Absolute Movers ($): ")), "The highest value gained was ", HTML(abs_gainer_txt), ", and the most value lost was ", HTML(abs_loser_txt), ".")
     )
     
-    # 2. Build the Visual Gallery function
     build_mover_card <- function(row, title_label) {
       img_path <- paste0("card_photos/", row$folder_name, "/", row$id, ".avif")
       pct_color <- ifelse(row$pct_change >= 0, "green-text", "red-text")
@@ -302,10 +324,10 @@ server <- function(input, output, session) {
       abs_str <- sprintf("%s%s", ifelse(row$abs_change >= 0, "+", ""), scales::dollar(row$abs_change))
       
       tags$div(
-        style = "display: flex; flex-direction: column; align-items: center; margin: 10px; width: 150px; text-align: center;",
+        style = "display: flex; flex-direction: column; align-items: center; margin: 0 auto; width: 100%; max-width: 140px; text-align: center;",
         tags$div(style = "font-size: 12px; font-weight: bold; color: #18bc9c; margin-bottom: 5px; text-transform: uppercase;", title_label),
         tags$img(src = img_path, style = "width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); border: 2px solid #2b3e50;"),
-        tags$div(style = "margin-top: 8px; font-size: 11px; font-weight: bold; line-height: 1.2; height: 30px; overflow: hidden; text-overflow: ellipsis;", row$cardname),
+        tags$div(style = "margin-top: 8px; font-size: 11px; font-weight: bold; line-height: 1.2; height: 30px; overflow: hidden; text-overflow: ellipsis; color: #ecf0f1;", row$cardname),
         tags$div(style = "display: flex; justify-content: center; gap: 10px; margin-top: 4px; background: #2b3e50; padding: 4px 8px; border-radius: 5px; width: 100%;",
           tags$span(class = abs_color, style = "font-size: 13px;", abs_str),
           tags$span(class = pct_color, style = "font-size: 13px;", pct_str)
@@ -313,16 +335,65 @@ server <- function(input, output, session) {
       )
     }
     
-    # 3. Assemble the 4 images in a flexbox container
     gallery_block <- tags$div(
-      style = "display: flex; justify-content: space-around; flex-wrap: wrap; background: #1a252f; padding: 10px; border-radius: 8px; margin-bottom: 20px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);",
+      style = "display: grid; grid-template-columns: repeat(4, 1fr); background: #1a252f; padding: 15px 10px 0px 10px; border-radius: 8px 8px 0 0; margin-bottom: 0px;",
       build_mover_card(top_pct_gainer, "Top % Gainer"),
       build_mover_card(top_pct_loser, "Top % Loser"),
       build_mover_card(top_abs_gainer, "Top $ Gainer"),
       build_mover_card(top_abs_loser, "Top $ Loser")
     )
     
-    tagList(text_block, gallery_block)
+    plot_block <- tags$div(
+      style = "background: #1a252f; border-radius: 0 0 8px 8px; padding-bottom: 10px; margin-bottom: 20px; box-shadow: inset 0 -2px 5px rgba(0,0,0,0.5);",
+      plotOutput("movers_plot", height = "180px")
+    )
+    
+    tagList(text_block, gallery_block, plot_block)
+  })
+
+  output$movers_plot <- renderPlot({
+    movers_info <- market_movers()
+    req(movers_info)
+    
+    df_list <- lapply(1:nrow(movers_info$data), function(i) {
+      row <- movers_info$data[i, ]
+      tcg_history() %>%
+        filter(
+          cardname == row$cardname,
+          pull_date >= movers_info$past_date,
+          pull_date <= movers_info$latest_date
+        ) %>%
+        mutate(Category = row$Category)
+    })
+    
+    plot_data <- bind_rows(df_list) %>%
+      mutate(Category = factor(Category, levels = c("Top % Gainer", "Top % Loser", "Top $ Gainer", "Top $ Loser")))
+    
+    ggplot(plot_data, aes(x = pull_date, y = market_price, color = Category)) +
+      geom_line(linewidth = 1.2) +
+      geom_point(size = 3) +
+      facet_wrap(~Category, scales = "free_y", nrow = 1) +
+      scale_color_manual(values = c(
+        "Top % Gainer" = "#2ecc71",
+        "Top % Loser" = "#e74c3c",
+        "Top $ Gainer" = "#2ecc71",
+        "Top $ Loser" = "#e74c3c"
+      )) +
+      theme_minimal() +
+      theme(
+        text = element_text(color = "#ecf0f1"),
+        axis.text.y = element_text(color = "#ecf0f1", face = "bold", size = 10),
+        axis.text.x = element_text(color = "#ecf0f1", size = 9, angle = 45, hjust = 1),
+        axis.title = element_blank(),
+        strip.text = element_blank(), 
+        panel.grid.major = element_line(color = "#34495e", linewidth = 0.4),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        plot.margin = margin(t = 5, r = 10, b = 10, l = 10)
+      ) +
+      scale_y_continuous(labels = scales::dollar_format())
   })
 
   output$overview_plot <- renderPlot({
@@ -334,16 +405,48 @@ server <- function(input, output, session) {
       geom_point(size = 3) +
       theme_minimal() +
       theme(
-        text = element_text(color = "#070707"),
-        axis.text = element_text(color = "#070707", face = "bold", size = 12),
-        axis.title = element_text(color = "#070707", face = "bold", size = 14),
-        panel.grid.major = element_line(color = "grey", linewidth = 0.4),
+        text = element_text(color = "#ecf0f1"),
+        axis.text = element_text(color = "#ecf0f1", face = "bold", size = 12),
+        axis.title = element_text(color = "#ecf0f1", face = "bold", size = 14),
+        panel.grid.major = element_line(color = "#34495e", linewidth = 0.4),
         panel.grid.minor = element_blank(),
-        plot.subtitle = element_text(color = "#070707", face = "italic", size = 11)
+        plot.subtitle = element_text(color = "#bdc3c7", face = "italic", size = 11),
+        legend.position = "bottom",
+        legend.text = element_text(color = "#ecf0f1"),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA)
       ) +
       scale_y_continuous(breaks = scales::pretty_breaks()) +
       labs(y = "Total Active Listings", x = "Date", color = "Graded?",
            subtitle = "Data sourced exclusively from live eBay inventory.")
+  })
+
+  output$market_cap_plot <- renderPlot({
+    req(raw_data())
+    
+    cap_summary <- raw_data() %>%
+      filter(is_graded == FALSE | is_graded == "No" | is_graded == "false" | is_graded == 0) %>%
+      group_by(date_pulled) %>%
+      summarise(total_cap = sum(market_price, na.rm = TRUE), .groups = "drop")
+      
+    ggplot(cap_summary, aes(x = date_pulled, y = total_cap)) +
+      geom_area(fill = "#18bc9c", alpha = 0.3) +
+      geom_line(color = "#18bc9c", linewidth = 1.5) +
+      geom_point(color = "#18bc9c", size = 4) +
+      theme_minimal() +
+      theme(
+        text = element_text(color = "#ecf0f1"),
+        axis.text = element_text(color = "#ecf0f1", face = "bold", size = 12),
+        axis.title = element_text(color = "#ecf0f1", face = "bold", size = 14),
+        panel.grid.major = element_line(color = "#34495e", linewidth = 0.4),
+        panel.grid.minor = element_blank(),
+        plot.subtitle = element_text(color = "#bdc3c7", face = "italic", size = 11),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA)
+      ) +
+      scale_y_continuous(labels = scales::dollar_format(), breaks = scales::pretty_breaks()) +
+      labs(y = "Total Value of Ungraded Float", x = "Date",
+           subtitle = "Calculated by multiplying active ungraded eBay listings by current JustTCG prices.")
   })
 
   output$top10_gallery <- renderUI({
@@ -364,7 +467,7 @@ server <- function(input, output, session) {
       formatted_price <- ifelse(is.na(row$market_price), "N/A", scales::dollar(row$market_price))
       
       tags$div(
-        style = "position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 35px; margin-top: 15px;",
+        style = "position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 45px; margin-top: 15px;",
         tags$div(
           class = "flip-card",
           onclick = "this.querySelector('.flip-card-inner').classList.toggle('is-flipped');",
@@ -372,7 +475,6 @@ server <- function(input, output, session) {
             class = "flip-card-inner",
             tags$div(
               class = "flip-card-front",
-              # FIXED: Image is generated first, badges generated second to prevent overlap
               tags$img(src = img_path),
               tags$div(class = "badge-rank", paste0("#", row$rank)),
               tags$div(class = "badge-custom", paste(row$total_listings, "listings"))
@@ -380,15 +482,15 @@ server <- function(input, output, session) {
             tags$div(
               class = "flip-card-back",
               tags$h6(style = "font-weight: bold; border-bottom: 1px solid #18bc9c; padding-bottom: 5px;", "Card Stats"),
-              tags$div(style = "font-size: 12px; margin-top: 5px;", tags$strong("Set:"), tags$br(), row$set_name),
-              tags$div(style = "font-size: 12px; margin-top: 10px;", tags$strong("Market Price:"), tags$br(), 
-                       tags$span(style = "color: #f39c12; font-weight: bold; font-size: 14px;", formatted_price)),
-              tags$div(style = "font-size: 13px; margin-top: 10px; color: #18bc9c; font-weight: bold;", paste("Vol:", row$total_listings))
+              tags$div(style = "font-size: 13px; margin-top: 5px;", tags$strong("Set:"), tags$br(), row$set_name),
+              tags$div(style = "font-size: 13px; margin-top: 10px;", tags$strong("Market Price:"), tags$br(), 
+                       tags$span(style = "color: #f39c12; font-weight: bold; font-size: 15px;", formatted_price)),
+              tags$div(style = "font-size: 14px; margin-top: 10px; color: #18bc9c; font-weight: bold;", paste("Vol:", row$total_listings))
             )
           )
         ),
-        tags$div(style = "margin-top: 10px; font-size: 12px; color: #bbb; max-width: 160px; text-align: center; font-weight: bold;", row$cardname),
-        tags$div(style = "margin-top: 2px; font-size: 13px; color: #f39c12; font-weight: bold;", formatted_price)
+        tags$div(style = "margin-top: 15px; font-size: 14px; color: #bbb; max-width: 220px; text-align: center; font-weight: bold;", row$cardname),
+        tags$div(style = "margin-top: 4px; font-size: 15px; color: #f39c12; font-weight: bold;", formatted_price)
       )
     })
     
@@ -434,12 +536,15 @@ server <- function(input, output, session) {
       geom_point(size = 4) +
       theme_minimal() +
       theme(
-        text = element_text(color = "#070707"),
-        axis.text = element_text(color = "#070707", face = "bold", size = 12),
-        axis.title = element_text(color = "#070707", face = "bold", size = 14),
-        panel.grid.major = element_line(color = "grey", linewidth = 0.4),
+        text = element_text(color = "#ecf0f1"),
+        axis.text = element_text(color = "#ecf0f1", face = "bold", size = 12),
+        axis.title = element_text(color = "#ecf0f1", face = "bold", size = 14),
+        panel.grid.major = element_line(color = "#34495e", linewidth = 0.4),
         panel.grid.minor = element_blank(),
-        plot.subtitle = element_text(color = "#070707", face = "italic", size = 11)
+        plot.subtitle = element_text(color = "#bdc3c7", face = "italic", size = 11),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA),
+        legend.text = element_text(color = "#ecf0f1")
       ) +
       scale_y_continuous(breaks = scales::pretty_breaks()) +
       labs(title = "Listing Volume Trend", subtitle = "Data sourced exclusively from eBay.",
@@ -460,19 +565,21 @@ server <- function(input, output, session) {
     req(nrow(market_data) > 0)
     
     ggplot(market_data, aes(x = Group, y = days_active, fill = Group)) +
-      geom_boxplot(alpha = 0.6, color = "#444444", outlier.alpha = 0.3) +
+      geom_boxplot(alpha = 0.6, color = "#bdc3c7", outlier.alpha = 0.3) +
       geom_jitter(data = filter(market_data, Group == "Selected Card"), 
                   width = 0.15, size = 3, color = "#18bc9c", alpha = 0.9) +
       scale_fill_manual(values = c("Rest of Market" = "#34495e", "Selected Card" = "#f39c12")) +
       theme_minimal() +
       theme(
-        text = element_text(color = "#070707"),
-        axis.text = element_text(color = "#070707", face = "bold", size = 12),
-        axis.title = element_text(color = "#070707", face = "bold", size = 14),
-        panel.grid.major.y = element_line(color = "grey", linewidth = 0.4),
+        text = element_text(color = "#ecf0f1"),
+        axis.text = element_text(color = "#ecf0f1", face = "bold", size = 12),
+        axis.title = element_text(color = "#ecf0f1", face = "bold", size = 14),
+        panel.grid.major.y = element_line(color = "#34495e", linewidth = 0.4),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
-        legend.position = "none"
+        legend.position = "none",
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA)
       ) +
       labs(title = "Age Distribution vs. Market", y = "Days Listed", x = NULL)
   })
@@ -501,15 +608,17 @@ server <- function(input, output, session) {
       geom_point(size = 4) +
       theme_minimal() +
       theme(
-        text = element_text(color = "#070707"),
-        axis.text = element_text(color = "#070707", face = "bold", size = 12),
-        axis.title = element_text(color = "#070707", face = "bold", size = 14),
-        panel.grid.major = element_line(color = "grey", linewidth = 0.4),
+        text = element_text(color = "#ecf0f1"),
+        axis.text = element_text(color = "#ecf0f1", face = "bold", size = 12),
+        axis.title = element_text(color = "#ecf0f1", face = "bold", size = 14),
+        panel.grid.major = element_line(color = "#34495e", linewidth = 0.4),
         panel.grid.minor = element_blank(),
-        plot.subtitle = element_text(color = "#070707", face = "italic", size = 11),
+        plot.subtitle = element_text(color = "#bdc3c7", face = "italic", size = 11),
         legend.position = "bottom",
         legend.title = element_blank(),
-        legend.text = element_text(size = 11, face = "bold")
+        legend.text = element_text(size = 11, face = "bold", color = "#ecf0f1"),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background = element_rect(fill = "transparent", color = NA)
       ) +
       scale_y_continuous(labels = scales::dollar_format(), breaks = scales::pretty_breaks()) +
       labs(y = "Market Price ($)", x = "Date")
