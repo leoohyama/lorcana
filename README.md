@@ -64,3 +64,11 @@ All API downloads, data processing, and database uploads are managed automatical
 # Forecasting Models
 
 *(Section in development. More details coming soon!)*
+
+Notes for self
+
+Currently approaching forecasting in two ways. 
+
+1. Use recurrent neural networks, specifically gated recurrent units (GRU) to forecast price predictions for 30 days. This was chosen to just prototype and see what was possible given a relatively smaller dataset. Additionally the GRU that is trained is a hybrid GRU that uses both sequences of prices and static data (card attributes such as rarity, character).
+
+2. Use a pre-trained transformer model, Chronos, that is fed all available price data for a given card tp produce a 30 day forecase. 
