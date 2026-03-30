@@ -2,15 +2,22 @@ library(tidyverse)
 
 #read in 180 days historical data
 
-temporal_time = readRDS("data/tabular/price_history_long_initial.rds")
+temporal_time = readRDS("data/tabular/price_history_long_initial.rds") 
 head(temporal_time)
 
+str(temporal_time)
+
+dput(head(temporal_time[temporal_time$card_id == "510148", ], 10))
 #next read in static card data
-static = read.csv("data/target_cards_with_epids2.csv")
+static = read.csv("data/target_cards_with_epids2.csv") %>%
+  filter(!str_detect(set_name, "Promo")) 
 
 
+
+str(static)
+dput(static[static$tcgplayer_id == "510148", ])
 unique_id = unique(temporal_time$card_id)
-
+unique(static$rarity)
 
 ggplot(data = temporal_time %>% filter(card_id == "633053")) +
   geom_line(aes(x = date, y = price))
