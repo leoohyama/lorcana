@@ -248,3 +248,7 @@ if __name__ == "__main__":
     tidy_df = generate_tidy_csv(model, test_loader, device)
     tidy_df.to_csv("data/pytorch/gru_forecast_tidy.csv", index=False)
     print("✨ Process complete! 'data/pytorch/gru_forecast_tidy.csv' is ready for R.")
+
+
+
+    

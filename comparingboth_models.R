@@ -121,3 +121,109 @@ ggplot(stress_test_data, aes(x = day_offset)) +
     color = "Model"
   ) +
   theme(legend.position = "top", strip.text = element_text(face = "bold", size = 12))
+
+
+
+library(tidyverse)
+library(scales)
+
+# 1. Load the Historical Data
+history_df <- read_csv("data/chronos_ready_prices.csv", col_types = cols(card_id = col_character()))
+
+# 2. Calculate "Pre-Test" Volatility (FIXED)
+volatility_metrics <- history_df %>%
+  # PRE-FILTER: Only calculate this for cards we actually tested
+  filter(card_id %in% accuracy_summary$card_id) %>%
+  group_by(card_id) %>%
+  arrange(date) %>%
+  # SAFETY CHECK: Ensure the group actually has more than 30 rows
+  filter(n() > 30) %>%
+  slice(1:(n() - 30)) %>% # Drop the 30-day test window
+  summarize(
+    hist_mean_price = mean(price, na.rm = TRUE),
+    hist_sd_price = sd(price, na.rm = TRUE),
+    # Coefficient of Variation (Higher % = More Volatile)
+    volatility_cv = hist_sd_price / hist_mean_price, 
+    .groups = "drop"
+  )
+
+# 3. Join with your existing 'accuracy_summary'
+diagnostic_data <- accuracy_summary %>%
+  left_join(volatility_metrics, by = "card_id") %>%
+  filter(!is.na(volatility_cv))
+
+# 4. Plotting the Relationship
+ggplot(diagnostic_data, aes(x = volatility_cv, y = MAPE, color = model)) +
+  geom_point(alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, size = 1.2) +
+  theme_minimal(base_size = 14) +
+  scale_color_manual(values = c("GRU" = "#e74c3c", "Chronos" = "#3498db")) +
+  scale_x_continuous(labels = label_percent()) +
+  scale_y_continuous(labels = label_percent()) +
+  labs(
+    title = "Model Breakdown: Does Volatility cause Errors?",
+    subtitle = "X-Axis: Historical Price Swing % | Y-Axis: Model Prediction Error %",
+    x = "Historical Volatility (Coefficient of Variation)",
+    y = "Prediction Error (MAPE)",
+    color = "Model"
+  ) +
+  theme(legend.position = "top")
+
+
+# 1. Define your target card
+target_label <- "Arthur: Wizard's Apprentice (Enchanted)"
+
+# Get the specific card_id for Bambi from your combined data
+target_id <- combined_data %>% 
+  filter(card_label == target_label) %>% 
+  pull(card_id) %>% 
+  first()
+
+# 2. Prepare the Historical Data (The "Runway")
+# We filter the raw history, drop the 30-day test window, and assign negative days
+bambi_history <- history_df %>%
+  filter(card_id == target_id) %>%
+  arrange(date) %>%
+  slice(1:(n() - 30)) %>% # Remove the 30 days that make up our test window
+  mutate(
+    # Create a countdown to Day 0 (e.g., -180, -179... 0)
+    day_offset = seq(-n() + 1, 0)
+  )
+
+# 3. Prepare the Prediction Data
+bambi_preds <- combined_data %>% 
+  filter(card_label == target_label)
+
+# 4. Plot the Full Timeline
+ggplot() +
+  
+  # A. THE HISTORY (Gray line leading up to the forecast)
+  geom_line(data = bambi_history, aes(x = day_offset, y = price), 
+            color = "darkgray", size = 1) +
+  
+  # B. THE GROUND TRUTH (Black line for the actual 30-day test window)
+  geom_line(data = bambi_preds, aes(x = day_offset, y = actual_price), 
+            color = "black", size = 1.2) +
+  
+  # C. THE MODEL PREDICTIONS (Colored lines branching off)
+  geom_line(data = bambi_preds, aes(x = day_offset, y = pred_price, color = model), 
+            size = 1) +
+  geom_point(data = bambi_preds, aes(x = day_offset, y = pred_price, color = model), 
+             size = 1.5) +
+  
+  # D. THE "MOMENT OF TRUTH" LINE
+  # A vertical dashed line to show exactly where the models had to start guessing
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", alpha = 0.5) +
+  
+  # Formatting & Labels
+  theme_minimal(base_size = 14) +
+  scale_y_continuous(labels = label_dollar()) +
+  scale_color_manual(values = c("GRU" = "#e74c3c", "Chronos" = "#3498db")) +
+  labs(
+    title = paste("Full Context Showdown:", target_label),
+    subtitle = "Gray = Historical Runway | Black = Actual Price | Colored = Model Predictions",
+    x = "Days (0 = Moment of Prediction)",
+    y = "Price ($)",
+    color = "Model"
+  ) +
+  theme(legend.position = "top")
