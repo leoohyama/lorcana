@@ -239,35 +239,90 @@ server <- function(input, output, session) {
     latest_date <- max(tcg$pull_date, na.rm = TRUE)
     target_past <- latest_date - 7
     
+    # --- SMART TIME TRAVEL LOGIC ---
+    # Try to find data >= 7 days old. 
     past_dates <- unique(tcg$pull_date[tcg$pull_date <= target_past])
     
-    if(length(past_dates) == 0) {
-      return(tags$div(class="momentum-box", "Gathering more data to calculate 7-day market momentum..."))
+    if(length(past_dates) > 0) {
+      past_date <- max(past_dates) # Closest to 7 days ago
+      time_label <- "7-Day"
+    } else {
+      # FALLBACK: If we don't have 7 days, just use the oldest data we DO have!
+      past_date <- min(tcg$pull_date, na.rm = TRUE) 
+      days_diff <- as.numeric(latest_date - past_date)
+      
+      if(days_diff == 0) {
+        return(tags$div(class="momentum-box", "Need at least 2 days of data to calculate market momentum. Check back tomorrow!"))
+      }
+      time_label <- paste0(days_diff, "-Day")
     }
-    
-    past_date <- max(past_dates)
     
     latest_prices <- tcg %>% filter(pull_date == latest_date) %>% select(cardname, current = market_price)
     past_prices <- tcg %>% filter(pull_date == past_date) %>% select(cardname, past = market_price)
     
+    # Calculate both Percentage and Absolute Change
     momentum <- latest_prices %>%
       inner_join(past_prices, by = "cardname") %>%
       filter(past >= 5) %>% 
-      mutate(pct_change = ((current - past) / past) * 100) %>%
-      arrange(desc(pct_change))
+      mutate(
+        pct_change = ((current - past) / past) * 100,
+        abs_change = current - past
+      ) %>%
+      left_join(master_dict, by = "cardname") 
     
-    req(nrow(momentum) > 0)
+    if(nrow(momentum) == 0) {
+      return(tags$div(class="momentum-box", "Not enough price variance to calculate market movers today."))
+    }
     
-    top_gainer <- head(momentum, 1)
-    top_loser <- tail(momentum, 1)
+    # Isolate the 4 extremes
+    top_pct_gainer <- momentum %>% arrange(desc(pct_change)) %>% slice(1)
+    top_pct_loser  <- momentum %>% arrange(pct_change) %>% slice(1)
+    top_abs_gainer <- momentum %>% arrange(desc(abs_change)) %>% slice(1)
+    top_abs_loser  <- momentum %>% arrange(abs_change) %>% slice(1)
     
-    gainer_html <- sprintf("<span class='green-text'>▲ %s (+%.1f%%)</span>", top_gainer$cardname, top_gainer$pct_change)
-    loser_html <- sprintf("<span class='red-text'>▼ %s (%.1f%%)</span>", top_loser$cardname, top_loser$pct_change)
+    # 1. Build the Text Statements using the dynamic time_label
+    pct_gainer_txt <- sprintf("<span class='green-text'>▲ %s (+%.1f%%)</span>", top_pct_gainer$cardname, top_pct_gainer$pct_change)
+    pct_loser_txt  <- sprintf("<span class='red-text'>▼ %s (%.1f%%)</span>", top_pct_loser$cardname, top_pct_loser$pct_change)
     
-    HTML(sprintf(
-      "<div class='momentum-box'><strong>7-Day Movers:</strong> Over the last week, the biggest jump was %s, while %s saw the steepest drop.</div>",
-      gainer_html, loser_html
-    ))
+    abs_gainer_txt <- sprintf("<span class='green-text'>▲ %s (+%s)</span>", top_abs_gainer$cardname, scales::dollar(top_abs_gainer$abs_change))
+    abs_loser_txt  <- sprintf("<span class='red-text'>▼ %s (%s)</span>", top_abs_loser$cardname, scales::dollar(top_abs_loser$abs_change))
+    
+    text_block <- tags$div(
+      class = "momentum-box",
+      tags$div(tags$strong(paste0(time_label, " Relative Movers (%): ")), "The biggest jump was ", HTML(pct_gainer_txt), ", while ", HTML(pct_loser_txt), " saw the steepest drop."),
+      tags$div(style = "margin-top: 8px;", tags$strong(paste0(time_label, " Absolute Movers ($): ")), "The highest value gained was ", HTML(abs_gainer_txt), ", and the most value lost was ", HTML(abs_loser_txt), ".")
+    )
+    
+    # 2. Build the Visual Gallery function
+    build_mover_card <- function(row, title_label) {
+      img_path <- paste0("card_photos/", row$folder_name, "/", row$id, ".avif")
+      pct_color <- ifelse(row$pct_change >= 0, "green-text", "red-text")
+      abs_color <- ifelse(row$abs_change >= 0, "green-text", "red-text")
+      pct_str <- sprintf("%s%.1f%%", ifelse(row$pct_change >= 0, "+", ""), row$pct_change)
+      abs_str <- sprintf("%s%s", ifelse(row$abs_change >= 0, "+", ""), scales::dollar(row$abs_change))
+      
+      tags$div(
+        style = "display: flex; flex-direction: column; align-items: center; margin: 10px; width: 150px; text-align: center;",
+        tags$div(style = "font-size: 12px; font-weight: bold; color: #18bc9c; margin-bottom: 5px; text-transform: uppercase;", title_label),
+        tags$img(src = img_path, style = "width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); border: 2px solid #2b3e50;"),
+        tags$div(style = "margin-top: 8px; font-size: 11px; font-weight: bold; line-height: 1.2; height: 30px; overflow: hidden; text-overflow: ellipsis;", row$cardname),
+        tags$div(style = "display: flex; justify-content: center; gap: 10px; margin-top: 4px; background: #2b3e50; padding: 4px 8px; border-radius: 5px; width: 100%;",
+          tags$span(class = abs_color, style = "font-size: 13px;", abs_str),
+          tags$span(class = pct_color, style = "font-size: 13px;", pct_str)
+        )
+      )
+    }
+    
+    # 3. Assemble the 4 images in a flexbox container
+    gallery_block <- tags$div(
+      style = "display: flex; justify-content: space-around; flex-wrap: wrap; background: #1a252f; padding: 10px; border-radius: 8px; margin-bottom: 20px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);",
+      build_mover_card(top_pct_gainer, "Top % Gainer"),
+      build_mover_card(top_pct_loser, "Top % Loser"),
+      build_mover_card(top_abs_gainer, "Top $ Gainer"),
+      build_mover_card(top_abs_loser, "Top $ Loser")
+    )
+    
+    tagList(text_block, gallery_block)
   })
 
   output$overview_plot <- renderPlot({
