@@ -227,3 +227,83 @@ ggplot() +
     color = "Model"
   ) +
   theme(legend.position = "top")
+
+
+library(tidyverse)
+library(scales)
+
+# 1. Join Volatility to the RAW Daily Predictions
+# (Assuming 'combined_data' and 'volatility_metrics' are already in your environment)
+daily_error_data <- combined_data %>%
+  left_join(volatility_metrics, by = "card_id") %>%
+  filter(!is.na(volatility_cv)) %>%
+  mutate(
+    # Calculate the error for this exact day
+    APE = abs(actual_price - pred_price) / actual_price,
+    
+    # Split the portfolio into 3 equal Volatility Tiers
+    volatility_tier = ntile(volatility_cv, 3),
+    volatility_label = case_when(
+      volatility_tier == 1 ~ "1. Low Volatility (Stable)",
+      volatility_tier == 2 ~ "2. Medium Volatility",
+      volatility_tier == 3 ~ "3. High Volatility (Chaotic)"
+    )
+  )
+
+# 2. Calculate Average Daily Error (MAPE per day, per tier, per model)
+daily_mape_summary <- daily_error_data %>%
+  group_by(day_offset, model, volatility_label) %>%
+  summarize(
+    Daily_MAPE = mean(APE, na.rm = TRUE), 
+    .groups = "drop"
+  )
+
+# 3. Plot 1: The Forecast Horizon Plot
+ggplot(daily_mape_summary, aes(x = day_offset, y = Daily_MAPE, color = model)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2, alpha = 0.8) +
+  
+  # Facet by our Volatility Tiers
+  facet_wrap(~volatility_label, ncol = 3) +
+  
+  theme_minimal(base_size = 14) +
+  scale_y_continuous(labels = label_percent()) +
+  scale_color_manual(values = c("GRU" = "#e74c3c", "Chronos" = "#3498db")) +
+  labs(
+    title = "Forecast Degradation: How Error Grows Over Time",
+    subtitle = "Tracking Average Error from Day 1 to Day 30 across Volatility Tiers",
+    x = "Days into the Future",
+    y = "Average Daily Error (MAPE)",
+    color = "Model"
+  ) +
+  theme(legend.position = "top", strip.text = element_text(face = "bold", size = 12))
+
+
+# 4. Plot 2: Volatility vs. Error at Specific Milestones
+milestone_data <- daily_error_data %>%
+  # Look at Day 1, End of Week 1, End of Week 2, and End of Month
+  filter(day_offset %in% c(1, 7, 14, 30)) %>%
+  mutate(day_label = paste("Day", day_offset, "Forecast")) %>%
+  # Ensure the facets order correctly
+  mutate(day_label = fct_reorder(day_label, day_offset))
+
+ggplot(milestone_data, aes(x = volatility_cv, y = APE, color = model)) +
+  # Use alpha to make the dense scatter points readable
+  geom_point(alpha = 0.2, size = 1.5) +
+  
+  # The trend line is the most important part here
+  geom_smooth(method = "lm", se = FALSE, size = 1.2) +
+  
+  facet_wrap(~day_label, ncol = 4) +
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(labels = label_percent()) +
+  scale_y_continuous(labels = label_percent()) +
+  scale_color_manual(values = c("GRU" = "#e74c3c", "Chronos" = "#3498db")) +
+  labs(
+    title = "The Horizon Effect: Volatility vs. Error over Time",
+    subtitle = "Does high historical volatility break the models immediately, or only later?",
+    x = "Historical Volatility (CV)",
+    y = "Absolute % Error (APE)",
+    color = "Model"
+  ) +
+  theme(legend.position = "top")

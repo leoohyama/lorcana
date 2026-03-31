@@ -11,12 +11,15 @@ id = '019d20fc-6f91-2655-2875-e9a4234976a7'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7'
 direct_url = 'https://019d20fc-6f91-2655-2875-e9a4234976a7.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7/history'
-deployed_at = '2026-03-30T12:15:01-04:00'
-bundle_id = '019d3f86-c96a-6dee-dfe9-86a9829b4f2b'
+deployed_at = '2026-03-31T13:17:26-04:00'
+bundle_id = '019d44e6-1f36-a8d8-6cb5-94c5fc515d3e'
 files = [
   '.posit/publish/Lorcana Tracker-PCBI.toml',
   '.posit/publish/deployments/deployment-D6GA.toml',
   'app.R',
+  'data/chronos_forecast_tidy.csv',
+  'data/chronos_performance_report.csv',
+  'data/chronos_ready_prices.csv',
   'data/enchanteds/enchanted_list.rds',
   'data/enchanteds/images/Archazia_s_Island/crd_07d1ea2923ad44b9b2dddf78993e103b.avif',
   'data/enchanteds/images/Archazia_s_Island/crd_0d38ed42e8f14a299f6efefb250350d3.avif',
@@ -267,6 +270,14 @@ files = [
   'data/granular_listings/ebay_inventory_2026-03-23.parquet',
   'data/granular_listings/ebay_inventory_2026-03-24.parquet',
   'data/granular_listings/ebay_inventory_2026-03-25.parquet',
+  'data/pytorch/gru_forecast_tidy.csv',
+  'data/pytorch/gru_forecast_tidy_15.csv',
+  'data/pytorch/gru_forecast_tidy_30.csv',
+  'data/pytorch/gru_forecast_tidy_45.csv',
+  'data/pytorch/lorcana_gru_weights.pth',
+  'data/pytorch/lorcana_gru_weights_15.pth',
+  'data/pytorch/lorcana_gru_weights_30.pth',
+  'data/pytorch/lorcana_gru_weights_45.pth',
   'data/pytorch/lorcana_pytorch_ready.csv',
   'data/running_data/daily_prices_2026-03-17.csv',
   'data/running_data/daily_prices_2026-03-18.csv',
