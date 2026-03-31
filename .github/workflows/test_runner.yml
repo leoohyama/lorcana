@@ -1,0 +1,16 @@
+name: Runner Heartbeat
+on: [push] # This triggers every time you push code
+
+jobs:
+  test-mac-air:
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Verify Environment
+        run: |
+          echo "Checking system info..."
+          uname -a
+          echo "Checking Python version in our ML environment..."
+          /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python --version
