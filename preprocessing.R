@@ -1,6 +1,7 @@
 library(DBI)
 library(RPostgres)
 library(tidyverse)
+library(lubridate) # Added for safe Date handling
 
 # ==========================================
 # 1. PULL LIVE DATA FROM NEON (WITH FILTER)
@@ -36,7 +37,7 @@ daily_prices <- dbGetQuery(con, "
 dbDisconnect(con)
 
 # ==========================================
-# 2. FILLING TIME GAPS
+# 2. FILLING TIME GAPS (CORRECTED)
 # ==========================================
 print("2. Filling Temporal Gaps...")
 temporal_clean <- daily_prices %>%
@@ -45,13 +46,16 @@ temporal_clean <- daily_prices %>%
     price = as.numeric(price),
     card_id = as.character(card_id)
   ) %>%
-  # Even though Neon has daily entries, the scraper might have missed a weekend.
-  # This guarantees an unbroken sequence for the GRU sliding window.
+  # Group by card so we only fill dates within that specific card's history
   group_by(card_id) %>%
-  summarize(days_available = n())
+  # Generate a continuous sequence of days from the first to last pull
+  complete(date = seq.Date(min(date, na.rm = TRUE), max(date, na.rm = TRUE), by = "day")) %>%
+  # Forward-fill the price (e.g., Friday's price becomes Saturday's and Sunday's)
+  fill(price, .direction = "down") %>%
+  ungroup()
 
 # ==========================================
-# 3. STATIC METADATA MERGE
+# 3. STATIC METADATA MERGE (CORRECTED)
 # ==========================================
 print("3. Cleaning Static Metadata & Merging...")
 static <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
@@ -60,7 +64,8 @@ static <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) 
 static_clean <- static %>%
   mutate(
     tcgplayer_id = as.character(tcgplayer_id),
-    released_at = mdy(released_at), 
+    # Using lubridate's as_date to ensure a pure Date object and drop hidden time data
+    released_at = as_date(released_at), 
     inkwell = as.integer(inkwell)   
   ) %>%
   select(tcgplayer_id, name, set_name, rarity, released_at, cost, inkwell, ink_clean)
@@ -68,6 +73,7 @@ static_clean <- static %>%
 df_merged <- temporal_clean %>%
   left_join(static_clean, by = c("card_id" = "tcgplayer_id")) %>%
   mutate(
+    # Safe pure date subtraction
     days_since_release = as.integer(date - released_at),
     days_since_release = if_else(days_since_release < 0, 0L, days_since_release) 
   ) %>%
