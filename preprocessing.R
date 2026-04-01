@@ -54,7 +54,6 @@ temporal_clean <- daily_prices %>%
   fill(price, .direction = "down") %>%
   ungroup()
 
-
 # ==========================================
 # 3. STATIC METADATA MERGE (CORRECTED)
 # ==========================================
@@ -65,8 +64,8 @@ static <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) 
 static_clean <- static %>%
   mutate(
     tcgplayer_id = as.character(tcgplayer_id),
-    # Using lubridate's as_date to ensure a pure Date object and drop hidden time data
-    released_at = as_date(released_at), 
+    # THE SLEDGEHAMMER: Try YYYY-MM-DD first, then MM/DD/YYYY to catch mixed formats
+    released_at = as_date(parse_date_time(released_at, orders = c("ymd", "mdy"))), 
     inkwell = as.integer(inkwell)   
   ) %>%
   select(tcgplayer_id, name, set_name, rarity, released_at, cost, inkwell, ink_clean)

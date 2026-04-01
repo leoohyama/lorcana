@@ -58,10 +58,10 @@ temporal_clean <- daily_prices %>%
     price = as.numeric(price),
     card_id = as.character(card_id)
   ) %>%
-  # Neon is already 1 price per day, so we skip the summarize(mean) step.
-  # However, Chronos STRICTLY requires continuous sequences without missing dates.
+  # Chronos STRICTLY requires continuous sequences without missing dates.
   group_by(card_id) %>%
-  complete(date = seq.Date(min(date), max(date), by = "day")) %>%
+  # THE GUARDRAIL: Added na.rm = TRUE to prevent crashing on NULL dates
+  complete(date = seq.Date(min(date, na.rm = TRUE), max(date, na.rm = TRUE), by = "day")) %>%
   fill(price, .direction = "down") %>%
   ungroup()
 
@@ -75,5 +75,8 @@ df_chronos_ready <- temporal_clean %>%
   arrange(card_id, date)
 
 print("5. Exporting to Python...")
+# THE DIRECTORY PROTECTION: Ensure the folder exists before writing
+dir.create("data", showWarnings = FALSE, recursive = TRUE)
+
 write_csv(df_chronos_ready, "data/chronos_ready_prices.csv")
 print("✨ Export complete. Ready for Chronos.")
