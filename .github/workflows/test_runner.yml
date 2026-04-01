@@ -20,9 +20,13 @@ jobs:
 
       - name: 📊 1. Run PyTorch Preprocessing (Neon DB)
         # Uses your system R installation
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript preprocessing.R
 
       - name: ⏱️ 2. Run Chronos Preprocessing (Neon DB)
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript chronos_data_processing.R
 
       - name: 🤖 3. Just run chronos

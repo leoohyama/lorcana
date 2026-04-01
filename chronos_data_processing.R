@@ -7,14 +7,15 @@ library(lubridate)
 # 1. CONNECT & PULL FROM NEON
 # ==========================================
 print("1. Connecting to Neon & Pulling Filtered Data...")
+message("Connecting to Neon...")
 con <- dbConnect(
   RPostgres::Postgres(),
-  dbname = "neondatabase",
-  host = "YOUR_NEON_HOST",
-  user = "alex",
-  password = "YOUR_PASSWORD",
-  port = 5432,
-  sslmode = "require"
+  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
+  dbname   = "neondb",
+  user     = "neondb_owner",
+  password = trimws(Sys.getenv("NEON_PASSWORD")), 
+  port     = 5432,
+  sslmode  = "require"
 )
 
 # Pulls daily prices ONLY for cards with >= 180 days of history
