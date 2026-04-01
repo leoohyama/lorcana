@@ -30,10 +30,10 @@ jobs:
         run: Rscript chronos_data_processing.R
 
       - name: 🤖 3. Just run chronos
-        run: /Users/leo.ohyama/Documents/lorcana/venv/bin/python chronos_transfer_learning.py
+        run: /Users/leoohyama/Documents/lorcana/venv/bin/python chronos_transfer_learning.py
 
       - name: 🧠 4. Run GRU
-        run: /Users/leo.ohyama/Documents/lorcana/venv/bin/python train_lorcana_model.py
+        run: /Users/leoohyama/Documents/lorcana/venv/bin/python train_lorcana_model.py
 
       - name: 🚀 5. Sync and Push Results to GitHub
         # Automatically grabs the newly generated CSVs and pushes them to your repo
