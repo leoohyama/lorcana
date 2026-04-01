@@ -3,15 +3,10 @@ library(RPostgres)
 library(tidyverse)
 
 # ==========================================
-<<<<<<< HEAD
 # 1. PULL LIVE DATA FROM NEON (WITH FILTER)
 # ==========================================
 print("1. Connecting to Neon & Pulling Filtered Data...")
-=======
-# 1. CONNECT TO NEON DATABASE
-# ==========================================
->>>>>>> 3785309 (commit)
-message("Connecting to Neon...")
+
 con <- dbConnect(
   RPostgres::Postgres(),
   host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
@@ -22,16 +17,7 @@ con <- dbConnect(
   sslmode  = "require"
 )
 
-<<<<<<< HEAD
 # Pulls daily prices ONLY for cards with >= 180 days of history
-=======
-
-# ==========================================
-# 2. PULL FILTERED DATA FOR MODELING
-# ==========================================
-# We use a subquery to find cards with >= 180 days of data, 
-# and only pull the daily prices for those specific cards.
->>>>>>> 3785309 (commit)
 daily_prices <- dbGetQuery(con, "
   SELECT 
     tcgplayer_id AS card_id,
@@ -47,7 +33,6 @@ daily_prices <- dbGetQuery(con, "
   ORDER BY tcgplayer_id, pull_date
 ")
 
-<<<<<<< HEAD
 dbDisconnect(con)
 
 # ==========================================
@@ -62,28 +47,9 @@ temporal_clean <- daily_prices %>%
   ) %>%
   # Even though Neon has daily entries, the scraper might have missed a weekend.
   # This guarantees an unbroken sequence for the GRU sliding window.
-=======
-# ==========================================
-# 3. DISCONNECT
-# ==========================================
-dbDisconnect(con)
-
-# ==========================================
-# 4. PREP FOR PIPELINE
-# ==========================================
-master_history_df <- daily_prices %>%
-  mutate(
-    date = as.Date(date),
-    price = as.numeric(price)
-  )
-
-# Verify the filter worked (every card should have >= 180 rows)
-card_counts <- master_history_df %>%
->>>>>>> 3785309 (commit)
   group_by(card_id) %>%
   summarize(days_available = n())
 
-<<<<<<< HEAD
 # ==========================================
 # 3. STATIC METADATA MERGE
 # ==========================================
@@ -158,9 +124,3 @@ dir.create("data/pytorch", showWarnings = FALSE, recursive = TRUE)
 
 write_csv(df_final, "data/pytorch/lorcana_pytorch_ready.csv")
 print("✨ Export complete. Data is formatted, scaled, and ready for PyTorch.")
-=======
-print(summary(card_counts$days_available))
-
-# Save for your PyTorch pipeline
-write_csv(master_history_df, "data/lorcana_pytorch_ready.csv")
->>>>>>> 3785309 (commit)
