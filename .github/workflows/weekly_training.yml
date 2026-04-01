@@ -42,7 +42,7 @@ jobs:
       - name: 📈 5. Calculate & Push Diagnostics to Neon
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
-        run: Rscript generate_diagnostics.R
+        run: Rscript model_diagnostics.R
 
       # --- BACKUP & COMMIT ---
       - name: 💾 Save Model Weights Locally
