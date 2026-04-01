@@ -4,14 +4,11 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch: # Allows manual triggering
-  # schedule:
-  #   - cron: '0 8 * * 0' # Optional: Run automatically every Sunday at 8 AM
 
 jobs:
   run-pipeline:
     runs-on: self-hosted
     
-    # Chronos is heavy; this gives your Mac plenty of time to finish the batches
     timeout-minutes: 120 
 
     steps:
@@ -19,7 +16,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 📊 1. Run PyTorch Preprocessing (Neon DB)
-        # Uses your system R installation
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript preprocessing.R
@@ -30,13 +26,13 @@ jobs:
         run: Rscript chronos_data_processing.R
 
       - name: 🤖 3. Just run chronos
-        run: /Users/leoohyama/Documents/lorcana/venv/bin/python chronos_transfer_learning.py
+        # Using the exact Conda environment path from your Air
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
 
       - name: 🧠 4. Run GRU
-        run: /Users/leoohyama/Documents/lorcana/venv/bin/python train_lorcana_model.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
 
       - name: 🚀 5. Sync and Push Results to GitHub
-        # Automatically grabs the newly generated CSVs and pushes them to your repo
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🤖 Auto-update: Latest Lorcana forecasts and Neon data"
