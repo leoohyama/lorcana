@@ -11,8 +11,8 @@ id = '019d20fc-6f91-2655-2875-e9a4234976a7'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7'
 direct_url = 'https://019d20fc-6f91-2655-2875-e9a4234976a7.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7/history'
-deployed_at = '2026-03-31T13:17:26-04:00'
-bundle_id = '019d44e6-1f36-a8d8-6cb5-94c5fc515d3e'
+deployed_at = '2026-04-01T19:29:50-04:00'
+bundle_id = '019d4b60-08ba-c0d1-c116-198ac35c3b8e'
 files = [
   '.posit/publish/Lorcana Tracker-PCBI.toml',
   '.posit/publish/deployments/deployment-D6GA.toml',
@@ -270,6 +270,9 @@ files = [
   'data/granular_listings/ebay_inventory_2026-03-23.parquet',
   'data/granular_listings/ebay_inventory_2026-03-24.parquet',
   'data/granular_listings/ebay_inventory_2026-03-25.parquet',
+  'data/lorcana_pytorch_ready.csv',
+  'data/pytorch/chronos_forecast_tidy.csv',
+  'data/pytorch/chronos_inference_latest.csv',
   'data/pytorch/gru_forecast_tidy.csv',
   'data/pytorch/gru_forecast_tidy_15.csv',
   'data/pytorch/gru_forecast_tidy_30.csv',
@@ -298,6 +301,7 @@ files = [
   'data/tabular/ready_for_pytorch.parquet',
   'data/target_cards_with_epids.csv',
   'data/target_cards_with_epids2.csv',
+  'data/temp_inference_input.csv',
   'lorcana_images/Archazia_s_Island/crd_01c4835a62df4960bb973aeff81f2bb2.avif',
   'lorcana_images/Archazia_s_Island/crd_0306993b7adb4a52afb9ff31aea3a9b1.avif',
   'lorcana_images/Archazia_s_Island/crd_03494b6689ad4bbb9d4e5afac6db733d.avif',
@@ -4668,6 +4672,27 @@ suggests = ['covr', 'testthat', 'disposables (>= 1.0.3)']
 encoding = 'UTF-8'
 needscompilation = 'no'
 author = 'Gábor Csárdi'
+
+[renv.packages.plotly]
+package = 'plotly'
+version = '4.12.0'
+source = 'Repository'
+repository = 'CRAN'
+depends = ['R (>= 3.5.0)', 'ggplot2 (>= 3.0.0)']
+hash = ''
+title = "Create Interactive Web Graphics via 'plotly.js'"
+'authors@r' = 'c(person("Carson", "Sievert", role = c("aut", "cre"), email = "cpsievert1@gmail.com", comment = c(ORCID = "0000-0002-4958-2844")), person("Chris", "Parmer", role = "aut", email = "chris@plot.ly"), person("Toby", "Hocking", role = "aut", email = "tdhock5@gmail.com"), person("Scott", "Chamberlain", role = "aut", email = "myrmecocystus@gmail.com"), person("Karthik", "Ram", role = "aut", email = "karthik.ram@gmail.com"), person("Marianne", "Corvellec", role = "aut", email = "marianne.corvellec@igdore.org", comment = c(ORCID = "0000-0002-1994-3581")), person("Pedro", "Despouy", role = "aut", email = "pedro@plot.ly"), person("Salim", "Brüggemann", role = "ctb", email = "salim-b@pm.me", comment = c(ORCID = "0000-0002-5329-5987")), person("Plotly Technologies Inc.", role = "cph"))'
+maintainer = 'Carson Sievert <cpsievert1@gmail.com>'
+description = "Create interactive web graphics from 'ggplot2' graphs and/or a custom interface to the (MIT-licensed) JavaScript library 'plotly.js' inspired by the grammar of graphics."
+url = 'https://plotly-r.com, https://github.com/plotly/plotly.R, https://plotly.com/r/'
+bugreports = 'https://github.com/plotly/plotly.R/issues'
+license = 'MIT + file LICENSE'
+imports = ['tools', 'scales', 'httr (>= 1.3.0)', 'jsonlite (>= 1.6)', 'magrittr', 'digest', 'viridisLite', 'base64enc', 'htmltools (>= 0.3.6)', 'htmlwidgets (>= 1.5.2.9001)', 'tidyr (>= 1.0.0)', 'RColorBrewer', 'dplyr', 'vctrs', 'tibble', 'lazyeval (>= 0.2.0)', 'rlang (>= 1.0.0)', 'crosstalk', 'purrr', 'data.table', 'promises']
+suggests = ['MASS', 'maps', 'hexbin', 'ggthemes', 'GGally', 'ggalluvial', 'testthat', 'knitr', 'shiny (>= 1.1.0)', 'shinytest2', 'curl', 'rmarkdown', 'Cairo', 'broom', 'webshot', 'listviewer', 'dendextend', 'sf', 'png', 'IRdisplay', 'processx', 'plotlyGeoAssets', 'forcats', 'withr', 'palmerpenguins', 'rversions', 'reticulate', 'rsvg', 'ggridges']
+roxygennote = '7.3.3'
+encoding = 'UTF-8'
+needscompilation = 'no'
+author = 'Carson Sievert [aut, cre] (ORCID: <https://orcid.org/0000-0002-4958-2844>), Chris Parmer [aut], Toby Hocking [aut], Scott Chamberlain [aut], Karthik Ram [aut], Marianne Corvellec [aut] (ORCID: <https://orcid.org/0000-0002-1994-3581>), Pedro Despouy [aut], Salim Brüggemann [ctb] (ORCID: <https://orcid.org/0000-0002-5329-5987>), Plotly Technologies Inc. [cph]'
 
 [renv.packages.prettyunits]
 package = 'prettyunits'
