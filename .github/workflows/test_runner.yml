@@ -1,37 +1,20 @@
-name: Full Lorcana ML Pipeline
-on: 
+name: MacBook Air Environment Test
+
+on:
   push:
-    branches: [ main ]
-  workflow_dispatch: # Allows manual triggering from the GitHub website
+    paths:
+      - 'test_env.R'
+      - '.github/workflows/test.yaml'
+  workflow_dispatch: # Allows you to trigger this manually from the GitHub UI
 
 jobs:
-  run-pipeline:
-    runs-on: [self-hosted, macOS, ARM64]
-    
-    # Optional: If Chronos takes a long time for all cards, this prevents the runner from timing out too early.
-    timeout-minutes: 120 
+  smoke-test:
+    # This specifically targets your local MacBook Air runner
+    runs-on: self-hosted 
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 📊 1. Run Standard Preprocessing
-        # Runs natively using your Mac's R installation
-        run: Rscript preprocessing.R
-
-      - name: ⏱️ 2. Run Chronos Preprocessing
-        run: Rscript chronos_data_processing.R
-
-      - name: 🤖 3. Train Standard GRU/LSTM Model
-        # Using your 'Golden Path' to the Conda Python engine
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
-
-      - name: 🧠 4. Run Chronos Transfer Learning
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
-
-      - name: 🚀 Sync and Push Results to GitHub
-        # This action automatically detects ANY changed or new files (like your CSVs or plots)
-        # overwrites the old ones on GitHub, and commits them.
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "🤖 Auto-update: Latest Lorcana forecasts and data"
+      - name: Run Package Smoke Test
+        run: Rscript test_env.R
