@@ -5,7 +5,7 @@ from chronos import ChronosPipeline
 import os
 import time
 from tqdm import tqdm
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import datetime
 from dotenv import load_dotenv
 
