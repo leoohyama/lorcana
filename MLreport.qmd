@@ -98,12 +98,14 @@ daily_error_data <- combined_data %>%
   mutate(APE = abs(actual_price - pred_price) / actual_price)
 
 # 7. Calculate Baselines
+# 7. Calculate Baselines (Fixed Time Leakage)
 baseline_calcs <- history_df %>%
   filter(card_id %in% unique(daily_error_data$card_id)) %>%
   group_by(card_id) %>%
   arrange(date) %>%
-  filter(n() > 30) %>%
-  slice(1:(n() - 30)) %>% 
+  # Anchor the baseline to the exact end of the model's training data
+  # 30 days prior to the March 17th end-of-archive is Feb 15th.
+  filter(date <= as.Date("2026-02-15")) %>% 
   summarize(
     persistence_price = last(price),
     ma_30d_price = mean(tail(price, 30)),
