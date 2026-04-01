@@ -108,13 +108,13 @@ if __name__ == "__main__":
                     'pred_price': round(float(price), 2) # SLIMMED: 2 decimal places
                 })
 
-        # --- 4. NORMALIZED DATABASE UPLOAD ---
+        # --- 4. NORMALIZED DATABASE UPLOAD (SMART APPEND) ---
         if all_card_forecasts:
             final_df = pd.DataFrame(all_card_forecasts)
             
             print(f"☁️ Syncing results to Neon (Normalized Schema)...")
             with engine.connect() as conn:
-                # A. Create and Insert Metadata (The Header)
+                # Ensure the table exists first
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS model_runs (
                         run_id SERIAL PRIMARY KEY,
@@ -123,11 +123,37 @@ if __name__ == "__main__":
                         model_type TEXT
                     )
                 """))
+                conn.commit()
                 
+                today_date = datetime.date.today()
+                model_name = 'GRU'
+
+                # --- SMART IDEMPOTENT LOGIC ---
+                # Check if we already have a run for today
+                check_query = text("""
+                    SELECT run_id FROM model_runs 
+                    WHERE run_date = :run_date AND model_type = :model_type
+                """)
+                existing_runs = conn.execute(check_query, {'run_date': today_date, 'model_type': model_name}).fetchall()
+
+                if existing_runs:
+                    existing_ids = [str(r[0]) for r in existing_runs]
+                    existing_ids_str = ", ".join(existing_ids)
+                    print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+
+                    # Delete child predictions FIRST to prevent orphans
+                    conn.execute(text(f"DELETE FROM gru_predictions WHERE run_id IN ({existing_ids_str})"))
+                    # Delete parent run record
+                    conn.execute(text(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})"))
+                    conn.commit()
+                    print("🗑️ Cleared old data for today.")
+                # ------------------------------
+                
+                # A. Create and Insert Metadata (The Header)
                 run_meta = {
-                    'run_date': datetime.date.today(),
+                    'run_date': today_date,
                     'window_size': seq_len,
-                    'model_type': 'GRU'
+                    'model_type': model_name
                 }
                 
                 res = conn.execute(
@@ -143,7 +169,7 @@ if __name__ == "__main__":
                 final_df.to_sql('gru_predictions', engine, if_exists='append', index=False)
                 
                 conn.commit() 
-            print(f"✨ 30-day window complete. Neon Sync successful.")
+            print(f"✨ 30-day window complete. Neon Sync successful. Data is pristine.")
         else:
             print("⚠️ No card data met the minimum length requirements for inference.")
 

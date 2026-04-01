@@ -116,9 +116,8 @@ final_chronos_df = pd.DataFrame(rows)
 # Optional: Still save locally to GitHub Actions workspace just in case you want the CSV
 os.makedirs('data/pytorch', exist_ok=True)
 final_chronos_df.to_csv("data/pytorch/chronos_inference_latest.csv", index=False)
-
 # ==========================================
-# 6. NORMALIZED NEON DATABASE UPLOAD
+# 6. NORMALIZED NEON DATABASE UPLOAD (SMART APPEND)
 # ==========================================
 if final_chronos_df.empty:
     print("⚠️ No Chronos forecasts generated.")
@@ -131,11 +130,35 @@ else:
     final_chronos_df['conf_high'] = final_chronos_df['conf_high'].round(2)
 
     with engine.connect() as conn:
-        # A. Insert Metadata into 'model_runs' (Matches the GRU table)
+        today_date = datetime.date.today()
+        model_name = 'Chronos'
+        
+        # --- SMART IDEMPOTENT LOGIC ---
+        # Check if we already have a run for today
+        check_query = text("""
+            SELECT run_id FROM model_runs 
+            WHERE run_date = :run_date AND model_type = :model_type
+        """)
+        existing_runs = conn.execute(check_query, {'run_date': today_date, 'model_type': model_name}).fetchall()
+
+        if existing_runs:
+            existing_ids = [str(r[0]) for r in existing_runs]
+            existing_ids_str = ", ".join(existing_ids)
+            print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+
+            # Delete child predictions FIRST to prevent orphans
+            conn.execute(text(f"DELETE FROM chronos_predictions WHERE run_id IN ({existing_ids_str})"))
+            # Delete parent run record
+            conn.execute(text(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})"))
+            conn.commit()
+            print("🗑️ Cleared old data for today.")
+        # ------------------------------
+
+        # A. Insert Metadata into 'model_runs'
         run_meta = {
-            'run_date': datetime.date.today(),
+            'run_date': today_date,
             'window_size': 30, # Chronos is fixed at 30
-            'model_type': 'Chronos'
+            'model_type': model_name
         }
         
         # This will return the next available run_id
@@ -149,11 +172,10 @@ else:
         final_chronos_df['run_id'] = run_id
         
         # C. Push to a specific 'chronos_predictions' table
-        # We keep the confidence intervals here since Chronos provides them!
         slim_chronos = final_chronos_df[['card_id', 'target_date', 'pred_price', 'conf_low', 'conf_high', 'run_id']]
         
         print(f"🚀 Pushing {len(slim_chronos)} rows to 'chronos_predictions' (Run ID: {run_id})...")
         slim_chronos.to_sql('chronos_predictions', engine, if_exists='append', index=False)
         
         conn.commit()
-    print("✨ Chronos database sync complete.")
+    print("✨ Chronos database sync complete. Data is pristine.")
