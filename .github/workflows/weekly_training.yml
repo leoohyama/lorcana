@@ -1,0 +1,60 @@
+name: Weekly Lorcana Training & Diagnostics
+
+on:
+  schedule:
+    - cron: '0 2 * * 0' # Runs at 02:00 UTC every Sunday
+  workflow_dispatch: 
+
+jobs:
+  run-training-pipeline:
+    runs-on: self-hosted
+    timeout-minutes: 120 
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Fix Git Buffer
+        run: |
+          git config --local http.postBuffer 524288000
+          git config --local core.compression 0
+
+      # --- DATA PREP ---
+      - name: 📊 1. Run PyTorch Preprocessing
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript preprocessing.R
+
+      - name: ⏱️ 2. Run Chronos Preprocessing
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript chronos_data_processing.R
+
+      # --- TRAINING & BACKTESTING ---
+      - name: 🧠 3. Train GRU & Generate Backtests
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
+
+      - name: ⏱️ 4. Run Chronos Backtests
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_backtest.py
+
+      - name: 📈 5. Calculate & Push Diagnostics to Neon
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript generate_diagnostics.R
+
+      # --- BACKUP & COMMIT ---
+      - name: 💾 Save Model Weights Locally
+        run: |
+          BACKUP_DIR="$HOME/Documents/lorcana_model_backups/$(date +'%Y-%m-%d_%H-%M')"
+          mkdir -p "$BACKUP_DIR"
+          cp data/pytorch/*.pth "$BACKUP_DIR/"
+          echo "✨ Models backed up to: $BACKUP_DIR"
+
+      - name: 📦 6. Sync Weights to GitHub
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🧠 Auto-train: New model weights and diagnostics"
+          file_pattern: 'data/pytorch/*.pth data/pytorch/*.csv data/*.csv'
+          push_options: '--force'

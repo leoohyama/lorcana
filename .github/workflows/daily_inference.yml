@@ -1,0 +1,47 @@
+name: Daily Lorcana Market Inference
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Runs at 03:00 UTC every day
+  workflow_dispatch: 
+
+jobs:
+  run-inference-pipeline:
+    runs-on: self-hosted
+    timeout-minutes: 30 
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --- DATA PREP (Needed daily to get the newest prices) ---
+      - name: 📊 1. Run PyTorch Preprocessing
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript preprocessing.R
+
+      - name: ⏱️ 2. Run Chronos Preprocessing
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript chronos_data_processing.R
+
+      # --- FAST INFERENCE (Uses weights saved by the weekly run) ---
+      - name: 🔮 3. Run GRU Future Inference
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python daily_inference_gru.py
+
+      - name: 🚀 4. Run Chronos Future Inference
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
+
+      # --- COMMIT PREPROCESSED DATA (Optional but good for syncing) ---
+      - name: 📦 5. Sync Daily Data to GitHub
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "📈 Auto-infer: Daily forecasts uploaded to Neon"
+          file_pattern: 'data/*.csv'
+          push_options: '--force'
