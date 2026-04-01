@@ -42,6 +42,8 @@ ensemble_preds <- bind_rows(gru_15, gru_30, gru_45) %>%
   mutate(model = "GRU Ensemble")
 
 chronos_preds <- read_csv("data/chronos_forecast_tidy.csv", col_types = cols(card_id = col_character())) %>% mutate(model = "Chronos")
+
+chronos_preds  = chronos_preds %>% drop_na(actual_price)
 history_df <- read_csv("data/chronos_ready_prices.csv", col_types = cols(card_id = col_character()))
 
 # Load Static Data and Parse the Release Date

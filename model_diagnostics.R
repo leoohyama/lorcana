@@ -1,254 +1,175 @@
-# ==========================================
-# LORCANA TCG FORECASTING: FULL-SPAN STRUCTURAL VOLATILITY
-# ==========================================
-
-# Load required libraries
 library(tidyverse)
-library(scales)
-library(knitr)
-library(reactable)
 library(lubridate)
+library(DBI)
+library(RPostgres)
 
 # ==========================================
-# 1. SETUP AND DATA PREPARATION
+# 1. AUTHENTICATION & SETUP
 # ==========================================
-# Load Data
-gru_15 <- read_csv("data/pytorch/gru_forecast_tidy_15.csv", col_types = cols(card_id = col_character())) 
-gru_30 <- read_csv("data/pytorch/gru_forecast_tidy_30.csv", col_types = cols(card_id = col_character())) %>% mutate(model = "Single GRU")
-gru_45 <- read_csv("data/pytorch/gru_forecast_tidy_45.csv", col_types = cols(card_id = col_character())) 
+print("🚀 Connecting to Neon via .Renviron...")
 
-# Calculate Ensemble
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
+  dbname   = "neondb",
+  user     = "neondb_owner",
+  password = Sys.getenv("NEON_PASSWORD"),
+  port     = 5432,
+  sslmode  = "require"
+)
+
+# ==========================================
+# 2. LOAD DATA (LOCAL & NEON)
+# ==========================================
+print("📥 Loading Model Forecasts (Local) and History (Neon)...")
+
+# Force dates to Date objects on load to prevent join/math errors
+date_cols <- cols(run_date = col_date(), target_date = col_date())
+
+# Local Forecasts (The Backtest Diagnostics)
+gru_15 <- read_csv("data/pytorch/gru_forecast_tidy_15.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE) 
+gru_30 <- read_csv("data/pytorch/gru_forecast_tidy_30.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE)
+gru_45 <- read_csv("data/pytorch/gru_forecast_tidy_45.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE) 
+chronos_preds <- read_csv("data/pytorch/chronos_forecast_tidy.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE)
+
+# Live History from Neon
+history_df <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices") %>%
+  rename(
+    card_id = tcgplayer_id,
+    price_date = pull_date,
+    price = market_price
+  ) %>%
+  mutate(
+    price_date = as.Date(price_date),
+    card_id = as.character(card_id) # THE FIX: Force to Character for joins
+  ) %>%
+  as_tibble()
+
+# ==========================================
+# 3. CALCULATE ENSEMBLE & STANDARDIZE
+# ==========================================
+print("📊 Processing Ensemble and cleaning prediction frames...")
+
 ensemble_preds <- bind_rows(gru_15, gru_30, gru_45) %>%
-  group_by(card_id, day_offset, actual_price) %>%
+  group_by(card_id, run_date, target_date) %>%
   summarize(
-    pred_price = mean(pred_price), 
-    conf_low = mean(conf_low), 
-    conf_high = mean(conf_high),
+    pred_price = mean(pred_price, na.rm = TRUE), 
+    conf_low = mean(conf_low, na.rm = TRUE), 
+    conf_high = mean(conf_high, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(model = "GRU Ensemble")
 
-chronos_preds <- read_csv("data/chronos_forecast_tidy.csv", col_types = cols(card_id = col_character())) %>% mutate(model = "Chronos")
-history_df <- read_csv("data/chronos_ready_prices.csv", col_types = cols(card_id = col_character()))
+# Combine all "Production" models for evaluation
+all_preds_raw <- bind_rows(
+  gru_30 %>% mutate(model = "Single GRU"), 
+  ensemble_preds,
+  chronos_preds %>% mutate(model = "Chronos")
+) %>%
+  select(-any_of("actual_price")) # Ensure we rely exclusively on the Neon Ground Truth
 
-# Load Static Data and Parse the Release Date
-static <- read_csv("data/target_cards_with_epids2.csv", col_types = cols(tcgplayer_id = col_character())) %>%
-  mutate(released_at = mdy(released_at))
+# ==========================================
+# 4. LIFETIME CHAOS INDEX (VOLATILITY)
+# ==========================================
+print("🌀 Calculating Lifetime Chaos Index...")
 
-# Join Predictions (NO FILTER)
-combined_data <- bind_rows(gru_30, ensemble_preds, chronos_preds) %>%
-  left_join(static, by = c("card_id" = "tcgplayer_id")) %>%
-  mutate(card_label = paste0(name, ": ", version, " (", rarity, ")"))
-
-# Calculate Base Accuracy Metrics
-accuracy_summary <- combined_data %>%
-  group_by(card_id, name, version, rarity, set_name, released_at, card_label, model) %>%
-  summarize(
-    MAPE = mean(abs(actual_price - pred_price) / actual_price),
-    .groups = "drop"
-  )
-
-# Calculate LIFETIME STRUCTURAL Volatility
 volatility_metrics <- history_df %>%
-  filter(card_id %in% accuracy_summary$card_id) %>%
   group_by(card_id) %>%
-  arrange(date) %>%
+  arrange(price_date) %>%
+  # Exclude the 30-day test window to prevent data leakage in metrics
   filter(n() > 30) %>%
   slice(1:(n() - 30)) %>% 
   summarize(
-    net_change = abs(last(price) - first(price)),
-    sum_of_changes = sum(abs(diff(price)), na.rm = TRUE),
-    efficiency_ratio = if_else(sum_of_changes > 0, net_change / sum_of_changes, 1),
-    span_range = (max(price) - min(price)) / mean(price),
-    volatility_cv = span_range * (1 - efficiency_ratio),
+    # Dollar values rounded to 2 decimal places
+    net_change = round(abs(last(price) - first(price)), 2),
+    sum_of_changes = round(sum(abs(diff(price)), na.rm = TRUE), 2),
+    # Ratios rounded to 4 decimal places
+    efficiency_ratio = round(if_else(sum_of_changes > 0, net_change / sum_of_changes, 1), 4),
+    span_range = round((max(price) - min(price)) / mean(price), 4),
+    volatility_cv = round(span_range * (1 - efficiency_ratio), 4),
     .groups = "drop"
   ) %>%
-  mutate(
-    volatility_tier = ntile(volatility_cv, 3),
-    volatility_label = case_when(
-      volatility_tier == 1 ~ "1. Stable (Direct Trend)",
-      volatility_tier == 2 ~ "2. Moderate (Minor Reversals)",
-      volatility_tier == 3 ~ "3. Chaotic (Significant Reversals)"
-    )
-  )
-
-# Join Diagnostic Data & Calculate True Market Age
-diagnostic_data <- accuracy_summary %>%
-  left_join(volatility_metrics, by = "card_id") %>%
-  mutate(days_since_release = as.numeric(max(history_df$date) - released_at)) %>%
-  filter(!is.na(volatility_cv))
-
-# Daily Error Tracking
-daily_error_data <- combined_data %>%
-  left_join(volatility_metrics, by = "card_id") %>%
-  filter(!is.na(volatility_cv)) %>%
-  mutate(APE = abs(actual_price - pred_price) / actual_price)
-
-# Calculate Baselines
-baseline_calcs <- history_df %>%
-  filter(card_id %in% unique(daily_error_data$card_id)) %>%
-  group_by(card_id) %>%
-  arrange(date) %>%
-  filter(n() > 30) %>%
-  slice(1:(n() - 30)) %>% 
-  summarize(
-    persistence_price = last(price),
-    ma_30d_price = mean(tail(price, 30)),
-    .groups = "drop"
-  )
-
-baseline_daily_mape <- daily_error_data %>%
-  filter(model == "Single GRU") %>% 
-  left_join(baseline_calcs, by = "card_id") %>%
-  mutate(
-    ape_persistence = abs(actual_price - persistence_price) / actual_price,
-    ape_ma = abs(actual_price - ma_30d_price) / actual_price
-  ) %>%
-  group_by(day_offset) %>%
-  summarize(
-    `Persistence` = mean(ape_persistence, na.rm = TRUE),
-    `30-Day MA` = mean(ape_ma, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  pivot_longer(cols = c(`Persistence`, `30-Day MA`), names_to = "baseline_type", values_to = "mean_ape")
-
+  mutate(volatility_tier = ntile(volatility_cv, 3))
 
 # ==========================================
-# 2. MASTER ACCURACY LEADERBOARD
+# 5. CONSTRUCT GRANULAR DIAGNOSTIC TABLES
 # ==========================================
-master_leaderboard <- accuracy_summary %>%
-  select(card_label, rarity, set_name, model, MAPE) %>%
-  pivot_wider(names_from = model, values_from = MAPE) %>%
-  rowwise() %>%
-  mutate(
-    Winner = c("Single GRU", "GRU Ensemble", "Chronos")[which.min(c(`Single GRU`, `GRU Ensemble`, `Chronos`))],
-    `Win Margin (vs Chronos)` = Chronos - `Single GRU`
-  ) %>%
-  ungroup()
+print("📈 Finalizing Granular Diagnostic Tables...")
 
-# Display the interactive table
-reactable(
-  master_leaderboard,
-  searchable = TRUE,
-  sortable = TRUE,
-  striped = TRUE,
-  highlight = TRUE,
-  compact = TRUE,
-  defaultPageSize = 10,
-  columns = list(
-    card_label = colDef(name = "Card Identity", minWidth = 250),
-    rarity = colDef(name = "Rarity", maxWidth = 120),
-    set_name = colDef(name = "Set", maxWidth = 150),
-    `Single GRU` = colDef(format = colFormat(percent = TRUE, digits = 1)),
-    `GRU Ensemble` = colDef(format = colFormat(percent = TRUE, digits = 1)),
-    Chronos = colDef(format = colFormat(percent = TRUE, digits = 1)),
-    Winner = colDef(maxWidth = 150, style = function(value) {
-      color <- if (value == "Single GRU") "#e74c3c" else if (value == "Chronos") "#3498db" else "#9b59b6"
-      list(color = color, fontWeight = "bold")
-    }),
-    `Win Margin (vs Chronos)` = colDef(
-      name = "Win Margin",
-      format = colFormat(percent = TRUE, digits = 1),
-      style = function(value) {
-        color <- if (value > 0) "#27ae60" else if (value < 0) "#c0392b" else "#2c3e50"
-        list(color = color, fontWeight = "bold")
-      }
-    )
+current_run_timestamp <- Sys.Date()
+
+# This is our 'Master Residual' pool
+diagnostic_pool <- all_preds_raw %>%
+  left_join(
+    history_df %>% select(card_id, price_date, actual_price = price), 
+    by = c("card_id", "target_date" = "price_date")
+  ) %>%
+  left_join(volatility_metrics, by = "card_id") %>%
+  filter(!is.na(actual_price), !is.na(volatility_tier)) %>%
+  mutate(
+    ape = abs(actual_price - pred_price) / actual_price,
+    day_offset = as.numeric(target_date - run_date),
+    diagnostic_run_date = current_run_timestamp
   )
+
+# Table A: Accuracy by Card (The Leaderboard)
+card_accuracy_summary <- diagnostic_pool %>%
+  group_by(card_id, model, volatility_tier, diagnostic_run_date) %>% 
+  summarize(
+    mape = round(mean(ape, na.rm = TRUE), 4),
+    max_error = round(max(ape, na.rm = TRUE), 4),
+    .groups = "drop"
+  )
+
+# Table B: Accuracy by Target Date (The Event Monitor)
+daily_performance_summary <- diagnostic_pool %>%
+  group_by(target_date, model, diagnostic_run_date) %>% 
+  summarize(
+    daily_mape = round(mean(ape, na.rm = TRUE), 4),
+    .groups = "drop"
+  )
+
+# Table C: Volatility History (Tracking Regime Shifts)
+card_volatility_history <- volatility_metrics %>% 
+  mutate(diagnostic_run_date = current_run_timestamp)
+
+# Table D: Horizon Degradation (Model Selection)
+model_degradation_summary <- diagnostic_pool %>%
+  group_by(model, day_offset, volatility_tier, diagnostic_run_date) %>% 
+  summarize(
+    horizon_mape = round(mean(ape, na.rm = TRUE), 4), 
+    .groups = "drop"
+  )
+# ==========================================
+# 6. PUSH TO NEON (SMART APPEND)
+# ==========================================
+print("☁️ Syncing diagnostics to Neon...")
+
+# List of tables to sync
+tables_to_sync <- list(
+  "card_accuracy_summary" = card_accuracy_summary,
+  "daily_performance_summary" = daily_performance_summary,
+  "card_volatility_history" = card_volatility_history,
+  "model_degradation_summary" = model_degradation_summary
 )
 
+for (table_name in names(tables_to_sync)) {
+  df <- tables_to_sync[[table_name]]
+  
+  if (dbExistsTable(con, table_name)) {
+    # SAFETY CHECK: Remove existing data for TODAY only 
+    # This makes the script 'idempotent' (you can run it 100x today and only get 1 set of rows)
+    delete_query <- glue::glue_sql("DELETE FROM {`table_name`} WHERE diagnostic_run_date = {current_run_timestamp}", .con = con)
+    dbExecute(con, delete_query)
+    
+    print(glue::glue("Checking for existing data in {table_name}... Any rows for today were cleared. Appending..."))
+    dbWriteTable(con, table_name, df, append = TRUE, row.names = FALSE)
+  } else {
+    # If the table doesn't exist at all, create it
+    print(glue::glue("Table {table_name} does not exist. Creating it now..."))
+    dbWriteTable(con, table_name, df, row.names = FALSE)
+  }
+}
 
-# ==========================================
-# 3. ERROR BY CARD MARKET AGE PLOT
-# ==========================================
-p_age <- ggplot(diagnostic_data, aes(x = days_since_release, y = MAPE, color = model)) +
-  geom_jitter(alpha = 0.5, size = 2, width = 4, height = 0) + 
-  geom_smooth(method = "loess", se = FALSE, size = 1.5) +
-  scale_y_continuous(labels = label_percent(), limits = c(0, 0.4)) +
-  scale_color_manual(values = c("Single GRU" = "#e74c3c", "GRU Ensemble" = "#9b59b6", "Chronos" = "#3498db")) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom") +
-  labs(
-    title = "Forecast Error vs. Official Market Age", 
-    subtitle = "Tracking prediction accuracy against the true age of the card since release.",
-    x = "Days Since Official Set Release", 
-    y = "Average 30-Day MAPE", 
-    color = "Model"
-  )
-
-print(p_age)
-
-
-# ==========================================
-# 4. FULL-SPAN VOLATILITY ARCHETYPES PLOT
-# ==========================================
-exemplar_cards <- daily_error_data %>%
-  group_by(volatility_label) %>%
-  summarize(card_id = first(card_id), card_label = first(card_label), .groups = "drop")
-
-exemplar_indexed <- history_df %>%
-  filter(card_id %in% exemplar_cards$card_id) %>%
-  left_join(exemplar_cards, by = "card_id") %>%
-  group_by(card_id) %>%
-  arrange(date) %>%
-  mutate(price_index = price / first(price)) %>%
-  ungroup()
-
-p_vol <- ggplot(exemplar_indexed, aes(x = date, y = price_index, color = volatility_label, group = card_id)) +
-  geom_line(size = 1.1) +
-  geom_hline(yintercept = 1.0, linetype = "dashed", alpha = 0.5) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom") +
-  scale_color_viridis_d(option = "viridis", end = 0.8) + 
-  labs(title = "Standardized Lifetime Volatility Tiers", x = "Date", y = "Price Index", color = "Tier")
-
-print(p_vol)
-
-
-# ==========================================
-# 5. FORECAST DEGRADATION BY LIFETIME VOLATILITY PLOT
-# ==========================================
-daily_mape_summary <- daily_error_data %>%
-  group_by(day_offset, model, volatility_label) %>%
-  summarize(Daily_MAPE = mean(APE, na.rm = TRUE), .groups = "drop")
-
-p_deg <- ggplot(daily_mape_summary, aes(x = day_offset, y = Daily_MAPE, color = model)) +
-  geom_line(size = 1.2) +
-  geom_point(size = 2, alpha = 0.8) +
-  facet_wrap(~volatility_label, ncol = 3) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom") +
-  scale_y_continuous(labels = label_percent()) +
-  scale_color_manual(values = c("Single GRU" = "#e74c3c", "GRU Ensemble" = "#9b59b6", "Chronos" = "#3498db")) +
-  labs(title = "Forecast Degradation by Lifetime Volatility", x = "Days into Future", y = "Daily MAPE", color = "Model")
-
-print(p_deg)
-
-
-# ==========================================
-# 6. UNMASKING UNCERTAINTY (FAN CHART)
-# ==========================================
-fan_data <- daily_error_data %>%
-  group_by(model, day_offset) %>%
-  summarize(
-    median_ape = median(APE),
-    p75_ape = quantile(APE, 0.75), 
-    p90_ape = quantile(APE, 0.90), 
-    .groups = "drop"
-  )
-
-p_fan <- ggplot(fan_data, aes(x = day_offset)) +
-  geom_ribbon(aes(ymin = median_ape, ymax = p90_ape, fill = model), alpha = 0.2) +
-  geom_ribbon(aes(ymin = median_ape, ymax = p75_ape, fill = model), alpha = 0.4) +
-  geom_line(data = baseline_daily_mape, aes(x = day_offset, y = mean_ape, linetype = baseline_type), color = "#2c3e50", size = 1) +
-  geom_line(aes(y = median_ape, color = model), size = 1.2) +
-  facet_wrap(~ model, ncol = 3) +
-  scale_y_continuous(labels = label_percent(), limits = c(0, 0.25)) +
-  scale_fill_manual(values = c("Single GRU" = "#e74c3c", "GRU Ensemble" = "#9b59b6", "Chronos" = "#3498db")) +
-  scale_color_manual(values = c("Single GRU" = "#c0392b", "GRU Ensemble" = "#8e44ad", "Chronos" = "#2980b9")) +
-  scale_linetype_manual(values = c("Persistence" = "dotted", "30-Day MA" = "longdash")) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom", legend.box = "vertical") +
-  labs(title = "Full Portfolio: Models vs. Statistical Baselines", x = "Days into Future", y = "APE")
-
-print(p_fan)
+dbDisconnect(con)
+print("✨ Smart sync complete! Historical data preserved, today's run updated.")

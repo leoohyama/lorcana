@@ -14,7 +14,6 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          # This ensures we have the full history, which helps with larger pushes
           fetch-depth: 0
 
       - name: 🔧 Fix Git Buffer (Prevents 400 Error)
@@ -22,6 +21,9 @@ jobs:
           git config --local http.postBuffer 524288000
           git config --local core.compression 0
 
+      # ==========================================
+      # PHASE 0: DATA PREPARATION
+      # ==========================================
       - name: 📊 1. Run PyTorch Preprocessing (Neon DB)
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
@@ -32,12 +34,36 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript chronos_data_processing.R
 
-      - name: 🤖 3. Run Chronos Inference
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
-
-      - name: 🧠 4. Run GRU Training
+      # ==========================================
+      # PHASE 1: BACKTESTING (Looking Backward)
+      # ==========================================
+      - name: 🧠 3. Train GRU & Generate Backtest CSVs
         run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
 
+      - name: ⏱️ 4. Run Chronos Backtest CSVs
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_backtest.py
+
+      - name: 📈 5. Calculate & Push Diagnostics to Neon
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript model_diagnostics.R
+
+      # ==========================================
+      # PHASE 2: INFERENCE (Looking Forward)
+      # ==========================================
+      - name: 🔮 6. Run GRU Future Inference & Push to Neon
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python daily_inference_gru.py
+
+      - name: 🚀 7. Run Chronos Future Inference & Push to Neon
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
+
+      # ==========================================
+      # PHASE 3: BACKUP & COMMIT
+      # ==========================================
       - name: 💾 Save Model Weights Locally (Backup)
         run: |
           BACKUP_DIR="$HOME/Documents/lorcana_model_backups/$(date +'%Y-%m-%d_%H-%M')"
@@ -45,11 +71,9 @@ jobs:
           cp data/pytorch/*.pth "$BACKUP_DIR/"
           echo "✨ Models successfully backed up to: $BACKUP_DIR"
 
-      - name: 🚀 5. Sync and Push Results to GitHub
+      - name: 📦 8. Sync and Push Results to GitHub
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🤖 Auto-update: Latest Lorcana forecasts and Neon data"
-          # Explicitly listing the patterns ensures your .pth files are included
-          file_pattern: 'data/pytorch/*.pth data/*.csv'
-          # This helps if the runner is in a detached state
+          commit_message: "🤖 Auto-update: Latest Lorcana forecasts, backtests, and Neon sync"
+          file_pattern: 'data/pytorch/*.pth data/pytorch/*.csv data/*.csv'
           push_options: '--force'
