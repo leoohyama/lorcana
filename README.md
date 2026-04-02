@@ -42,33 +42,37 @@ Disney characters are globally recognized, evoking powerful emotional connection
 
 # Data Pipeline & Architecture
 
-The ingestion and storage architecture relies on sourcing data from two locations, processing it, and storing it in a cloud database for visual consumption.
+The ingestion, storage, and modeling architecture operates on a hybrid local-cloud setup. A dedicated local server handles high-frequency data extraction and feature engineering, while cloud infrastructure supports the public-facing dashboard.
 
 ### The Pipeline Flow:
-1.  **Sourcing:** Data is retrieved daily from **eBay** and **JustTCG**.
-2.  **Processing:** The data is cleaned and filtered.
-3.  **Storage:** Processed data is uploaded to a **PostgreSQL database (Neon)**.
-4.  **Deployment:** A **Shiny app**, deployed via Posit Connect Cloud, accesses the database to summarize and visualize the data.
+1.  **Sourcing (Local Runner):** A dedicated MacBook server acts as a local runner, retrieving data daily from **eBay** and **JustTCG**.
+2.  **Processing & Local Storage:** The data is cleaned, filtered for outliers, and stored in a persistent local database (e.g., PostgreSQL/DuckDB). This creates a rich historical ledger crucial for training machine learning models.
+3.  **Cloud Storage Sync:** Processed, analysis-ready data is uploaded to a cloud **PostgreSQL database (Neon)**.
+4.  **Deployment:** A **Shiny app**, deployed via Posit Connect Cloud, accesses the Neon database to summarize and visualize the market data.
 
 ## Data Sources
 
-* **eBay:** Listings are downloaded daily using the developer API. The data is cleaned and filtered to minimize outliers (e.g., extremely high "Buy It Now" or "Best Offer" prices) and ensure listings represent specified cards accurately.
+* **eBay:** Listings are downloaded using the developer API. The data is cleaned and filtered to minimize outliers (e.g., extremely high "Buy It Now" or "Best Offer" prices) and ensure listings represent specified cards accurately.
 * **JustTCG:** This API provides daily updates on average card pricing. These averages are used to cross-reference and stabilize the raw eBay listing data.
 
 ## Automation
 
-All API downloads, data processing, and database uploads are managed automatically via **GitHub Actions**.
+Pipeline tasks are automated using a combination of local cron scheduling (for database ingestion and model training on the local runner) and **GitHub Actions** (for CI/CD and cloud synchronization).
 
 ---
 
 # Forecasting Models
 
-*(Section in development. More details coming soon!)*
+Because the Lorcana market is relatively new and subject to rapid hype cycles, this project approaches price forecasting as a time-series problem influenced by both historical price momentum and static card attributes. 
 
-Notes for self
+We currently evaluate and deploy two distinct forecasting architectures to predict 30-day price trajectories:
 
-Currently approaching forecasting in two ways. 
+### 1. Hybrid Gated Recurrent Unit (GRU)
+To establish a custom baseline for the relatively smaller TCG dataset, we developed a Hybrid GRU model using PyTorch. 
+* **Mechanism:** Unlike standard RNNs, this model ingests both temporal data (the historical sequence of market prices) and static metadata (card attributes such as rarity, character, and ink color). 
+* **Advantage:** By concatenating static embeddings with the recurrent outputs, the model can better contextualize price movements. For example, it learns that a sharp price increase for an "Enchanted" card behaves differently than a similar percentage increase for a "Rare" card.
 
-1. Use recurrent neural networks, specifically gated recurrent units (GRU) to forecast price predictions for 30 days. This was chosen to just prototype and see what was possible given a relatively smaller dataset. Additionally the GRU that is trained is a hybrid GRU that uses both sequences of prices and static data (card attributes such as rarity, character).
-
-2. Use a pre-trained transformer model, Chronos, that is fed all available price data for a given card tp produce a 30 day forecase. 
+### 2. Pre-trained Transformer Model (Amazon Chronos)
+To leverage the power of foundational models, we implemented **Chronos**, a time-series forecasting framework based on language model architectures.
+* **Mechanism:** Chronos tokenizes time-series values into discrete buckets and trains a transformer model to predict the next tokens. We feed the model all available historical price data for a given card.
+* **Advantage:** Because Chronos is pre-trained on a massive corpus of open-domain time-series data, it provides strong zero-shot forecasting capabilities, helping to generate robust 30-day forecasts even for newer cards with limited historical data.
