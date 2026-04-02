@@ -1,0 +1,42 @@
+name: Daily Time-Series Metrics ETL
+
+on:
+  workflow_run:
+    # REPLACE THIS with the exact 'name:' found inside your pull_prices.yml file
+    workflows: ["JustTCG Daily Price Pull (Cloud Edition)"] 
+    types:
+      - completed
+  
+  # Allows you to manually trigger the math script from the GitHub Actions tab if needed
+  workflow_dispatch: 
+
+jobs:
+  calculate-metrics:
+    # This prevents the script from running if the price pull failed!
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install System Dependencies for PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install required R packages
+        run: |
+          install.packages(c("DBI", "RPostgres", "tidyverse", "pracma", "moments"))
+        shell: Rscript {0}
+
+      - name: Run Metrics ETL Script
+        env:
+          # Pulls the password securely from your GitHub Secrets
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript update_ts_metrics.R
