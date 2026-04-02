@@ -2,8 +2,6 @@ name: JustTCG Daily Price Pull (Cloud Edition)
 
 on:
   schedule:
-    # Runs at 05:00 UTC (1:00 AM Eastern Time) 
-    # This gives the markets time to reset after midnight
     - cron: '0 5 * * *'
   workflow_dispatch: 
 
@@ -23,7 +21,7 @@ jobs:
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: 'release'
-          use-public-rspm: true # Vital for fast tidyverse installs on Linux
+          use-public-rspm: true 
 
       - name: Install R Dependencies
         uses: r-lib/actions/setup-r-dependencies@v2

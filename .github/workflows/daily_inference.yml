@@ -1,14 +1,18 @@
 name: Daily Lorcana Market Inference
 
 on:
-  schedule:
-    - cron: '0 3 * * *' # Runs at 03:00 UTC every day
+  workflow_run:
+    workflows: ["JustTCG Daily Price Pull (Cloud Edition)"]
+    types:
+      - completed
   workflow_dispatch: 
 
 jobs:
   run-inference-pipeline:
     runs-on: self-hosted
     timeout-minutes: 30 
+    # CRITICAL: Only run if the price pull succeeded, or if you clicked the manual button
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: 📥 Checkout Repository
@@ -16,7 +20,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # --- DATA PREP (Needed daily to get the newest prices) ---
       - name: 📊 1. Run PyTorch Preprocessing
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
@@ -27,7 +30,6 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript chronos_data_processing.R
 
-      # --- FAST INFERENCE (Uses weights saved by the weekly run) ---
       - name: 🔮 3. Run GRU Future Inference
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
@@ -38,10 +40,14 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
 
-      # --- COMMIT PREPROCESSED DATA (Optional but good for syncing) ---
-      - name: 📦 5. Sync Daily Data to GitHub
+      - name: 🧮 5. Calculate Live Residuals (Neon DB)
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript update_residuals.R
+
+      - name: 📦 6. Sync Daily Data to GitHub
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "📈 Auto-infer: Daily forecasts uploaded to Neon"
+          commit_message: "📈 Auto-infer: Daily forecasts & residuals uploaded to Neon"
           file_pattern: 'data/*.csv'
           push_options: '--force'

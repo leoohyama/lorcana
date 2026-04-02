@@ -2,7 +2,7 @@ name: Weekly Lorcana Training & Diagnostics
 
 on:
   schedule:
-    - cron: '0 2 * * 0' # Runs at 02:00 UTC every Sunday
+    - cron: '0 8 * * 0' # Runs at 08:00 UTC every Sunday
   workflow_dispatch: 
 
 jobs:
@@ -21,7 +21,6 @@ jobs:
           git config --local http.postBuffer 524288000
           git config --local core.compression 0
 
-      # --- DATA PREP ---
       - name: 📊 1. Run PyTorch Preprocessing
         env:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
@@ -32,7 +31,6 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript chronos_data_processing.R
 
-      # --- TRAINING & BACKTESTING ---
       - name: 🧠 3. Train GRU & Generate Backtests
         run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
 
@@ -44,7 +42,6 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript model_diagnostics.R
 
-      # --- BACKUP & COMMIT ---
       - name: 💾 Save Model Weights Locally
         run: |
           BACKUP_DIR="$HOME/Documents/lorcana_model_backups/$(date +'%Y-%m-%d_%H-%M')"
