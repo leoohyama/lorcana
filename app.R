@@ -45,7 +45,7 @@ ui <- page_navbar(
       .nav-underline .nav-link.active { color: #18bc9c !important; font-weight: bold; border-bottom: 3px solid #18bc9c !important; opacity: 1; }
       
       /* --- Card Widgets --- */
-      .flip-card { width: 150px; height: 242px; perspective: 1000px; cursor: pointer; }
+      .flip-card { width: 180px; height: 252px; perspective: 1000px; cursor: pointer; }
       .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
       .flip-card-inner.is-flipped { transform: rotateY(180deg); }
       .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.6); }
@@ -69,7 +69,7 @@ ui <- page_navbar(
 
   nav_panel(title = "Market Overview", value = "Market Overview",
     layout_columns(
-      col_widths = c(10, 2), # TIGHTENED COLUMN WIDTH
+      col_widths = c(10, 2), 
       div(
         uiOutput("momentum_statement"),
         navset_card_underline(
@@ -94,7 +94,29 @@ ui <- page_navbar(
   nav_panel(title = "Pricing", value = "Pricing",
     layout_sidebar(
       sidebar = sidebar(title = "Pricing Selection", uiOutput("pricing_selector_ui"), hr(), checkboxGroupInput("show_models", "Forecasts:", choices = c("Chronos (Dashed)", "GRU (Dotted)"), selected = "Chronos (Dashed)")),
-      layout_columns(col_widths = c(9, 3), card(card_header("Market History & Forecasts"), plotlyOutput("pricing_plot", height = "600px")), card(card_header("Selected Cards"), div(style = "height: 600px; overflow-y: auto; overflow-x: hidden;", uiOutput("pricing_images_ui"))))
+      layout_columns(
+        col_widths = c(9, 3), 
+        div(
+          card(card_header("Market History & Forecasts"), plotlyOutput("pricing_plot", height = "600px")),
+          # NEW: Advanced Metrics Dictionary / Guide
+          accordion(
+            open = FALSE,
+            accordion_panel(
+              title = "Advanced Time-Series Metrics Guide",
+              icon = icon("info-circle"),
+              HTML("
+                <div style='color: #ecf0f1; font-size: 14px; padding: 10px;'>
+                  <p><strong style='color:#18bc9c;'>Sample Entropy (Chaos):</strong> Measures how noisy or unpredictable the price is. <em>Lower</em> means smooth/predictable. <em>Higher</em> means erratic market noise.</p>
+                  <p><strong style='color:#18bc9c;'>Hurst Exponent (Memory):</strong> Measures the long-term trend. <em>> 0.5</em> indicates a strong ongoing trend (persistent). <em>< 0.5</em> means the price swings back and forth (mean-reverting). <em>~0.5</em> is a random walk.</p>
+                  <p><strong style='color:#18bc9c;'>Volatility (CV):</strong> The standard deviation divided by the mean. It normalizes the price swings so you can directly compare the risk of a $5 card against a $200 card evenly.</p>
+                  <p><strong style='color:#18bc9c;'>Skewness (Surprises):</strong> <em>Positive</em> skew means the card is prone to sudden upward spikes (hype). <em>Negative</em> skew indicates sudden flash crashes or sell-offs.</p>
+                </div>
+              ")
+            )
+          )
+        ),
+        card(card_header("Selected Cards"), div(style = "height: 750px; overflow-y: auto; overflow-x: hidden;", uiOutput("pricing_images_ui")))
+      )
     )
   )
 )
@@ -111,7 +133,6 @@ server <- function(input, output, session) {
       password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
   }
 
-  # --- GLOBAL DARK THEME FUNCTION ---
   my_dark_theme <- function() {
     theme_minimal() +
     theme(
@@ -128,13 +149,11 @@ server <- function(input, output, session) {
     )
   }
 
-  # --- 1. SUPER LEAN SUMMARY DATA ---
   summary_data <- eventReactive(input$refresh_db, ignoreNULL = FALSE, {
     withProgress(message = 'Crunching Market Summaries...', value = 0.5, {
       con <- get_neon_con()
       
       vol_hist <- dbGetQuery(con, "SELECT date_pulled, is_graded, count(*) as n FROM lorcana_active_listings GROUP BY date_pulled, is_graded")
-      
       df_cap_raw <- dbGetQuery(con, "SELECT id, date_pulled FROM lorcana_active_listings WHERE is_graded IN ('No', 'false', '0')")
       latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
       past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
@@ -152,7 +171,6 @@ server <- function(input, output, session) {
     })
   })
 
-  # --- 2. ON-DEMAND DETAIL PULLS ---
   card_details <- reactive({
     req(input$selected_card)
     id_char <- master_dict$id[master_dict$cardname == input$selected_card][1]
@@ -170,17 +188,22 @@ server <- function(input, output, session) {
     id_list <- paste(ids, collapse = ",")
     id_str_list <- paste0("'", ids, "'", collapse = ",")
     
-    withProgress(message = "Pulling Price History...", {
+    withProgress(message = "Pulling Price History & Metrics...", {
       con <- get_neon_con()
       hist <- dbGetQuery(con, sprintf("SELECT tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE tcgplayer_id IN (%s)", id_list))
       chronos <- tryCatch(dbGetQuery(con, sprintf("SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE card_id IN (%s)", id_str_list)), error = function(e) data.frame())
       gru <- tryCatch(dbGetQuery(con, sprintf("SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE card_id IN (%s)", id_str_list)), error = function(e) data.frame())
+      
+      # NEW: Pull advanced metrics for selected cards
+      metrics <- tryCatch(dbGetQuery(con, sprintf("SELECT * FROM card_ts_metrics WHERE tcgplayer_id IN (%s)", id_list)), error = function(e) data.frame())
+      
       dbDisconnect(con)
       
       list(
         hist = hist %>% mutate(pull_date = as.Date(pull_date)) %>% left_join(master_dict, by = "tcgplayer_id"),
         chronos = if(nrow(chronos) > 0) chronos %>% mutate(target_date = as.Date(target_date), tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% group_by(tcgplayer_id) %>% filter(run_id == max(run_id)) %>% ungroup() else chronos,
-        gru = if(nrow(gru) > 0) gru %>% mutate(target_date = as.Date(target_date), tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% group_by(tcgplayer_id) %>% filter(run_id == max(run_id)) %>% ungroup() else gru
+        gru = if(nrow(gru) > 0) gru %>% mutate(target_date = as.Date(target_date), tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% group_by(tcgplayer_id) %>% filter(run_id == max(run_id)) %>% ungroup() else gru,
+        metrics = metrics
       )
     })
   })
@@ -196,7 +219,6 @@ server <- function(input, output, session) {
     })
   })
 
-  # --- MOVERS LOGIC ---
   market_movers <- reactive({
     req(summary_data())
     s <- summary_data()
@@ -412,15 +434,35 @@ server <- function(input, output, session) {
       ) %>% config(displayModeBar = FALSE)
   })
   
+  # NEW: Inject advanced metrics underneath each selected card image
   output$pricing_images_ui <- renderUI({ 
-    req(input$pricing_selected_cards)
+    req(input$pricing_selected_cards, pricing_details())
     info <- master_dict %>% filter(cardname %in% input$pricing_selected_cards)
+    metrics_data <- pricing_details()$metrics
+    
     ims <- purrr::map(1:nrow(info), function(i) { 
-      tags$div(style="margin-bottom:25px;", 
+      c_id <- info$tcgplayer_id[i]
+      m_row <- if(!is.null(metrics_data) && nrow(metrics_data) > 0) metrics_data %>% filter(tcgplayer_id == c_id) else data.frame()
+      
+      metrics_html <- if(nrow(m_row) > 0) {
+        tags$div(
+          style = "margin-top: 15px; background: #2b3e50; padding: 12px; border-radius: 8px; width: 100%; font-size: 13px; color: #ecf0f1; text-align: left; border: 1px solid #34495e;",
+          tags$div(tags$strong(style="color:#18bc9c;", "Entropy: "), m_row$samp_entropy),
+          tags$div(tags$strong(style="color:#18bc9c;", "Hurst: "), m_row$hurst_exp),
+          tags$div(tags$strong(style="color:#18bc9c;", "Vol (CV): "), m_row$cv),
+          tags$div(tags$strong(style="color:#18bc9c;", "Skew: "), m_row$skewness)
+        )
+      } else {
+        tags$div(style = "margin-top: 15px; font-size: 12px; font-style: italic; color: #bbb;", "Metrics not calculated yet.")
+      }
+      
+      tags$div(style="margin-bottom:30px; display:flex; flex-direction:column; align-items:center; width: 100%;", 
                tags$img(src=paste0("card_photos/", info$folder_name[i], "/", info$id[i], ".avif"), style="width:180px; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.6);"), 
-               div(style="font-size:13px; font-weight:bold; color:#bbb; text-align:center; margin-top:10px;", info$cardname[i])) 
+               div(style="font-size:14px; font-weight:bold; color:#bbb; text-align:center; margin-top:10px;", info$cardname[i]),
+               HTML(as.character(metrics_html))
+      ) 
     })
-    div(style="display:flex; flex-direction:column; align-items:center;", ims) 
+    div(style="display:flex; flex-direction:column; align-items:center; padding-top: 10px;", ims) 
   })
 }
 
