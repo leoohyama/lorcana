@@ -1,6 +1,6 @@
 # Lorcana Market Data Analysis & Forecasting
 
-This repository contains scripts and workflows designed to analyze market data for the Disney Lorcana Trading Card Game (TCG).
+This repository contains scripts and workflows designed to analyze market data for the Disney Lorcana Trading Card Game (TCG) using a hybrid local-cloud architecture and deep learning forecasting models.
 
 ### Project Objectives
 
@@ -17,14 +17,12 @@ This repository contains scripts and workflows designed to analyze market data f
 
 # Context & Market Dynamics
 
-Trading card games (TCGs) like Pokémon, Yu-Gi-Oh!, and Magic: The Gathering provide entertainment for both players and collectors. Introduced in 2023, **Disney Lorcana** leverages Disney's vast library of intellectual property. Due to the wide appeal of Disney characters across movies and television, Lorcana cards have been quickly adopted by collectors.
+Trading card games (TCGs) like Pokémon, Yu-Gi-Oh!, and Magic: The Gathering provide entertainment for both players and collectors. Introduced in 2023, **Disney Lorcana** leverages Disney's vast library of intellectual property. 
 
 The secondary market for these cards is both volatile and speculative. Several key factors drive this market:
 
 ### 1. Rarity
-The rarity of a card is determined by its pull rate (how often it appears when opening booster packs). For example, some cards are found in only 1 out of 96 packs. With packs costing between $4–$8 USD, the cost of finding specific rare cards can be high.
-
-Lorcana utilizes several rarity classifications, including: "Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic".
+The rarity of a card is determined by its pull rate. Lorcana utilizes several rarity classifications, including: "Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic".
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/75a184fa-0ac4-4f5a-aeb0-7a4f7dd58c29" alt="Mickey Mouse Brave Little Tailor Card (Iconic Rarity)" width="269" height="375" />
@@ -32,11 +30,8 @@ Lorcana utilizes several rarity classifications, including: "Common", "Uncommon"
   <em>Example: Mickey Mouse - Brave Little Tailor (Iconic Rarity)</em>
 </p>
 
-### 2. Artwork
-Certain cards feature special or alternative artwork, often tied to their rarity. This makes them highly exclusive and provides a strong incentive for collectors.
-
-### 3. Nostalgia
-Disney characters are globally recognized, evoking powerful emotional connections. Cards representing these beloved characters possess significant intrinsic value to collectors who grew up watching them.
+### 2. Artwork & Nostalgia
+Special artwork and beloved Disney characters evoke powerful emotional connections, creating significant intrinsic value and high demand among collectors.
 
 ---
 
@@ -51,28 +46,47 @@ The ingestion, storage, and modeling architecture operates on a hybrid local-clo
 4.  **Deployment:** A **Shiny app**, deployed via Posit Connect Cloud, accesses the Neon database to summarize and visualize the market data.
 
 ## Data Sources
-
-* **eBay:** Listings are downloaded using the developer API. The data is cleaned and filtered to minimize outliers (e.g., extremely high "Buy It Now" or "Best Offer" prices) and ensure listings represent specified cards accurately.
-* **JustTCG:** This API provides daily updates on average card pricing. These averages are used to cross-reference and stabilize the raw eBay listing data.
+* **eBay:** Listings are downloaded daily using the developer API and filtered to minimize outliers.
+* **JustTCG:** This API provides daily updates on average card pricing, used to cross-reference and stabilize raw eBay data.
 
 ## Automation
-
-Pipeline tasks are automated using a combination of local cron scheduling (for database ingestion and model training on the local runner) and **GitHub Actions** (for CI/CD and cloud synchronization).
+Pipeline tasks are automated using local cron scheduling for ingestion and model training, and **GitHub Actions** for CI/CD and cloud synchronization.
 
 ---
 
 # Forecasting Models
 
-Because the Lorcana market is relatively new and subject to rapid hype cycles, this project approaches price forecasting as a time-series problem influenced by both historical price momentum and static card attributes. 
-
-We currently evaluate and deploy two distinct forecasting architectures to predict 30-day price trajectories:
+We approach price forecasting as a time-series problem influenced by both historical price momentum and static card attributes. We currently evaluate two distinct forecasting architectures:
 
 ### 1. Hybrid Gated Recurrent Unit (GRU)
-To establish a custom baseline for the relatively smaller TCG dataset, we developed a Hybrid GRU model using PyTorch. 
-* **Mechanism:** Unlike standard RNNs, this model ingests both temporal data (the historical sequence of market prices) and static metadata (card attributes such as rarity, character, and ink color). 
-* **Advantage:** By concatenating static embeddings with the recurrent outputs, the model can better contextualize price movements. For example, it learns that a sharp price increase for an "Enchanted" card behaves differently than a similar percentage increase for a "Rare" card.
+A custom PyTorch model designed to utilize more than just temporal sequences.
+* **Mechanism:** Ingests both temporal data (historical price sequences) and static metadata (rarity, character, and ink color).
+* **Advantage:** By concatenating static embeddings with recurrent outputs, the model better contextualizes movements (e.g., how "Enchanted" volatility differs from "Rare" cards).
 
-### 2. Pre-trained Transformer Model (Amazon Chronos)
-To leverage the power of foundational models, we implemented **Chronos**, a time-series forecasting framework based on language model architectures.
-* **Mechanism:** Chronos tokenizes time-series values into discrete buckets and trains a transformer model to predict the next tokens. We feed the model all available historical price data for a given card.
-* **Advantage:** Because Chronos is pre-trained on a massive corpus of open-domain time-series data, it provides strong zero-shot forecasting capabilities, helping to generate robust 30-day forecasts even for newer cards with limited historical data.
+### 2. Pre-trained Transformer (Amazon Chronos)
+We leverage **Chronos**, a time-series forecasting framework based on language model architectures.
+* **Mechanism:** Chronos tokenizes price values and uses a transformer to predict the next tokens. We feed the model all available historical price data for a given card.
+* **Advantage:** Provides strong zero-shot forecasting capabilities, which is essential for newer cards with limited local historical data.
+
+---
+
+# Training & Inference Schedule
+
+### Weekly Training
+The **GRU model** is trained on a growing dataset every week. Simultaneously, we run a weekly iteration of **Chronos** on the same dataset that the GRU training is fitted on.
+
+### Daily Inference
+* **GRU:** Forecasts are updated daily using the model weights established during the weekly training session.
+* **Chronos:** We use zero-shot forecasting on a daily schedule to generate the newest 30-day forecasts.
+
+---
+
+# Assessment of Forecast and Model Health
+
+### Weekly Training Validation
+During every weekly training session, we test the models against a hold-out test set. We collect performance metrics, specifically **Absolute Percentage Error**, to maintain a running assessment of model accuracy.
+
+### Monitoring
+This allows for a continuous evaluation of how the models are performing over time. Current monitoring focuses on:
+* **Model Accuracy:** Tracking the performance of the Hybrid GRU vs. Chronos.
+* **Individual Card Forecasts:** Identifying specific cards where price predictions are diverging significantly from actual market behavior.
