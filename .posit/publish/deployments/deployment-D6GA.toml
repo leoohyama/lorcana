@@ -11,8 +11,8 @@ id = '019d20fc-6f91-2655-2875-e9a4234976a7'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7'
 direct_url = 'https://019d20fc-6f91-2655-2875-e9a4234976a7.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7/history'
-deployed_at = '2026-04-02T15:19:31-04:00'
-bundle_id = '019d4fa2-a9b6-4197-121f-4dc26dfc5e53'
+deployed_at = '2026-04-03T13:37:49-04:00'
+bundle_id = '019d546b-e3c2-6c9b-2478-c1ed17ede564'
 files = [
   '.posit/publish/Lorcana Tracker-PCBI.toml',
   '.posit/publish/deployments/deployment-D6GA.toml',
