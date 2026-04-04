@@ -1,5 +1,13 @@
 # Lorcana Market Data Analysis & Forecasting
 
+Things to do:
+
+1. Utilize attention layer in gru to capture key events and weigh them more
+2. Work on structure to set up model confidence percentages for individual forecasts etc.
+3. Add a label showing when the model was last trained. 
+4. create a blue chip index to assess market health
+5. Keep fixing app aesthetics
+
 This repository contains scripts and workflows designed to analyze market data for the Disney Lorcana Trading Card Game (TCG) using a hybrid local-cloud architecture and deep learning forecasting models.
 
 ### Project Objectives
