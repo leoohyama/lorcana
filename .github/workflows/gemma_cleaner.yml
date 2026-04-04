@@ -28,4 +28,4 @@ jobs:
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         # 4. Point this to wherever you saved the script in your repo
         run: |
-          Rscript scripts/run_gemma_cleaner.R
+          Rscript run_gemma_cleaner.R
