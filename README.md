@@ -42,7 +42,13 @@ Trading card games (TCGs) like Pokémon, Yu-Gi-Oh!, and Magic: The Gathering pro
 The secondary market for these cards is both volatile and speculative. Key factors driving this market:
 
 ### 1. Rarity & Grading
-Lorcana utilizes several rarity classifications, including: "Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic". Beyond raw rarity, the "Graded" market (PSA, CGC, BGS) creates significant price premiums for high-quality "slabs."
+The rarity of a card is determined by its pull rate. Lorcana utilizes several rarity classifications, including: "Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic". Beyond raw rarity, the "Graded" market (PSA, CGC, BGS) creates significant price premiums for high-quality "slabs."
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/75a184fa-0ac4-4f5a-aeb0-7a4f7dd58c29" alt="Mickey Mouse Brave Little Tailor Card (Iconic Rarity)" width="269" height="375" />
+  <br>
+  <em>Example: Mickey Mouse - Brave Little Tailor (Iconic Rarity)</em>
+</p>
 
 ### 2. Artwork & Nostalgia
 Special artwork and beloved Disney characters evoke powerful emotional connections, creating significant intrinsic value and high demand among collectors.
