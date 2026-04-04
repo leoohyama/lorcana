@@ -1,4 +1,4 @@
-name: eBay Daily Market Float (Cloud Edition)
+name: eBay Daily Market Float (Cloud + Local AI)
 
 on:
   schedule:
@@ -6,6 +6,9 @@ on:
   workflow_dispatch: 
 
 jobs:
+  # ==========================================
+  # JOB 1: THE SCRAPER (Runs in the Cloud)
+  # ==========================================
   run-ebay-scraper:
     runs-on: ubuntu-latest
 
@@ -40,3 +43,26 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
         run: Rscript ebay_api_download.R
+
+  # ==========================================
+  # JOB 2: THE AI CLEANER (Runs on your Mac)
+  # ==========================================
+  run-gemma-cleaner:
+    needs: run-ebay-scraper # Crucial: This tells GitHub to wait until Job 1 finishes!
+    runs-on: self-hosted    # Routes the job to your MacBook Air runner
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Wake up Ollama
+        run: |
+          nohup /usr/local/bin/ollama serve > ollama.log 2>&1 &
+          sleep 5 
+          curl -I http://localhost:11434/ || echo "Ollama failed to start"
+
+      - name: Run Gemma Cleaner
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        # Update this path if your script is saved in a specific folder!
+        run: Rscript run_gemma_cleaner.R

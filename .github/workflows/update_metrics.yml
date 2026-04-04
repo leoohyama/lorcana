@@ -2,7 +2,7 @@ name: Daily Time-Series Metrics ETL
 
 on:
   workflow_run:
-    # REPLACE THIS with the exact 'name:' found inside your pull_prices.yml file
+   
     workflows: ["JustTCG Daily Price Pull (Cloud Edition)"] 
     types:
       - completed

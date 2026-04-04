@@ -5,7 +5,7 @@ library(DBI)
 library(RPostgres)
 
 # ==========================================
-# 1. THE UPDATED JSON GEMMA FUNCTION
+# 1. THE JSON GEMMA FUNCTION
 # ==========================================
 ask_gemma_json <- function(target_card, ebay_title) {
   
@@ -21,7 +21,6 @@ ask_gemma_json <- function(target_card, ebay_title) {
     "6. 'grade_value': Extract the numeric grade (e.g., '10', '9.5'). Output 'NA' if ungraded.\n\n",
     
     "EXAMPLES:\n",
-    # Notice the Target Cards now match your new format with the numbers!
     "Target Card: Alice - Growing Girl - Enchanted - 213\n",
     "eBay Title: 2023 DISNEY LORCANA EN 2-RISE OF THE FLOODBORN #213 ALICE - GROWING GIRL PSA 10\n",
     "JSON Output: {\"validity\": \"Match\", \"is_graded\": true, \"grading_company\": \"PSA\", \"grade_value\": \"10\"}\n\n",
@@ -29,10 +28,6 @@ ask_gemma_json <- function(target_card, ebay_title) {
     "Target Card: RLS Legacy - Solar Galleon - Enchanted - 216\n",
     "eBay Title: 1x RLS Legacy - Solar Galleon - 216/204 - Enchanted - Holofoil NM-Mint Disney Lorcana\n",
     "JSON Output: {\"validity\": \"Match\", \"is_graded\": false, \"grading_company\": \"NA\", \"grade_value\": \"NA\"}\n\n",
-    
-    "Target Card: Cinderella - Ballroom Sensation - Enchanted - 205\n",
-    "eBay Title: Lorcana Cinderella Ballroom Sensation Enchanted PSA 10 Gem Mint\n",
-    "JSON Output: {\"validity\": \"Match\", \"is_graded\": true, \"grading_company\": \"PSA\", \"grade_value\": \"10\"}\n\n",
     
     "Target Card: Goofy - Super Goof - Enchanted - 214\n",
     "eBay Title: 2025 DISNEY LORCANA EN 10-ENCHANTED #223 GOOFY - GALUMPHING GUMSHOE PSA 10\n",
@@ -73,7 +68,7 @@ ask_gemma_json <- function(target_card, ebay_title) {
 }
 
 # ==========================================
-# 2. LOAD DICTIONARY & FETCH DB SAMPLE
+# 2. DICTIONARY & NEW TABLE SETUP
 # ==========================================
 print("📂 Loading local master dictionary...")
 master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
@@ -95,49 +90,76 @@ con <- dbConnect(
   sslmode  = "require"
 )
 
-print("📥 Fetching 40 random listings from Neon...")
-query <- "
-  SELECT item_id, id, listing_title 
-  FROM lorcana_active_listings 
-  ORDER BY RANDOM() 
-  LIMIT 100
+# Create the new static metadata table if it doesn't exist.
+# item_id is the PRIMARY KEY, ensuring we never duplicate a listing's metadata.
+create_table_query <- "
+  CREATE TABLE IF NOT EXISTS llm_listing_metadata (
+    item_id VARCHAR PRIMARY KEY,
+    id VARCHAR,
+    is_valid BOOLEAN,
+    is_graded BOOLEAN,
+    grading_company VARCHAR,
+    grade_val VARCHAR
+  );
 "
-sample_raw <- dbGetQuery(con, query)
-dbDisconnect(con)
+dbExecute(con, create_table_query)
 
-test_sample <- sample_raw %>%
+# ==========================================
+# 3. FETCH UNIQUE ITEM IDs
+# ==========================================
+print("📥 Fetching unique item_ids missing from the metadata table...")
+
+# This query finds distinct item_ids in your raw data that do NOT exist in the new table yet.
+query <- "
+  SELECT DISTINCT a.item_id, a.id, a.listing_title 
+  FROM lorcana_active_listings a
+  LEFT JOIN llm_listing_metadata m ON a.item_id = m.item_id
+  WHERE m.item_id IS NULL
+"
+processing_queue <- dbGetQuery(con, query)
+
+if(nrow(processing_queue) == 0) {
+  print("✅ All unique listings have been checked! Exiting.")
+  dbDisconnect(con)
+  quit()
+}
+
+processing_queue <- processing_queue %>%
   left_join(master_dict, by = "id") %>%
-  select(item_id, cardname, listing_title) %>%
   drop_na(cardname, listing_title)
 
 # ==========================================
-# 3. RUN THE TEST
+# 4. EVALUATE & INSERT
 # ==========================================
-print(paste("🧠 Starting Gemma JSON Extraction on", nrow(test_sample), "rows..."))
+print(paste("🔎 Evaluating", nrow(processing_queue), "unique listings..."))
 
-verdict_list <- character(nrow(test_sample))
-graded_list <- logical(nrow(test_sample))
-company_list <- character(nrow(test_sample))
-grade_val_list <- character(nrow(test_sample))
-
-for (i in 1:nrow(test_sample)) {
-  cat(sprintf("\rEvaluating %d of %d...", i, nrow(test_sample)))
+for (i in 1:nrow(processing_queue)) {
   
-  result_list <- ask_gemma_json(test_sample$cardname[i], test_sample$listing_title[i])
+  curr_item_id <- processing_queue$item_id[i]
+  curr_id <- processing_queue$id[i]
+  curr_title <- processing_queue$listing_title[i]
+  curr_target <- processing_queue$cardname[i]
   
-  verdict_list[i] <- result_list$validity
-  graded_list[i] <- as.logical(result_list$is_graded)
-  company_list[i] <- result_list$grading_company
-  grade_val_list[i] <- as.character(result_list$grade_value)
+  cat(sprintf("\rProcessing %d of %d...", i, nrow(processing_queue)))
+  
+  result_list <- ask_gemma_json(curr_target, curr_title)
+  
+  is_valid_flag <- ifelse(result_list$validity == "Match", TRUE, FALSE)
+  is_graded_flag <- as.logical(result_list$is_graded)
+  company_val <- ifelse(result_list$grading_company == "NA" | is.na(result_list$grading_company), NA, result_list$grading_company)
+  grade_val <- ifelse(result_list$grade_value == "NA" | is.na(result_list$grade_value), NA, as.character(result_list$grade_value))
+  
+  # Insert into the new table. If the item_id somehow gets processed twice, DO NOTHING (safeguard).
+  # The SQL Fix: Use glue_sql to safely construct the query text locally
+  insert_query <- glue::glue_sql("
+    INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val)
+    VALUES ({curr_item_id}, {curr_id}, {is_valid_flag}, {is_graded_flag}, {company_val}, {grade_val})
+    ON CONFLICT (item_id) DO NOTHING;
+  ", .con = con)
+  
+  # Execute the raw text string directly
+  dbExecute(con, insert_query)
 }
-cat("\n✅ Done!\n")
 
-test_sample <- test_sample %>%
-  mutate(
-    llm_verdict = verdict_list,
-    is_graded = graded_list,
-    grading_company = na_if(company_list, "NA"),
-    grade = na_if(grade_val_list, "NA")
-  )
-
-View(test_sample)
+cat("\n✨ Complete! The new llm_listing_metadata table is fully populated.\n")
+dbDisconnect(con)
