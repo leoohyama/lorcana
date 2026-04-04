@@ -1,0 +1,31 @@
+name: Gemma 4 eBay Title Cleaner
+
+# 1. Triggers
+on:
+  workflow_dispatch: # Allows you to manually click a "Run" button to test it
+  schedule:
+    - cron: '0 4 * * *' # Runs automatically at 4:00 AM UTC every day
+
+jobs:
+  evaluate-titles:
+    # 2. Use your MacBook Air
+    runs-on: self-hosted 
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Wake up Ollama
+        # This ensures the Ollama API is running in the background of the runner
+        run: |
+          nohup ollama serve > ollama.log 2>&1 &
+          sleep 5 
+          curl -I http://localhost:11434/ || echo "Ollama failed to start"
+
+      - name: Run R Script
+        # 3. Inject the secret as an Environment Variable
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        # 4. Point this to wherever you saved the script in your repo
+        run: |
+          Rscript scripts/run_gemma_cleaner.R
