@@ -10,7 +10,7 @@
 ---
 
 ### Project Overview
-This repository contains a professional-grade data pipeline and forecasting engine for the Disney Lorcana TCG. It utilizes a **Hybrid Local-Cloud Architecture** that combines high-frequency cloud scraping with local **Large Language Model (LLM)** inference to ensure institutional-grade data cleanliness.
+This repository contains a data pipeline and forecasting engine for the Disney Lorcana TCG. It utilizes a **Hybrid Local-Cloud Architecture** that combines cloud scraping with local **Large Language Model (LLM)** inference to ensure institutional-grade data cleanliness.
 
 ### 🤖 AI Data Cleaning (Gemma 4.0)
 To solve the "noise" problem inherent in eBay TCG data (proxies, digital codes, and "repack" scams), this project utilizes **Gemma 4.0 (2B Effective)** running locally via **Ollama** on a self-hosted Apple Silicon runner. 
