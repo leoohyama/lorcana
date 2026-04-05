@@ -1,5 +1,22 @@
 # Lorcana Market Data Analysis & Forecasting
 
+
+
+## Table of Contents
+- [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
+- [Project Overview](#project-overview)
+  - [AI Data Cleaning (Gemma 4.0)](#-ai-data-cleaning-gemma-40)
+  - [System Architecture Workflow](#️-system-architecture-workflow)
+- [Context & Market Dynamics](#context--market-dynamics)
+  - [1. Rarity & Grading](#1-rarity--grading)
+  - [2. Artwork & Nostalgia](#2-artwork--nostalgia)
+- [Forecasting Models](#forecasting-models)
+  - [1. Hybrid Gated Recurrent Unit (GRU)](#1-hybrid-gated-recurrent-unit-gru)
+  - [2. Pre-trained Transformer (Amazon Chronos)](#2-pre-trained-transformer-amazon-chronos)
+- [My Training & Inference Schedule](#my-training--inference-schedule)
+  - [Monitoring & Health](#monitoring--health)
+
+
 ### 🎯 My Project Roadmap & To-Dos
 1.  **LLM Fine-Tuning:** I'm exploring LoRA (Low-Rank Adaptation) to see if I can train the **Gemma 4.0 2B** model to better handle "edge-case" Lorcana titles (like seller misspellings or weird promotional jargon that currently trips up the pipeline).
 2.  **Attention Mechanisms:** I want to try adding attention layers into my GRU architecture to see if it helps the model capture key market events and weigh them more heavily in the forecasts.
