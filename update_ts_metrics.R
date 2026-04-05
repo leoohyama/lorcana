@@ -6,6 +6,7 @@ library(RPostgres)
 library(tidyverse)
 library(pracma)  # For Sample Entropy and Hurst
 library(moments) # For Skewness
+library(glue)    # Added for pooler-safe SQL construction
 
 message(paste("Starting Metrics Job at", Sys.time()))
 
@@ -57,11 +58,8 @@ metrics_df <- df_prices %>%
   filter(n() >= 10) %>% # Require at least 10 days of history
   summarise(
     n_days        = n(),
-    # Round prices to 2 decimals
     current_price = round(last(market_price), 2),
     avg_price     = round(mean(market_price, na.rm = TRUE), 2),
-    
-    # Round ML metrics to 4 decimals
     cv            = round(sd(market_price, na.rm = TRUE) / mean(market_price, na.rm = TRUE), 4),
     samp_entropy  = round(safe_entropy(market_price), 4),
     hurst_exp     = round(safe_hurst(market_price), 4),
@@ -73,15 +71,75 @@ metrics_df <- df_prices %>%
     last_updated = Sys.Date() # Tag the run date
   )
 
-# --- 5. UPLOAD TO NEON ---
+# --- 5. UPLOAD TO NEON (POOLER-SAFE UPSERT) ---
 message("Uploading results to Neon table: 'card_ts_metrics'...")
 
-dbWriteTable(con, "card_ts_metrics", metrics_df, overwrite = TRUE, row.names = FALSE)
+# 5a. Create the table explicitly if it doesn't exist to define data types
+dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS card_ts_metrics (
+    tcgplayer_id VARCHAR PRIMARY KEY,
+    n_days INTEGER,
+    current_price NUMERIC,
+    avg_price NUMERIC,
+    cv NUMERIC,
+    samp_entropy NUMERIC,
+    hurst_exp NUMERIC,
+    lag1_corr NUMERIC,
+    skewness NUMERIC,
+    last_updated DATE
+  );
+")
 
+# 5b. If the table was previously created by dbWriteTable, it won't have a Primary Key. 
+# We try to add it safely so the ON CONFLICT logic works.
 tryCatch({
-  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_metrics_tcgid ON card_ts_metrics(tcgplayer_id)")
-}, error = function(e) message("Index already exists or couldn't be created."))
+  dbExecute(con, "ALTER TABLE card_ts_metrics ADD PRIMARY KEY (tcgplayer_id);")
+}, error = function(e) {
+  # Safe to ignore; means the PK already exists
+})
+
+# 5c. The Pooler-Safe Loop Update
+message(paste("Upserting", nrow(metrics_df), "rows securely..."))
+
+for (i in 1:nrow(metrics_df)) {
+  row <- metrics_df[i, ]
+  
+  # Handle NA conversions for SQL
+  curr_id <- as.character(row$tcgplayer_id)
+  curr_n_days <- as.integer(row$n_days)
+  curr_cp <- ifelse(is.na(row$current_price), NA, row$current_price)
+  curr_avg <- ifelse(is.na(row$avg_price), NA, row$avg_price)
+  curr_cv <- ifelse(is.na(row$cv), NA, row$cv)
+  curr_entropy <- ifelse(is.na(row$samp_entropy), NA, row$samp_entropy)
+  curr_hurst <- ifelse(is.na(row$hurst_exp), NA, row$hurst_exp)
+  curr_lag <- ifelse(is.na(row$lag1_corr), NA, row$lag1_corr)
+  curr_skew <- ifelse(is.na(row$skewness), NA, row$skewness)
+  curr_date <- as.character(row$last_updated)
+  
+  # Construct the raw text string locally
+  insert_query <- glue::glue_sql("
+    INSERT INTO card_ts_metrics (
+      tcgplayer_id, n_days, current_price, avg_price, cv, 
+      samp_entropy, hurst_exp, lag1_corr, skewness, last_updated
+    ) VALUES (
+      {curr_id}, {curr_n_days}, {curr_cp}, {curr_avg}, {curr_cv}, 
+      {curr_entropy}, {curr_hurst}, {curr_lag}, {curr_skew}, {curr_date}
+    )
+    ON CONFLICT (tcgplayer_id) DO UPDATE SET 
+      n_days = EXCLUDED.n_days,
+      current_price = EXCLUDED.current_price,
+      avg_price = EXCLUDED.avg_price,
+      cv = EXCLUDED.cv,
+      samp_entropy = EXCLUDED.samp_entropy,
+      hurst_exp = EXCLUDED.hurst_exp,
+      lag1_corr = EXCLUDED.lag1_corr,
+      skewness = EXCLUDED.skewness,
+      last_updated = EXCLUDED.last_updated;
+  ", .con = con)
+  
+  # Execute directly without preparing statements on the Neon server
+  dbExecute(con, insert_query)
+}
 
 dbDisconnect(con)
-
-message("Pipeline complete! Metrics successfully updated and rounded in the database.")
+message("✅ Pipeline complete! Metrics successfully updated in the database.")
