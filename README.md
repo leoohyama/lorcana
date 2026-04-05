@@ -81,6 +81,24 @@ I built a custom **PyTorch** model that tries to look at more than just the temp
 * **Mechanism:** It ingests both the temporal data (historical prices) and static metadata (like the card's rarity and ink color).
 * **Theory:** By concatenating static embeddings with the recurrent outputs, I'm hoping the model better contextualizes price movements (e.g., learning that an "Enchanted" card's volatility behaves very differently than a "Rare" card's).
 
+**Why a Hybrid GRU?**
+Standard time-series models treat every variable identically. Our hybrid approach separates the temporal data (price history) from the static metadata (card attributes):
+
+1.  **Temporal Branch:** A multi-layer GRU processes sequences of normalized price data and relative days.
+2.  **Static Branch:** Categorical attributes (Set, Rarity, Ink Cost) are mapped into dense vector spaces using PyTorch `nn.Embedding` layers. 
+3.  **The Merge:** The sequence features and static embeddings are concatenated and passed through a final multi-layer perceptron (MLP) to generate the 30-day forecast.
+
+#### The Attention Mechanism
+To handle the erratic nature of the secondary market—where a single buyout can dictate a month's trend—we implemented an **Additive Attention Mechanism** over the GRU outputs.
+
+Instead of relying solely on the final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day in the sequence. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts, ensuring that crucial historical signals are not lost in the sequence bottleneck.
+
+**Key Features of the Training Pipeline:**
+* **Time-Series Safe Splitting:** Data is sliced chronologically to prevent temporal leakage between the Train, Validation, and Test sets.
+* **Targeted Loss Function:** We utilize `SmoothL1Loss` (Huber Loss) to penalize standard errors while remaining robust against the massive outliers inherent to high-end TCG collectibles.
+* **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point, rather than predicting the raw absolute value, greatly improving stability.
+* **In-Place Validation:** Early stopping monitors validation loss to prevent overfitting on the limited dataset of Lorcana's relatively short market history.
+
 ### 2. Pre-trained Transformer (Amazon Chronos)
 I'm also experimenting with **Chronos**, a time-series forecasting framework built on language model architectures.
 * **Mechanism:** Chronos essentially tokenizes the price values and uses a transformer to predict the next tokens in the sequence. 
