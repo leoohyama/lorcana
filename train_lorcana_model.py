@@ -93,21 +93,39 @@ class LorcanaDataset(Dataset):
         print(f"Dataset {split.upper()} ready: {len(self.y)} sequences.")
 
     def __len__(self): return len(self.y)
-    # Return 8 items now, including the target dates
     def __getitem__(self, idx): return (self.X_dynamic[idx], self.X_cat[idx], self.X_cont[idx], self.y[idx], self.mins[idx], self.maxs[idx], self.card_ids[idx], self.target_dates[idx])
 
-# 4. ARCHITECTURE
+# 4. ARCHITECTURE (Hybrid GRU with Attention)
 class HybridLorcanaGRU(nn.Module):
     def __init__(self, vocab_sizes, pred_length=30, hidden_size=128, num_layers=2):
         super().__init__()
         self.gru = nn.GRU(2, hidden_size, num_layers, batch_first=True, dropout=0.4)
-        self.emb_set = nn.Embedding(vocab_sizes[0], 4); self.emb_rarity = nn.Embedding(vocab_sizes[1], 8); self.emb_ink = nn.Embedding(vocab_sizes[2], 2)
+        
+        # Additive Attention Layer
+        self.attention = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
+        )
+        
+        self.emb_set = nn.Embedding(vocab_sizes[0], 4)
+        self.emb_rarity = nn.Embedding(vocab_sizes[1], 8)
+        self.emb_ink = nn.Embedding(vocab_sizes[2], 2)
+        
         self.fc = nn.Sequential(nn.Linear(hidden_size + 16, 64), nn.ReLU(), nn.Dropout(0.5), nn.Linear(64, pred_length))
         
     def forward(self, x_d, x_ca, x_co):
         last_p = x_d[:, -1, 0].unsqueeze(1)
-        _, h = self.gru(x_d); embs = torch.cat([self.emb_set(x_ca[:, 0]), self.emb_rarity(x_ca[:, 1]), self.emb_ink(x_ca[:, 2])], dim=1)
-        return last_p + (torch.tanh(self.fc(torch.cat([h[-1], embs, x_co], dim=1))) * 0.1)
+        
+        out, _ = self.gru(x_d) 
+        
+        # Calculate Attention Weights and Context Vector
+        attn_weights = torch.softmax(self.attention(out), dim=1)
+        context = torch.sum(attn_weights * out, dim=1)
+        
+        embs = torch.cat([self.emb_set(x_ca[:, 0]), self.emb_rarity(x_ca[:, 1]), self.emb_ink(x_ca[:, 2])], dim=1)
+        
+        return last_p + (torch.tanh(self.fc(torch.cat([context, embs, x_co], dim=1))) * 0.1)
 
 # 5. DIAGNOSTIC CSV GENERATOR (HISTORICAL DATES)
 def generate_tidy_csv(model, dataloader, device, model_label, num_samples=100):
@@ -115,7 +133,6 @@ def generate_tidy_csv(model, dataloader, device, model_label, num_samples=100):
     rows = []
     
     with torch.no_grad():
-        # Dataloader now provides 8 items, including t_dates
         for x_d, x_ca, x_co, y, pmin, pmax, cids, t_dates in dataloader:
             x_d, x_ca, x_co, y = x_d.to(device), x_ca.to(device), x_co.to(device), y.to(device)
             
@@ -127,17 +144,14 @@ def generate_tidy_csv(model, dataloader, device, model_label, num_samples=100):
             med, low, high = np.median(samples, 0), np.percentile(samples, 10, 0), np.percentile(samples, 90, 0)
             
             for i in range(len(cids)):
-                # Convert the Unix timestamps back to pandas Datetime objects
                 card_dates = pd.to_datetime(t_dates[i].cpu().numpy(), unit='s')
-                
-                # The run date is logically the day before the first target date
                 run_date = card_dates[0].date() - datetime.timedelta(days=1)
                 
                 for day in range(30):
                     rows.append({
                         'card_id': cids[i], 
                         'run_date': run_date,
-                        'target_date': card_dates[day].date(), # The actual day the model was tested on!
+                        'target_date': card_dates[day].date(), 
                         'pred_price': round(float(med[i, day]), 2), 
                         'conf_low': round(float(low[i, day]), 2), 
                         'conf_high': round(float(high[i, day]), 2),
@@ -153,10 +167,12 @@ if __name__ == "__main__":
     vocabs = [int(temp_df[c].max() + 1) for c in ['set_idx', 'rarity_idx', 'ink_idx']]
     
     for seq_len in [15, 30, 45]:
-        print(f"\n{'='*50}\n🌊 STARTING TRAINING PIPELINE: {seq_len}-DAY WINDOW\n{'='*50}")
+        print(f"\n{'='*50}\n🌊 STARTING TRAINING PIPELINE: {seq_len}-DAY WINDOW (WITH ATTENTION)\n{'='*50}")
         
+        # Original labels
         label = f"GRU-{seq_len}" if seq_len != 30 else "Single GRU"
         
+        # Original paths so they overwrite perfectly
         weights_path = f'data/pytorch/lorcana_gru_weights_{seq_len}.pth'
         output_csv_path = f'data/pytorch/gru_forecast_tidy_{seq_len}.csv'
         
@@ -172,7 +188,7 @@ if __name__ == "__main__":
 
         for epoch in range(100):
             model.train(); t_loss = 0.0
-            for x_d, x_ca, x_co, y, _, _, _, _ in train_loader: # Unpack 8 items
+            for x_d, x_ca, x_co, y, _, _, _, _ in train_loader: 
                 optimizer.zero_grad()
                 loss = criterion(model(x_d.to(device), x_ca.to(device), x_co.to(device)), y.to(device))
                 loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5); optimizer.step()
@@ -180,7 +196,7 @@ if __name__ == "__main__":
             
             model.eval(); v_loss = 0.0
             with torch.no_grad():
-                for x_d, x_ca, x_co, y, _, _, _, _ in val_loader: # Unpack 8 items
+                for x_d, x_ca, x_co, y, _, _, _, _ in val_loader: 
                     v_loss += criterion(model(x_d.to(device), x_ca.to(device), x_co.to(device)), y.to(device)).item() * x_d.size(0)
             
             v_loss /= max(len(val_loader.dataset), 1)
