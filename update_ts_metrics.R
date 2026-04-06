@@ -43,12 +43,13 @@ con <- dbConnect(RPostgres::Postgres(),
 
 # --- 3. FETCH HISTORICAL DATA ---
 message("Downloading JustTCG price history...")
+# Added immediate = TRUE
 df_prices <- dbGetQuery(con, "
     SELECT tcgplayer_id, market_price, pull_date 
     FROM justtcg_prices 
     WHERE market_price IS NOT NULL
     ORDER BY tcgplayer_id, pull_date ASC
-")
+", immediate = TRUE)
 
 # --- 4. CALCULATE & ROUND METRICS ---
 message("Crunching advanced time-series metrics...")
@@ -88,12 +89,12 @@ dbExecute(con, "
     skewness NUMERIC,
     last_updated DATE
   );
-")
+", immediate = TRUE) # Added immediate = TRUE
 
 # 5b. If the table was previously created by dbWriteTable, it won't have a Primary Key. 
 # We try to add it safely so the ON CONFLICT logic works.
 tryCatch({
-  dbExecute(con, "ALTER TABLE card_ts_metrics ADD PRIMARY KEY (tcgplayer_id);")
+  dbExecute(con, "ALTER TABLE card_ts_metrics ADD PRIMARY KEY (tcgplayer_id);", immediate = TRUE) # Added immediate = TRUE
 }, error = function(e) {
   # Safe to ignore; means the PK already exists
 })
@@ -137,8 +138,8 @@ for (i in 1:nrow(metrics_df)) {
       last_updated = EXCLUDED.last_updated;
   ", .con = con)
   
-  # Execute directly without preparing statements on the Neon server
-  dbExecute(con, insert_query)
+  # Added immediate = TRUE here as well!
+  dbExecute(con, insert_query, immediate = TRUE)
 }
 
 dbDisconnect(con)
