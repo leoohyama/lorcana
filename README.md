@@ -46,6 +46,7 @@ Trying to filter out the "noise" in eBay TCG data (proxies, digital codes, and "
   <img src="https://github.com/user-attachments/assets/13e49a31-7878-49d9-a841-d6633839729e" alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
 </p>
 
+
 1.  **Sourcing (Cloud):** I use GitHub Actions (Ubuntu-latest) to run a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to my **Neon (Postgres)** database.
 2.  **AI Cleaning (Local MacBook Runner):** Once the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls down any new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
 3.  **Deployment (Shiny App):** On the frontend, my dashboard performs a relational join between the raw price logs and the AI-verified metadata. This lets me filter out "dirty" or mismatched data in real-time when I'm looking at the charts.
@@ -61,11 +62,28 @@ From what I've observed tracking this data, a few key factors drive the market:
 ### 1. Rarity & Grading
 A card's baseline value is tied to its pull rate. Lorcana has several rarity classifications ("Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic"). Beyond raw rarity, the "Graded" market (PSA, CGC, BGS) introduces wild price premiums for high-quality "slabs" that are hard to consistently track.
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/75a184fa-0ac4-4f5a-aeb0-7a4f7dd58c29" alt="Mickey Mouse Brave Little Tailor Card (Iconic Rarity)" width="269" height="375" />
-  <br>
-  <em>Example: Mickey Mouse - Brave Little Tailor (Iconic Rarity)</em>
-</p>
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <img src="https://github.com/user-attachments/assets/ac994ded-bbc2-4e2c-90b5-9f5ac32a3a62" alt="Mickey Mouse - Steamboat Pilot" width="200" />
+        <br>
+        <em>Iconic: Mickey Mouse </em>
+      </td>
+      <td align="center">
+        <img src="https://github.com/user-attachments/assets/2730aea0-cd07-43c9-9b88-7fff7d8fcfd3" alt="Stitch - Alien Dancer" width="200" />
+        <br>
+        <em>Enchanted: Mickey Mouse</em>
+      </td>
+      <td align="center">
+        <img src="https://github.com/user-attachments/assets/48e6dd34-c113-48bd-b07d-8ea6ef18c733" alt="Epic Rarity Card" width="200" />
+        <br>
+        <em>Epic: Stitch </em>
+      </td>
+    </tr>
+  </table>
+</div>
+
 
 ### 2. Artwork & Nostalgia
 Special artwork and beloved Disney characters—like Stitch, which is a major focus for my own collection—evoke powerful emotional connections. This creates a sort of intrinsic value and high demand among collectors that doesn't always align with a card's actual playability in the game.
