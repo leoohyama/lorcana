@@ -8,13 +8,11 @@ entrypoint = 'app.R'
 validate = true
 files = [
   '/app.R',
-  '/.posit/publish/Lorcana Tracker-PCBI.toml',
-  '/.posit/publish/deployments/deployment-D6GA.toml',
-  '/data/shiny_prep',
-  '/lorcana_images',
-  '/.posit',
-  '/shiny_app'
+  '/.posit/publish/Lorcana Forcast-OT8D.toml',
+  '/.posit/publish/deployments/deployment-BSPD.toml',
+  '/app_data',
+  '/.posit'
 ]
-title = 'Lorcana Tracker'
+title = 'Lorcana Forcast'
 
 [r]

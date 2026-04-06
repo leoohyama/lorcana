@@ -11,7 +11,7 @@ library(plotly)
 # ==========================================
 # 0.5 LOAD STATIC CARD DICTIONARY
 # ==========================================
-master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
+master_dict <- read_csv("app_data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id), 
     tcgplayer_id = as.integer(tcgplayer_id), 
@@ -22,7 +22,7 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
   distinct(id, .keep_all = TRUE)
 
 thematic_shiny()
-addResourcePath("card_photos", "data/enchanteds/images")
+addResourcePath("card_photos", "app_data/enchanteds/images")
 
 # ==========================================
 # 1. USER INTERFACE (UI)
