@@ -11,8 +11,8 @@ id = '019d20fc-6f91-2655-2875-e9a4234976a7'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7'
 direct_url = 'https://019d20fc-6f91-2655-2875-e9a4234976a7.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d20fc-6f91-2655-2875-e9a4234976a7/history'
-deployed_at = '2026-04-06T08:56:18-04:00'
-bundle_id = '019d62da-4976-ae5c-23d8-33b3914cd33d'
+deployed_at = '2026-04-06T08:44:49-04:00'
+bundle_id = '019d62d0-b8b4-e340-675e-4ec664a8a2fc'
 files = [
   '.posit/publish/Lorcana Tracker-PCBI.toml',
   '.posit/publish/deployments/deployment-D6GA.toml',
@@ -20,8 +20,6 @@ files = [
   'data/shiny_prep/market_overview.rds',
   'data/shiny_prep/top20_active.rds',
   'renv.lock',
-  'shiny_app/.posit/publish/Lorcana Tracker-PCBI.toml',
-  'shiny_app/.posit/publish/deployments/deployment-D6GA.toml',
   'shiny_app/app.R',
   'shiny_app/data/enchanteds/enchanted_list.rds',
   'shiny_app/data/enchanteds/images/Archazia_s_Island/crd_07d1ea2923ad44b9b2dddf78993e103b.avif',

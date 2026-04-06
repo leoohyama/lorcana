@@ -1,0 +1,6 @@
+venv/
+.git/
+data/pytorch/
+*.pth
+*.qmd
+MLreport_files/
