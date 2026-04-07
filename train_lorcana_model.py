@@ -79,7 +79,6 @@ class LorcanaDataset(Dataset):
                 self.mins.append(c_min)
                 self.maxs.append(c_max)
                 self.card_ids.append(card_id)
-                # Capture the actual historical dates we are predicting
                 self.target_dates.append(dates[i+seq_length : i+seq_length+pred_length])
 
         self.X_dynamic = torch.tensor(np.array(self.X_dynamic), dtype=torch.float32)
@@ -88,7 +87,7 @@ class LorcanaDataset(Dataset):
         self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
         self.mins = torch.tensor(np.array(self.mins), dtype=torch.float32)
         self.maxs = torch.tensor(np.array(self.maxs), dtype=torch.float32)
-        self.target_dates = torch.tensor(np.array(self.target_dates), dtype=torch.float64) # Float64 for timestamps
+        self.target_dates = torch.tensor(np.array(self.target_dates), dtype=torch.float64) 
         
         print(f"Dataset {split.upper()} ready: {len(self.y)} sequences.")
 
@@ -127,9 +126,9 @@ class HybridLorcanaGRU(nn.Module):
         
         return last_p + (torch.tanh(self.fc(torch.cat([context, embs, x_co], dim=1))) * 0.1)
 
-# 5. DIAGNOSTIC CSV GENERATOR (HISTORICAL DATES)
+# 5. DIAGNOSTIC CSV GENERATOR
 def generate_tidy_csv(model, dataloader, device, model_label, num_samples=100):
-    model.train() # Keeping train() active for MC Dropout variance!
+    model.train() # Keep train active for MC Dropout
     rows = []
     
     with torch.no_grad():
@@ -166,13 +165,13 @@ if __name__ == "__main__":
     for col in ['set_idx', 'rarity_idx', 'ink_idx']: temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce').fillna(0).astype(int)
     vocabs = [int(temp_df[c].max() + 1) for c in ['set_idx', 'rarity_idx', 'ink_idx']]
     
+    # List to hold daily metrics across all model runs
+    global_metrics_rows = []
+    
     for seq_len in [15, 30, 45]:
-        print(f"\n{'='*50}\n🌊 STARTING TRAINING PIPELINE: {seq_len}-DAY WINDOW (WITH ATTENTION)\n{'='*50}")
+        print(f"\n{'='*50}\n🌊 STARTING TRAINING PIPELINE: {seq_len}-DAY WINDOW (ATTENTION + MAPE)\n{'='*50}")
         
-        # Original labels
         label = f"GRU-{seq_len}" if seq_len != 30 else "Single GRU"
-        
-        # Original paths so they overwrite perfectly
         weights_path = f'data/pytorch/lorcana_gru_weights_{seq_len}.pth'
         output_csv_path = f'data/pytorch/gru_forecast_tidy_{seq_len}.csv'
         
@@ -194,20 +193,95 @@ if __name__ == "__main__":
                 loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5); optimizer.step()
                 t_loss += loss.item() * x_d.size(0)
             
-            model.eval(); v_loss = 0.0
-            with torch.no_grad():
-                for x_d, x_ca, x_co, y, _, _, _, _ in val_loader: 
-                    v_loss += criterion(model(x_d.to(device), x_ca.to(device), x_co.to(device)), y.to(device)).item() * x_d.size(0)
+            # --- EVALUATION BLOCK (Validation Set) ---
+            model.eval()
+            v_loss, val_mape_d1, val_mape_d30, val_mda = 0.0, 0.0, 0.0, 0.0
             
-            v_loss /= max(len(val_loader.dataset), 1)
-            print(f"Epoch {epoch+1:02d} | LR: {optimizer.param_groups[0]['lr']:.6f} | Train: {t_loss/len(train_loader.dataset):.6f} | Val: {v_loss:.6f}")
+            with torch.no_grad():
+                for x_d, x_ca, x_co, y, pmin, pmax, _, _ in val_loader: 
+                    x_d, x_ca, x_co, y = x_d.to(device), x_ca.to(device), x_co.to(device), y.to(device)
+                    pmin, pmax = pmin.to(device).unsqueeze(1), pmax.to(device).unsqueeze(1)
+                    
+                    preds = model(x_d, x_ca, x_co)
+                    v_loss += criterion(preds, y).item() * x_d.size(0)
+                    
+                    preds_usd = preds * (pmax - pmin) + pmin
+                    y_usd = y * (pmax - pmin) + pmin
+                    last_price_usd = x_d[:, -1, 0].unsqueeze(1) * (pmax - pmin) + pmin
+                    
+                    mape_seq = torch.abs((y_usd - preds_usd) / (y_usd + 1e-6))
+                    val_mape_d1 += mape_seq[:, 0].sum().item()
+                    val_mape_d30 += mape_seq[:, 29].sum().item()
+                    
+                    actual_dir = torch.sign(y_usd - last_price_usd)
+                    pred_dir = torch.sign(preds_usd - last_price_usd)
+                    correct_dirs = (actual_dir == pred_dir).float().sum().item()
+                    val_mda += correct_dirs / 30.0
+            
+            n_val = max(len(val_loader.dataset), 1)
+            v_loss /= n_val
+            mape_d1 = (val_mape_d1 / n_val) * 100 
+            mape_d30 = (val_mape_d30 / n_val) * 100 
+            mda = (val_mda / n_val) * 100 
+            
+            print(f"Ep {epoch+1:02d} | Train L1: {t_loss/len(train_loader.dataset):.4f} | Val L1: {v_loss:.4f} | D1 Err: {mape_d1:.1f}% | D30 Err: {mape_d30:.1f}% | Trend Acc: {mda:.1f}%")
             
             scheduler.step(v_loss); early_stop(v_loss, model)
             if early_stop.early_stop: print(f"🛑 Early stopping triggered."); break
 
-        print(f"\n💾 Generating Standardized Tidy CSV for {label} (Using Real Historical Dates)...")
+
+        # 🟢 FINAL 30-DAY TEST EVALUATION (FOR THE SHINY APP)
+        print(f"\n📊 EVALUATING {label} ON UNSEEN TEST DATA (ALL 30 DAYS)...")
         model.load_state_dict(torch.load(weights_path))
+        model.eval()
         
+        total_test_samples = 0
+        test_mape_sums = np.zeros(30)
+        test_mae_sums = np.zeros(30)
+        test_mda_sums = np.zeros(30)
+        
+        with torch.no_grad():
+            for x_d, x_ca, x_co, y, pmin, pmax, _, _ in test_loader: 
+                x_d, x_ca, x_co, y = x_d.to(device), x_ca.to(device), x_co.to(device), y.to(device)
+                pmin, pmax = pmin.to(device).unsqueeze(1), pmax.to(device).unsqueeze(1)
+                
+                preds = model(x_d, x_ca, x_co)
+                preds_usd = preds * (pmax - pmin) + pmin
+                y_usd = y * (pmax - pmin) + pmin
+                last_price_usd = x_d[:, -1, 0].unsqueeze(1) * (pmax - pmin) + pmin
+                
+                # Sum errors for each day across the batch
+                mape_seq = torch.abs((y_usd - preds_usd) / (y_usd + 1e-6))
+                test_mape_sums += mape_seq.sum(dim=0).cpu().numpy()
+                
+                mae_seq = torch.abs(y_usd - preds_usd)
+                test_mae_sums += mae_seq.sum(dim=0).cpu().numpy()
+                
+                actual_dir = torch.sign(y_usd - last_price_usd)
+                pred_dir = torch.sign(preds_usd - last_price_usd)
+                correct_dirs = (actual_dir == pred_dir).float()
+                test_mda_sums += correct_dirs.sum(dim=0).cpu().numpy()
+                
+                total_test_samples += x_d.size(0)
+                
+        # Calculate final 30-day arrays across the entire test set
+        avg_mapes = (test_mape_sums / total_test_samples) * 100
+        avg_maes = test_mae_sums / total_test_samples
+        avg_mdas = (test_mda_sums / total_test_samples) * 100
+        
+        print(f"🏆 {label} FINAL RESULTS | D1 Err: {avg_mapes[0]:.1f}% | D30 Err: {avg_mapes[-1]:.1f}% | Avg Trend Acc: {avg_mdas.mean():.1f}%\n")
+        
+        # Append data to the global list for the Shiny CSV
+        for day in range(30):
+            global_metrics_rows.append({
+                'model': label,
+                'horizon_day': day + 1,
+                'mape_error_pct': round(avg_mapes[day], 2),
+                'mae_error_usd': round(avg_maes[day], 2),
+                'trend_accuracy_pct': round(avg_mdas[day], 2)
+            })
+
+        print(f"💾 Generating Standardized Tidy CSV for {label}...")
         tidy_df = generate_tidy_csv(model, test_loader, device, model_label=label)
         tidy_df.to_csv(output_csv_path, index=False)
         print(f"✨ Saved to {output_csv_path}")
@@ -216,3 +290,9 @@ if __name__ == "__main__":
         if torch.cuda.is_available(): torch.cuda.empty_cache()
         elif torch.backends.mps.is_available(): torch.mps.empty_cache()
         gc.collect()
+
+    # 🟢 EXPORT THE OVERARCHING METRICS CSV
+    global_metrics_df = pd.DataFrame(global_metrics_rows)
+    global_metrics_path = 'shiny_app/app_data/lorcana_global_metrics.csv'
+    global_metrics_df.to_csv(global_metrics_path, index=False)
+    print(f"\n📈 SUCCESS: Saved global horizon metrics for all models to {global_metrics_path}")
