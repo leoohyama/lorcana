@@ -112,8 +112,9 @@ To handle the erratic nature of the secondary market—where a single buyout can
 Instead of relying solely on the final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day in the sequence. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts, ensuring that crucial historical signals are not lost in the sequence bottleneck.
 
 **Key Features of the Training Pipeline:**
+* **Multi-Window Training & Selection:** We train parallel models across different historical lookback windows (e.g., 15, 30, and 45 days) to find the optimal signal-to-noise ratio. The final deployed model is selected based on a rigorous evaluation suite that prioritizes business-aligned metrics like **wMAPE** (Volume-Weighted MAPE) and **30-Day Macro Trend Accuracy**.
+* **Custom "Horizon Trend" Loss Function:** Standard loss functions are blind to trajectory. We engineered a custom loss function that uses `SmoothL1Loss` (Huber Loss) as a base to handle extreme TCG price outliers, but layers on a dynamic penalty for guessing the wrong market direction. This penalty scales with the forecast horizon and includes a "jitter threshold" to ignore daily pricing noise while aggressively punishing the model for missing the long-term macro destination.
 * **Time-Series Safe Splitting:** Data is sliced chronologically to prevent temporal leakage between the Train, Validation, and Test sets.
-* **Targeted Loss Function:** We utilize `SmoothL1Loss` (Huber Loss) to penalize standard errors while remaining robust against the massive outliers inherent to high-end TCG collectibles.
 * **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point, rather than predicting the raw absolute value, greatly improving stability.
 * **In-Place Validation:** Early stopping monitors validation loss to prevent overfitting on the limited dataset of Lorcana's relatively short market history.
 
