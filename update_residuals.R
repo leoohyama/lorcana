@@ -70,7 +70,10 @@ SELECT
     model_type,
     horizon,
     target_date,
-    ROUND(AVG(error_abs_pct)::numeric, 4) as mean_error_pct,
+    
+    -- 🟢 THE WMAPE FIX: Sum of absolute dollar errors / Sum of actual dollars
+    ROUND((SUM(ABS(actual_price - pred_price)) / NULLIF(SUM(actual_price), 0))::numeric, 4) as mean_error_pct,
+    
     ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY error_abs_pct))::numeric, 4) as median_error_pct,
     COUNT(card_id) as card_count
 FROM model_residuals_live
@@ -78,7 +81,7 @@ GROUP BY model_type, horizon, target_date
 ON CONFLICT (model_type, horizon, target_date) DO NOTHING;
 "
 dbExecute(con, rollup_sql)
-print("✅ Historical aggregates updated.")
+print("✅ Historical aggregates updated (wMAPE and MdAPE).")
 
 # ==========================================
 # 3. THE KILL SWITCH (Pruning the Granular Data)
