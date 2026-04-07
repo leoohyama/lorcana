@@ -195,7 +195,7 @@ if __name__ == "__main__":
             
             # --- EVALUATION BLOCK (Validation Set) ---
             model.eval()
-            v_loss, val_mape_d1, val_mape_d30, val_mda = 0.0, 0.0, 0.0, 0.0
+            v_loss, val_mape_d1, val_mape_d30, val_mda, val_macro_mda = 0.0, 0.0, 0.0, 0.0, 0.0
             
             with torch.no_grad():
                 for x_d, x_ca, x_co, y, pmin, pmax, _, _ in val_loader: 
@@ -217,14 +217,20 @@ if __name__ == "__main__":
                     pred_dir = torch.sign(preds_usd - last_price_usd)
                     correct_dirs = (actual_dir == pred_dir).float().sum().item()
                     val_mda += correct_dirs / 30.0
+                    
+                    # 🟢 NEW: Macro Trend Evaluation (Day 0 vs Day 30)
+                    macro_actual = torch.sign(y_usd[:, -1] - last_price_usd.squeeze(1))
+                    macro_pred = torch.sign(preds_usd[:, -1] - last_price_usd.squeeze(1))
+                    val_macro_mda += (macro_actual == macro_pred).float().sum().item()
             
             n_val = max(len(val_loader.dataset), 1)
             v_loss /= n_val
             mape_d1 = (val_mape_d1 / n_val) * 100 
             mape_d30 = (val_mape_d30 / n_val) * 100 
             mda = (val_mda / n_val) * 100 
+            macro_mda = (val_macro_mda / n_val) * 100
             
-            print(f"Ep {epoch+1:02d} | Train L1: {t_loss/len(train_loader.dataset):.4f} | Val L1: {v_loss:.4f} | D1 Err: {mape_d1:.1f}% | D30 Err: {mape_d30:.1f}% | Trend Acc: {mda:.1f}%")
+            print(f"Ep {epoch+1:02d} | Train L1: {t_loss/len(train_loader.dataset):.4f} | Val L1: {v_loss:.4f} | D1 Err: {mape_d1:.1f}% | D30 Err: {mape_d30:.1f}% | Trend Acc: {mda:.1f}% | Macro Trend: {macro_mda:.1f}%")
             
             scheduler.step(v_loss); early_stop(v_loss, model)
             if early_stop.early_stop: print(f"🛑 Early stopping triggered."); break
@@ -239,6 +245,7 @@ if __name__ == "__main__":
         test_mape_sums = np.zeros(30)
         test_mae_sums = np.zeros(30)
         test_mda_sums = np.zeros(30)
+        test_macro_mda_sum = 0.0
         
         with torch.no_grad():
             for x_d, x_ca, x_co, y, pmin, pmax, _, _ in test_loader: 
@@ -262,14 +269,20 @@ if __name__ == "__main__":
                 correct_dirs = (actual_dir == pred_dir).float()
                 test_mda_sums += correct_dirs.sum(dim=0).cpu().numpy()
                 
+                # 🟢 NEW: Macro Trend Evaluation (Day 0 vs Day 30)
+                macro_actual = torch.sign(y_usd[:, -1] - last_price_usd.squeeze(1))
+                macro_pred = torch.sign(preds_usd[:, -1] - last_price_usd.squeeze(1))
+                test_macro_mda_sum += (macro_actual == macro_pred).float().sum().item()
+                
                 total_test_samples += x_d.size(0)
                 
         # Calculate final 30-day arrays across the entire test set
         avg_mapes = (test_mape_sums / total_test_samples) * 100
         avg_maes = test_mae_sums / total_test_samples
         avg_mdas = (test_mda_sums / total_test_samples) * 100
+        avg_macro_mda = (test_macro_mda_sum / total_test_samples) * 100
         
-        print(f"🏆 {label} FINAL RESULTS | D1 Err: {avg_mapes[0]:.1f}% | D30 Err: {avg_mapes[-1]:.1f}% | Avg Trend Acc: {avg_mdas.mean():.1f}%\n")
+        print(f"🏆 {label} FINAL RESULTS | D1 Err: {avg_mapes[0]:.1f}% | D30 Err: {avg_mapes[-1]:.1f}% | Avg Trend Acc: {avg_mdas.mean():.1f}% | Macro 30-Day Trend Acc: {avg_macro_mda:.1f}%\n")
         
         # Append data to the global list for the Shiny CSV
         for day in range(30):
@@ -278,7 +291,8 @@ if __name__ == "__main__":
                 'horizon_day': day + 1,
                 'mape_error_pct': round(avg_mapes[day], 2),
                 'mae_error_usd': round(avg_maes[day], 2),
-                'trend_accuracy_pct': round(avg_mdas[day], 2)
+                'trend_accuracy_pct': round(avg_mdas[day], 2),
+                'macro_trend_accuracy_pct': round(avg_macro_mda, 2) # Constant overarching score for this model
             })
 
         print(f"💾 Generating Standardized Tidy CSV for {label}...")
@@ -294,5 +308,9 @@ if __name__ == "__main__":
     # 🟢 EXPORT THE OVERARCHING METRICS CSV
     global_metrics_df = pd.DataFrame(global_metrics_rows)
     global_metrics_path = 'shiny_app/app_data/lorcana_global_metrics.csv'
+    
+    # Safety net: create directory if it doesn't exist so it doesn't crash here
+    os.makedirs(os.path.dirname(global_metrics_path), exist_ok=True)
+    
     global_metrics_df.to_csv(global_metrics_path, index=False)
     print(f"\n📈 SUCCESS: Saved global horizon metrics for all models to {global_metrics_path}")
