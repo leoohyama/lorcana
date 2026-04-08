@@ -675,7 +675,7 @@ server <- function(input, output, session) {
       geom_col(data = baseline_df, aes(x = horizon_day, y = naive_mdape,
                                        text = paste0("Persistence Baseline: ", scales::percent(naive_mdape, accuracy=0.1),
                                                      "<br>(Error if you assumed price never changed)")),
-               fill = "#ecf0f1", alpha = 0.15, width = 0.9) +
+               fill = "#ecf0f1", alpha = 0.4, width = 0.9) +
       geom_col(data = df, aes(x = horizon_day, y = mdape, fill = Model, 
                               text = paste0("Horizon Day: ", horizon_day, 
                                             "<br>", Model, " Error (MdAPE): ", scales::percent(mdape, accuracy=0.1),
