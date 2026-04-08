@@ -1,7 +1,5 @@
 # Lorcana Market Data Analysis & Forecasting
 
-
-
 ## Table of Contents
 - [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
 - [Project Overview](#project-overview)
@@ -112,11 +110,10 @@ To handle the erratic nature of the secondary market—where a single buyout can
 Instead of relying solely on the final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day in the sequence. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts, ensuring that crucial historical signals are not lost in the sequence bottleneck.
 
 **Key Features of the Training Pipeline:**
-* **Multi-Window Training & Selection:** We train parallel models across different historical lookback windows (e.g., 15, 30, and 45 days) to find the optimal signal-to-noise ratio. The final deployed model is selected based on a rigorous evaluation suite that prioritizes business-aligned metrics like **wMAPE** (Volume-Weighted MAPE) and **30-Day Macro Trend Accuracy**.
+* **Multi-Window Training & Selection:** We train parallel models across different historical lookback windows (15, 30, and 45 days) to find the optimal signal-to-noise ratio. The final deployed model is selected based on a rigorous evaluation suite that prioritizes business-aligned metrics like **wMAPE** (Volume-Weighted MAPE) and **30-Day Macro Trend Accuracy**.
+* **Rolling-Origin Backtesting (Time-Series CV):** To prevent data leakage and accurately gauge real-world reliability, the model is evaluated using a time-traveling validation approach. Instead of a single static test set, the script simulates past market eras (e.g., 30 days ago, 60 days ago) to stress-test the architecture against multiple historical regime changes and set releases.
 * **Custom "Horizon Trend" Loss Function:** Standard loss functions are blind to trajectory. We engineered a custom loss function that uses `SmoothL1Loss` (Huber Loss) as a base to handle extreme TCG price outliers, but layers on a dynamic penalty for guessing the wrong market direction. This penalty scales with the forecast horizon and includes a "jitter threshold" to ignore daily pricing noise while aggressively punishing the model for missing the long-term macro destination.
-* **Time-Series Safe Splitting:** Data is sliced chronologically to prevent temporal leakage between the Train, Validation, and Test sets.
 * **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point, rather than predicting the raw absolute value, greatly improving stability.
-* **In-Place Validation:** Early stopping monitors validation loss to prevent overfitting on the limited dataset of Lorcana's relatively short market history.
 
 ### 2. Pre-trained Transformer (Amazon Chronos)
 I'm also experimenting with **Chronos**, a time-series forecasting framework built on language model architectures.
@@ -127,12 +124,11 @@ I'm also experimenting with **Chronos**, a time-series forecasting framework bui
 
 # My Training & Inference Schedule
 
-* **Weekly Training:** I have the **GRU model** set to retrain on the full historical dataset once a week. I'm currently evaluating its performance against a hold-out test set using **Absolute Percentage Error** metrics to see if it's actually improving.
-* **Daily Inference:**
-    * **Gemma 4.0:** Processes the new batch of eBay listings immediately following the daily cloud scrape.
-    * **Chronos/GRU:** Generates a fresh 30-day forecast based on the previous day's closing prices.
+To bridge the gap between academic model evaluation and real-world deployment, the GRU forecasting engine operates on a strict **Two-Script Pipeline**. This ensures the live model is trained on 100% of available market data without sacrificing honest accuracy tracking.
 
----
+1. **The Evaluator (`model_testing_gru.py`):** Run weekly. This script acts as the "Honest Grader." It performs the rolling-origin backtesting across three historical eras to ensure the architecture remains stable. The most recent fold acts as an unseen holdout set, successfully isolating real-world performance metrics and safely exporting them to `lorcana_global_metrics.csv` for the Shiny dashboard.
+2. **The Production Brain (`train_lorcana_model.py`):** Run weekly after evaluation. This is a lean, ultra-fast script that strips away early-stopping and test splits. It trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs (discovered via the Evaluator). This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
+3. **Daily Inference (`daily_inference_gru.py`):** Run daily. It wakes up, loads the fully-trained production `.pth` weights, generates the actual, unknown 30-day forecast for the future, and pushes the live predictions to the Neon PostgreSQL database.
 
 ### Monitoring & Health
 I'm still tweaking how I monitor the pipeline, but right now I'm focusing on:
