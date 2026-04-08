@@ -18,7 +18,7 @@ con <- dbConnect(
   sslmode  = "require"
 )
 
-# Pulls daily prices ONLY for cards with >= 180 days of history
+# Pulls daily prices ONLY for cards with >= 90 days of history
 daily_prices <- dbGetQuery(con, "
   SELECT 
     tcgplayer_id AS card_id,
@@ -29,7 +29,7 @@ daily_prices <- dbGetQuery(con, "
     SELECT tcgplayer_id
     FROM justtcg_prices
     GROUP BY tcgplayer_id
-    HAVING COUNT(DISTINCT pull_date) >= 180
+    HAVING COUNT(DISTINCT pull_date) >= 90
   )
   ORDER BY tcgplayer_id, pull_date
 ")

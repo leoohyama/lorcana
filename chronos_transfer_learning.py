@@ -51,7 +51,7 @@ valid_card_ids = []
 
 for cid, group in df.groupby('card_id'):
     group = group.sort_values('date')
-    if len(group) < 180:
+    if len(group) < 91:
         continue
         
     # INFERENCE FIX: Grab the absolute latest data available to predict the future

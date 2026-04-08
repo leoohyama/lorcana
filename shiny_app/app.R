@@ -8,9 +8,6 @@ library(RPostgres)
 library(bit64) 
 library(plotly) 
 
-# ==========================================
-# 0.5 LOAD STATIC CARD DICTIONARY
-# ==========================================
 master_dict <- read_csv("app_data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id), 
@@ -24,9 +21,6 @@ master_dict <- read_csv("app_data/target_cards_with_epids2.csv", show_col_types 
 thematic_shiny()
 addResourcePath("card_photos", "app_data/enchanteds/images")
 
-# ==========================================
-# 1. USER INTERFACE (UI)
-# ==========================================
 ui <- page_navbar(
   title = tags$span(style = "color: #18bc9c; font-weight: bold; font-size: 22px;", "Lorcana Forecasting"),
   id = "main_nav",
@@ -96,8 +90,8 @@ ui <- page_navbar(
                        selected = "Stitch - Carefree Surfer - Enchanted"),
         hr(), 
         checkboxGroupInput("show_models", "Select Models:", 
-                           choices = c("Chronos", "GRU"), 
-                           selected = c("Chronos", "GRU")),
+                           choices = c("Chronos", "15-Day Hybrid GRU"), 
+                           selected = c("Chronos", "15-Day Hybrid GRU")),
         br(),
         checkboxInput("show_ci", "Show Chronos Confidence Interval", value = FALSE),
         hr(),
@@ -105,11 +99,15 @@ ui <- page_navbar(
       ),
       div(
         card(
-          card_header("Model Accuracy by Horizon Day (Card Specific)"),
-          p(style = "color: #bbb; font-size: 13px;", "Calculated by comparing past 'shadow' forecasts against actual market prices. Shows the median error, with min/max ranges available on hover."),
+          card_header("Model Accuracy vs. Baseline (Card Specific)"),
+          p(style = "color: #bbb; font-size: 13px;", "Comparing Median Absolute Percentage Error (MdAPE) of our models against a 'Persistence Baseline' (assuming the price never changes). Models should consistently fall below the transparent backdrop column."),
           plotlyOutput("error_horizon_plot", height = "300px")
         ),
-        card(card_header("Micro View: 30-Day History & Backtest (Auto-Scaled)"), plotlyOutput("pricing_zoom_plot", height = "450px")),
+        card(
+          card_header("Micro View: 30-Day History & Backtest (Auto-Scaled)"), 
+          p(style = "color: #bbb; font-size: 13px; margin-bottom: 0px;", "Dotted/Dashed lines = Live Forecast | Faded solid lines = Past 7 days of shadow forecasts"),
+          plotlyOutput("pricing_zoom_plot", height = "450px")
+        ),
         card(
           card_header("Macro View: All-Time History & Long Term Forecast"),
           plotlyOutput("pricing_plot", height = "450px"),
@@ -117,7 +115,7 @@ ui <- page_navbar(
             open = FALSE,
             accordion_panel(
               title = "Time-Series Metrics Guide", icon = icon("info-circle"),
-              HTML("<div style='color: #ecf0f1; font-size: 14px;'><p><strong style='color:#18bc9c;'>Sample Entropy:</strong> Lower = Predictable trend. Higher = Erratic noise.</p><p><strong style='color:#18bc9c;'>Hurst Exponent:</strong> > 0.5 = Trending. < 0.5 = Mean-reverting. ~0.5 = Random walk.</p><p><strong style='color:#18bc9c;'>Vol (CV):</strong> Standard deviation relative to mean. Standardizes risk comparison.</p><p><strong style='color:#18bc9c;'>Skew:</strong> Positive = Prone to spikes. Negative = Prone to flash crashes.</p></div>")
+              HTML("<div style='color: #ecf0f1; font-size: 14px;'><p><span style='color:#18bc9c;'>Sample Entropy:</span> Lower = Predictable trend. Higher = Erratic noise.</p><p><span style='color:#18bc9c;'>Hurst Exponent:</span> > 0.5 = Trending. < 0.5 = Mean-reverting. ~0.5 = Random walk.</p><p><span style='color:#18bc9c;'>Vol (CV):</span> Standard deviation relative to mean. Standardizes risk comparison.</p><p><span style='color:#18bc9c;'>Skew:</span> Positive = Prone to spikes. Negative = Prone to flash crashes.</p></div>")
             )
           )
         )
@@ -129,7 +127,7 @@ ui <- page_navbar(
     layout_sidebar(
       sidebar = sidebar(
         title = "Diagnostic Filters",
-        selectInput("diag_model", "Target Model:", choices = c("Chronos", "GRU")),
+        selectInput("diag_model", "Target Model:", choices = c("Chronos", "15-Day Hybrid GRU")),
         hr(),
         actionButton("calc_diagnostics", " Fetch Latest Run", icon = icon("database"), class = "btn-info btn-sm")
       ),
@@ -155,9 +153,6 @@ ui <- page_navbar(
   )
 )
 
-# ==========================================
-# 2. SERVER LOGIC
-# ==========================================
 server <- function(input, output, session) {
 
   get_neon_con <- function(retries = 3) {
@@ -177,7 +172,7 @@ server <- function(input, output, session) {
   my_dark_theme <- function() {
     theme_minimal() +
     theme(
-      text = element_text(color = "#ecf0f1"), axis.text = element_text(color = "#ecf0f1", face = "bold", size = 14), axis.title = element_text(color = "#ecf0f1", face = "bold", size = 16),
+      text = element_text(color = "#ecf0f1"), axis.text = element_text(color = "#ecf0f1", size = 14), axis.title = element_text(color = "#ecf0f1", size = 16),
       panel.grid.major = element_line(color = "#34495e", linewidth = 0.3), panel.grid.minor = element_blank(),
       plot.background = element_rect(fill = "#1a252f", color = NA), panel.background = element_rect(fill = "#1a252f", color = NA),
       legend.text = element_text(color = "#ecf0f1", size = 14), legend.title = element_blank(), legend.background = element_rect(fill = "transparent", color = NA)
@@ -201,19 +196,6 @@ server <- function(input, output, session) {
   }
 
   force_pure_date <- function(date_col) { as.Date(substr(as.character(date_col), 1, 10)) }
-
-  add_shadow_colors <- function(df, start_hex, end_hex) {
-    if(nrow(df) == 0) return(df)
-    dates <- sort(unique(df$run_date))
-    if(length(dates) == 1) {
-       df$shadow_color <- end_hex
-    } else {
-       pal <- colorRampPalette(c(start_hex, end_hex))(length(dates))
-       names(pal) <- as.character(dates)
-       df$shadow_color <- pal[as.character(df$run_date)]
-    }
-    return(df)
-  }
 
   observeEvent(input$pricing_set_filter, ignoreInit = TRUE, {
     if (input$pricing_set_filter == "All Sets") {
@@ -290,7 +272,7 @@ server <- function(input, output, session) {
     withProgress(message = 'Pulling Latest Error Metrics...', value = 0.5, {
       con <- get_neon_con()
       
-      diag_raw <- tryCatch(dbGetQuery(con, "SELECT card_id as tcgplayer_id, model, diagnostic_run_date, max_error, mape FROM card_accuracy_summary WHERE model IN ('Chronos', 'Single GRU')"), error = function(e) data.frame())
+      diag_raw <- tryCatch(dbGetQuery(con, "SELECT card_id as tcgplayer_id, model, diagnostic_run_date, max_error, mape FROM card_accuracy_summary WHERE model IN ('Chronos', 'GRU-15')"), error = function(e) data.frame())
       
       if(nrow(diag_raw) == 0) {
         dbDisconnect(con)
@@ -310,7 +292,7 @@ server <- function(input, output, session) {
         all_30 <- bind_rows(all_30, c_30)
       }
       if(nrow(g_pred) > 0) {
-        g_30 <- g_pred %>% group_by(tcgplayer_id) %>% filter(target_date == max(target_date)) %>% slice_tail(n=1) %>% ungroup() %>% mutate(model = "Single GRU", tcgplayer_id = as.integer(tcgplayer_id))
+        g_30 <- g_pred %>% group_by(tcgplayer_id) %>% filter(target_date == max(target_date)) %>% slice_tail(n=1) %>% ungroup() %>% mutate(model = "15-Day Hybrid GRU", tcgplayer_id = as.integer(tcgplayer_id))
         all_30 <- bind_rows(all_30, g_30)
       }
       
@@ -338,8 +320,7 @@ server <- function(input, output, session) {
     df <- ml_diag_data()
     req(df)
     
-    selected_model <- ifelse(input$diag_model == "GRU", "Single GRU", "Chronos")
-    df_filtered <- df %>% filter(Model == selected_model) %>% select(-tcgplayer_id, -id, -folder_name)
+    df_filtered <- df %>% filter(Model == input$diag_model) %>% select(-tcgplayer_id, -id, -folder_name)
     
     datatable(df_filtered, options = list(pageLength = 15, dom = 'tip'), rownames = FALSE) %>%
       formatCurrency(c("Current Price", "30d Forecast", "30d Change ($)"), currency = "$") %>%
@@ -351,16 +332,15 @@ server <- function(input, output, session) {
   output$top_incline_box <- renderUI({
     df <- ml_diag_data()
     req(df)
-    selected_model <- ifelse(input$diag_model == "GRU", "Single GRU", "Chronos")
     
-    top_incline <- df %>% filter(Model == selected_model) %>% arrange(desc(`30d Change (%)`)) %>% slice(1)
+    top_incline <- df %>% filter(Model == input$diag_model) %>% arrange(desc(`30d Change (%)`)) %>% slice(1)
     if(nrow(top_incline) == 0) return(div("No data available."))
     
     tags$div(style = "display: flex; align-items: center;",
              tags$img(src=paste0("card_photos/", top_incline$folder_name, "/", top_incline$id, ".avif"), style="width: 70px; border-radius: 6px; margin-right: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"),
              tags$div(
-               tags$strong(style="color: #ecf0f1; font-size: 15px;", top_incline$Card), tags$br(),
-               tags$span(style="color: #2ecc71; font-size: 18px; font-weight: bold;", paste0("+", scales::percent(top_incline$`30d Change (%)`, accuracy = 0.1))),
+               tags$span(style="color: #ecf0f1; font-size: 15px;", top_incline$Card), tags$br(),
+               tags$span(style="color: #2ecc71; font-size: 18px;", paste0("+", scales::percent(top_incline$`30d Change (%)`, accuracy = 0.1))),
                tags$span(style="color: #bbb; font-size: 13px;", paste(" | Est.", scales::dollar(top_incline$`30d Forecast`)))
              ))
   })
@@ -368,16 +348,15 @@ server <- function(input, output, session) {
   output$top_decline_box <- renderUI({
     df <- ml_diag_data()
     req(df)
-    selected_model <- ifelse(input$diag_model == "GRU", "Single GRU", "Chronos")
     
-    top_decline <- df %>% filter(Model == selected_model) %>% arrange(`30d Change (%)`) %>% slice(1)
+    top_decline <- df %>% filter(Model == input$diag_model) %>% arrange(`30d Change (%)`) %>% slice(1)
     if(nrow(top_decline) == 0) return(div("No data available."))
     
     tags$div(style = "display: flex; align-items: center;",
              tags$img(src=paste0("card_photos/", top_decline$folder_name, "/", top_decline$id, ".avif"), style="width: 70px; border-radius: 6px; margin-right: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"),
              tags$div(
-               tags$strong(style="color: #ecf0f1; font-size: 15px;", top_decline$Card), tags$br(),
-               tags$span(style="color: #e74c3c; font-size: 18px; font-weight: bold;", scales::percent(top_decline$`30d Change (%)`, accuracy = 0.1)),
+               tags$span(style="color: #ecf0f1; font-size: 15px;", top_decline$Card), tags$br(),
+               tags$span(style="color: #e74c3c; font-size: 18px;", scales::percent(top_decline$`30d Change (%)`, accuracy = 0.1)),
                tags$span(style="color: #bbb; font-size: 13px;", paste(" | Est.", scales::dollar(top_decline$`30d Forecast`)))
              ))
   })
@@ -413,7 +392,7 @@ server <- function(input, output, session) {
       p_c <- ifelse(row$pct >= 0, "green-text", "red-text")
       tags$div(style = "display: flex; flex-direction: column; align-items: center; width: 180px; text-align: center; margin: 10px;", tags$div(style = "font-size: 14px; font-weight: bold; color: #18bc9c; text-transform: uppercase; margin-bottom: 5px;", lab), tags$img(src = paste0("card_photos/", row$folder_name, "/", row$id, ".avif"), style = "width: 100%; border-radius: 8px; border: 2px solid #2b3e50; box-shadow: 0 4px 8px rgba(0,0,0,0.5);"), tags$div(style = "margin-top: 8px; font-size: 14px; font-weight: bold; color: #ecf0f1; height: 35px; line-height: 1.2;", row$cardname), tags$div(class = p_c, style = "font-size: 16px; font-weight: bold;", sprintf("%s%s (%.1f%%)", ifelse(row$abs >= 0, "+", ""), scales::dollar(row$abs), row$pct)))
     }
-    tagList(div(class="momentum-box", tags$strong("7-Day Market Momentum: "), sprintf("The biggest jump was %s (+%.1f%%).", t_pct_g$cardname, t_pct_g$pct)), tags$div(style = "display: flex; justify-content: space-around; background: #1a252f; padding: 10px; border-radius: 8px 8px 0 0;", build_mover_card(t_pct_g, "Top % Gainer"), build_mover_card(t_pct_l, "Top % Loser"), build_mover_card(t_abs_g, "Top $ Gainer"), build_mover_card(t_abs_l, "Top $ Loser")), tags$div(style = "background: #1a252f; border-radius: 0 0 8px 8px; padding-bottom: 10px; margin-bottom: 20px;", plotlyOutput("movers_plot", height = "150px")))
+    tagList(div(class="momentum-box", tags$span("7-Day Market Momentum: "), sprintf("The biggest jump was %s (+%.1f%%).", t_pct_g$cardname, t_pct_g$pct)), tags$div(style = "display: flex; justify-content: space-around; background: #1a252f; padding: 10px; border-radius: 8px 8px 0 0;", build_mover_card(t_pct_g, "Top % Gainer"), build_mover_card(t_pct_l, "Top % Loser"), build_mover_card(t_abs_g, "Top $ Gainer"), build_mover_card(t_abs_l, "Top $ Loser")), tags$div(style = "background: #1a252f; border-radius: 0 0 8px 8px; padding-bottom: 10px; margin-bottom: 20px;", plotlyOutput("movers_plot", height = "150px")))
   })
 
   output$movers_plot <- renderPlotly({
@@ -431,7 +410,7 @@ server <- function(input, output, session) {
     top10 <- summary_data()$top10 %>% left_join(master_dict, by = "id") %>% left_join(latest_prices, by = "tcgplayer_id") %>% mutate(rank = row_number())
     cards <- purrr::map(1:nrow(top10), function(i) {
       row <- top10[i,]; img <- paste0("card_photos/", row$folder_name, "/", row$id, ".avif"); formatted_price <- ifelse(is.na(row$market_price), "N/A", scales::dollar(row$market_price))
-      tags$div(style = "position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 35px; margin-top: 15px;", tags$div(class = "flip-card", onclick = "this.querySelector('.flip-card-inner').classList.toggle('is-flipped');", tags$div(class = "flip-card-inner", tags$div(class = "flip-card-front", tags$img(src = img), tags$div(class = "badge-rank", paste0("#", row$rank)), tags$div(class = "badge-custom", paste(row$total, "listings"))), tags$div(class = "flip-card-back", tags$h5(style = "font-weight: bold; border-bottom: 1px solid #18bc9c; padding-bottom: 5px;", "Card Stats"), tags$div(style = "font-size: 14px; margin-top: 5px;", tags$strong("Set:"), tags$br(), row$set_name), tags$div(style = "font-size: 14px; margin-top: 10px;", tags$strong("Market Price:"), tags$br(), tags$span(style = "color: #f39c12; font-weight: bold; font-size: 18px;", formatted_price)), tags$div(style = "font-size: 16px; margin-top: 10px; color: #18bc9c; font-weight: bold;", paste("Vol:", row$total))))), tags$div(style = "margin-top: 15px; font-size: 15px; color: #bbb; max-width: 200px; text-align: center; font-weight: bold;", row$cardname), tags$div(style = "margin-top: 4px; font-size: 16px; color: #f39c12; font-weight: bold;", formatted_price))
+      tags$div(style = "position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 35px; margin-top: 15px;", tags$div(class = "flip-card", onclick = "this.querySelector('.flip-card-inner').classList.toggle('is-flipped');", tags$div(class = "flip-card-inner", tags$div(class = "flip-card-front", tags$img(src = img), tags$div(class = "badge-rank", paste0("#", row$rank)), tags$div(class = "badge-custom", paste(row$total, "listings"))), tags$div(class = "flip-card-back", tags$span(style = "border-bottom: 1px solid #18bc9c; padding-bottom: 5px;", "Card Stats"), tags$div(style = "font-size: 14px; margin-top: 5px;", tags$span("Set:"), tags$br(), row$set_name), tags$div(style = "font-size: 14px; margin-top: 10px;", tags$span("Market Price:"), tags$br(), tags$span(style = "color: #f39c12; font-size: 18px;", formatted_price)), tags$div(style = "font-size: 16px; margin-top: 10px; color: #18bc9c;", paste("Vol:", row$total))))), tags$div(style = "margin-top: 15px; font-size: 15px; color: #bbb; max-width: 200px; text-align: center;", row$cardname), tags$div(style = "margin-top: 4px; font-size: 16px; color: #f39c12;", formatted_price))
     })
     div(style="display: flex; flex-direction: column;", cards, cards)
   })
@@ -445,7 +424,7 @@ server <- function(input, output, session) {
     lat <- max(card_details()$date_pulled)
     curr <- card_details() %>% filter(date_pulled == lat)
     div(class="staleness-box", 
-        tags$strong(input$selected_card), 
+        tags$span(input$selected_card), 
         sprintf(" has %d active listings as of %s.", nrow(curr), format(lat, "%B %d"))
     )
   })
@@ -458,28 +437,40 @@ server <- function(input, output, session) {
     metrics_data <- pricing_details()$metrics
     m_row <- if(!is.null(metrics_data) && nrow(metrics_data) > 0) metrics_data %>% filter(tcgplayer_id == as.character(info$tcgplayer_id)) else data.frame()
     
+    d <- pricing_details()
+    c_target <- if(nrow(d$chronos) > 0) scales::dollar(d$chronos$pred_price[nrow(d$chronos)]) else "N/A"
+    g_target <- if(nrow(d$gru) > 0) scales::dollar(d$gru$pred_price[nrow(d$gru)]) else "N/A"
+    
     tags$div(
       style = "display:flex; flex-direction:column; align-items:center; background: #1a252f; border-radius: 8px; padding: 15px; border: 1px solid #34495e;",
       tags$img(src=paste0("card_photos/", info$folder_name, "/", info$id, ".avif"), style="width:100%; max-width: 160px; border-radius:8px; box-shadow: 0 4px 8px rgba(0,0,0,0.8); margin-bottom: 15px;"), 
-      tags$div(style="font-size:14px; font-weight:bold; color:#ecf0f1; margin-bottom: 8px; border-bottom: 1px solid #18bc9c; padding-bottom: 4px; text-align: center; width: 100%;", info$cardname),
+      tags$div(style="font-size:14px; color:#ecf0f1; margin-bottom: 8px; border-bottom: 1px solid #18bc9c; padding-bottom: 4px; text-align: center; width: 100%;", info$cardname),
+      
+      tags$div(
+        style = "width: 100%; text-align: left; margin-top: 5px; margin-bottom: 10px;",
+        tags$div(style = "display: flex; justify-content: space-between; font-size: 14px;", 
+                 tags$span(style="color: #f1c40f;", "Chronos 30-Day:"), c_target),
+        tags$div(style = "display: flex; justify-content: space-between; font-size: 14px;", 
+                 tags$span(style="color: #2ecc71;", "GRU 30-Day:"), g_target)
+      ),
+
       if(nrow(m_row) > 0) {
         tags$div(
           style = "width: 100%; text-align: left;",
-          
-          tags$div(style = "font-size: 13px; font-weight: bold; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "30-Day Metrics"),
+          tags$div(style = "font-size: 13px; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "30-Day Metrics"),
           tags$div(
             style = "font-size: 13px; color: #bbb; line-height: 1.6; padding-top: 5px; margin-bottom: 10px;",
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Entropy: "), round(m_row$samp_ent_30d, 4)),
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Hurst: "), round(m_row$hurst_30d, 4)),
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Vol (CV): "), round(m_row$cv_30d, 4)),
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Skew: "), round(m_row$skewness_30d, 4))
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "Entropy: "), round(m_row$samp_ent_30d, 4)),
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "Hurst: "), round(m_row$hurst_30d, 4)),
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "Vol (CV): "), round(m_row$cv_30d, 4)),
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "Skew: "), round(m_row$skewness_30d, 4))
           ),
           
-          tags$div(style = "font-size: 13px; font-weight: bold; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "Tracking Stats"),
+          tags$div(style = "font-size: 13px; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "Tracking Stats"),
           tags$div(
             style = "font-size: 13px; color: #bbb; line-height: 1.6; padding-top: 5px;",
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "30d Data Points: "), m_row$days_in_30d),
-            tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Lifetime Tracked: "), paste(m_row$lifetime_days, "days"))
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "30d Data Points: "), m_row$days_in_30d),
+            tags$div(style="display: flex; justify-content: space-between;", tags$span(style="color:#f39c12;", "Lifetime Tracked: "), paste(m_row$lifetime_days, "days"))
           )
         )
       } else {
@@ -497,9 +488,9 @@ server <- function(input, output, session) {
 
     p <- ggplot() + 
       geom_line(data=z_hist, aes(x=plot_date, y=market_price, group=cardname, 
-                                 text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Actual Price:</b> ", scales::dollar(market_price))), color="#3498db", linewidth=1.5) +
+                                 text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>Actual Price: ", scales::dollar(market_price))), color="#3498db", linewidth=1.5) +
       geom_point(data=current_anchors, aes(x=plot_date, y=pred_price, 
-                                 text=paste0("<b>Today (Anchor):</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Current Price:</b> ", scales::dollar(pred_price))), color="#3498db", size=4, shape=18)
+                                 text=paste0("Today (Anchor): ", format(plot_date, "%b %d, %Y"), "<br>Current Price: ", scales::dollar(pred_price))), color="#3498db", size=4, shape=18)
       
     if("Chronos" %in% input$show_models) {
       if(nrow(d$chronos) > 0) {
@@ -509,7 +500,7 @@ server <- function(input, output, session) {
           z_c_bridged <- bind_rows(c_anchor, z_chronos) %>% arrange(cardname, plot_date)
           
           p <- p + geom_line(data=z_c_bridged, aes(x=plot_date, y=pred_price, group=cardname, 
-                                                 text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Chronos Forecast:</b> ", scales::dollar(pred_price))), color="#f1c40f", linetype="dashed", linewidth=1.2)
+                                                 text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>Chronos Forecast: ", scales::dollar(pred_price))), color="#f1c40f", linetype="dashed", linewidth=1.2)
           if(input$show_ci) {
              p <- p + geom_ribbon(data=z_c_bridged, aes(x=plot_date, ymin=conf_low, ymax=conf_high, group=cardname), fill="#f1c40f", alpha=0.15)
           }
@@ -528,7 +519,7 @@ server <- function(input, output, session) {
       }
     }
     
-    if("GRU" %in% input$show_models) {
+    if("15-Day Hybrid GRU" %in% input$show_models) {
       if(nrow(d$gru) > 0) {
         z_gru <- d$gru %>% filter(target_date > latest_pull & target_date <= latest_pull + 30) %>% rename(plot_date = target_date)
         if(nrow(z_gru)>0){
@@ -536,7 +527,7 @@ server <- function(input, output, session) {
           z_g_bridged <- bind_rows(g_anchor, z_gru) %>% arrange(cardname, plot_date)
           
           p <- p + geom_line(data=z_g_bridged, aes(x=plot_date, y=pred_price, group=cardname, 
-                                             text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>GRU Forecast:</b> ", scales::dollar(pred_price))), color="#2ecc71", linetype="dotted", linewidth=1.2)
+                                             text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>GRU Forecast: ", scales::dollar(pred_price))), color="#2ecc71", linetype="dotted", linewidth=1.2)
         }
       }
 
@@ -573,9 +564,9 @@ server <- function(input, output, session) {
 
     p <- ggplot() + 
       geom_line(data=m_hist, aes(x=plot_date, y=market_price, group=cardname, 
-                                 text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Actual Price:</b> ", scales::dollar(market_price))), color="#3498db", linewidth=1.2) +
+                                 text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>Actual Price: ", scales::dollar(market_price))), color="#3498db", linewidth=1.2) +
       geom_point(data=current_anchors, aes(x=plot_date, y=market_price, 
-                                 text=paste0("<b>Today (Anchor):</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Current Price:</b> ", scales::dollar(market_price))), color="#3498db", size=4, shape=18)
+                                 text=paste0("Today (Anchor): ", format(plot_date, "%b %d, %Y"), "<br>Current Price: ", scales::dollar(market_price))), color="#3498db", size=4, shape=18)
       
     if("Chronos" %in% input$show_models) {
       if(nrow(d$chronos) > 0) {
@@ -585,7 +576,7 @@ server <- function(input, output, session) {
           m_c_bridged <- bind_rows(c_anchor, m_chronos) %>% arrange(cardname, plot_date)
           
           p <- p + geom_line(data=m_c_bridged, aes(x=plot_date, y=pred_price, group=cardname, 
-                                                 text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>Chronos Forecast:</b> ", scales::dollar(pred_price))), color="#f1c40f", linetype="dashed", linewidth=1)
+                                                 text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>Chronos Forecast: ", scales::dollar(pred_price))), color="#f1c40f", linetype="dashed", linewidth=1)
           if(input$show_ci) {
              p <- p + geom_ribbon(data=m_c_bridged, aes(x=plot_date, ymin=conf_low, ymax=conf_high, group=cardname), fill="#f1c40f", alpha=0.15)
           }
@@ -603,14 +594,14 @@ server <- function(input, output, session) {
       }
     }
 
-    if("GRU" %in% input$show_models) {
+    if("15-Day Hybrid GRU" %in% input$show_models) {
       if(nrow(d$gru) > 0) {
         m_gru <- d$gru %>% filter(target_date > latest_pull) %>% rename(plot_date = target_date)
         if(nrow(m_gru) > 0) {
           g_anchor <- current_anchors %>% select(cardname, plot_date, market_price) %>% rename(pred_price = market_price)
           m_g_bridged <- bind_rows(g_anchor, m_gru) %>% arrange(cardname, plot_date)
           p <- p + geom_line(data=m_g_bridged, aes(x=plot_date, y=pred_price, group=cardname, 
-                                             text=paste0("<b>Date:</b> ", format(plot_date, "%b %d, %Y"), "<br><b>GRU Forecast:</b> ", scales::dollar(pred_price))), color="#2ecc71", linetype="dotted", linewidth=1.2)
+                                             text=paste0("Date: ", format(plot_date, "%b %d, %Y"), "<br>GRU Forecast: ", scales::dollar(pred_price))), color="#2ecc71", linetype="dotted", linewidth=1.2)
         }
       }
 
@@ -633,14 +624,13 @@ server <- function(input, output, session) {
                     yaxis = list(tickprefix = "$", fixedrange = TRUE)) %>% config(displayModeBar = FALSE)
   })
 
-  # --- CARD-SPECIFIC HORIZON ERROR CALCULATION ---
   card_error_metrics <- reactive({
     req(pricing_details())
     d <- pricing_details()
     
     shadows <- bind_rows(
       if(nrow(d$chronos_shadow) > 0) d$chronos_shadow %>% mutate(Model = "Chronos") else data.frame(),
-      if(nrow(d$gru_shadow) > 0) d$gru_shadow %>% mutate(Model = "GRU") else data.frame()
+      if(nrow(d$gru_shadow) > 0) d$gru_shadow %>% mutate(Model = "15-Day Hybrid GRU") else data.frame()
     )
     
     shadows <- shadows %>% filter(Model %in% input$show_models)
@@ -651,12 +641,18 @@ server <- function(input, output, session) {
       mutate(horizon_day = as.numeric(target_date - run_date)) %>%
       inner_join(d$hist %>% select(pull_date, actual_price = market_price), 
                  by = c("target_date" = "pull_date")) %>%
-      mutate(ape = abs(pred_price - actual_price) / actual_price) %>%
+      inner_join(d$hist %>% select(pull_date, anchor_price = market_price), 
+                 by = c("run_date" = "pull_date")) %>%
+      mutate(
+        ape = abs(pred_price - actual_price) / actual_price,
+        ape_naive = abs(anchor_price - actual_price) / actual_price
+      ) %>%
       group_by(Model, horizon_day) %>%
       summarise(
         mdape = median(ape, na.rm = TRUE),
         min_ape = min(ape, na.rm = TRUE),
         max_ape = max(ape, na.rm = TRUE),
+        naive_mdape = median(ape_naive, na.rm = TRUE),
         n_samples = n(), 
         .groups = "drop"
       )
@@ -664,7 +660,6 @@ server <- function(input, output, session) {
     return(error_df)
   })
 
-  # --- HORIZON ERROR PLOT RENDER ---
   output$error_horizon_plot <- renderPlotly({
     df <- card_error_metrics()
     
@@ -674,14 +669,21 @@ server <- function(input, output, session) {
                       plot_bgcolor = "#1a252f", paper_bgcolor = "#1a252f"))
     }
     
-    p <- ggplot(df, aes(x = horizon_day, y = mdape, fill = Model, 
-                        text = paste0("<b>Horizon Day:</b> ", horizon_day, 
-                                      "<br><b>Median Error (MdAPE):</b> ", scales::percent(mdape, accuracy=0.1),
-                                      "<br><b>Min Error:</b> ", scales::percent(min_ape, accuracy=0.1),
-                                      "<br><b>Max Error:</b> ", scales::percent(max_ape, accuracy=0.1),
-                                      "<br><b>Sample Size:</b> ", n_samples, " past predictions"))) +
-      geom_col(position = "dodge", alpha = 0.85, width = 0.7) +
-      scale_fill_manual(values = c("Chronos" = "#f1c40f", "GRU" = "#2ecc71")) +
+    baseline_df <- df %>% distinct(horizon_day, naive_mdape)
+    
+    p <- ggplot() +
+      geom_col(data = baseline_df, aes(x = horizon_day, y = naive_mdape,
+                                       text = paste0("Persistence Baseline: ", scales::percent(naive_mdape, accuracy=0.1),
+                                                     "<br>(Error if you assumed price never changed)")),
+               fill = "#ecf0f1", alpha = 0.15, width = 0.9) +
+      geom_col(data = df, aes(x = horizon_day, y = mdape, fill = Model, 
+                              text = paste0("Horizon Day: ", horizon_day, 
+                                            "<br>", Model, " Error (MdAPE): ", scales::percent(mdape, accuracy=0.1),
+                                            "<br>Min Error: ", scales::percent(min_ape, accuracy=0.1),
+                                            "<br>Max Error: ", scales::percent(max_ape, accuracy=0.1),
+                                            "<br>Sample Size: ", n_samples, " past predictions")),
+               position = "dodge", alpha = 0.85, width = 0.7) +
+      scale_fill_manual(values = c("Chronos" = "#f1c40f", "15-Day Hybrid GRU" = "#2ecc71")) +
       scale_y_continuous(labels = scales::percent) +
       scale_x_continuous(limits = c(0, 31), breaks = seq(1, 30, by = 2)) + 
       my_dark_theme() +
@@ -699,7 +701,4 @@ server <- function(input, output, session) {
 
 }
 
-# ==========================================
-# 3. LAUNCH
-# ==========================================
 shinyApp(ui, server)
