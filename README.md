@@ -135,3 +135,8 @@ I'm still tweaking how I monitor the pipeline, but right now I'm focusing on:
 * **Model Divergence:** Keeping an eye on how wildly the Hybrid GRU and Chronos predictions differ from one another.
 * **Data Integrity:** Tracking the "Match" rate coming out of Gemma. If it suddenly drops, it usually means eBay listing patterns or seller jargon have changed and I need to adjust my prompts.
 * **Outlier Detection:** Trying to flag cards where my price predictions diverge significantly from what's actually happening in the market, which usually highlights a flaw in my data or an unpredictable market buyout.
+
+<img width="1248" height="563" alt="Screenshot 2026-04-08 at 2 46 02 PM" src="https://github.com/user-attachments/assets/f9ffa787-2569-4384-b1ed-ea32fc89f124" />
+
+<img width="233" height="591" alt="Screenshot 2026-04-08 at 2 44 56 PM" src="https://github.com/user-attachments/assets/3a23b88b-fd81-4097-84d9-a05169388301" />
+
