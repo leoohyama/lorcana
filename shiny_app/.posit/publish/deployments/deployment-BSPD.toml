@@ -11,8 +11,8 @@ id = '019d62f2-f52d-91f6-7b8e-e21c60bc2991'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d62f2-f52d-91f6-7b8e-e21c60bc2991'
 direct_url = 'https://019d62f2-f52d-91f6-7b8e-e21c60bc2991.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d62f2-f52d-91f6-7b8e-e21c60bc2991/history'
-deployed_at = '2026-04-06T09:23:18-04:00'
-bundle_id = '019d62f3-cf58-fe3f-a1ea-ff98e977eee8'
+deployed_at = '2026-04-08T10:27:48-04:00'
+bundle_id = '019d6d7d-f870-4894-e6b8-d698dada72d7'
 files = [
   '.posit/publish/Lorcana Forcast-OT8D.toml',
   '.posit/publish/deployments/deployment-BSPD.toml',
@@ -264,6 +264,7 @@ files = [
   'app_data/enchanteds/images/Winterspell/crd_e3dbc3e8ae3543059ee67af1d144c576.avif',
   'app_data/enchanteds/images/Winterspell/crd_ea1ae83b3c414a2a838398390473ebc6.avif',
   'app_data/enchanteds/images/Winterspell/crd_fbad358f2f804554838545c738341380.avif',
+  'app_data/lorcana_global_metrics.csv',
   'app_data/target_cards_with_epids2.csv',
   'renv.lock'
 ]

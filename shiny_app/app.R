@@ -95,17 +95,20 @@ ui <- page_navbar(
                        choices = sort(unique(master_dict$cardname)), 
                        selected = "Stitch - Carefree Surfer - Enchanted"),
         hr(), 
-        # Default changed to select both models
         checkboxGroupInput("show_models", "Select Models:", 
                            choices = c("Chronos", "GRU"), 
                            selected = c("Chronos", "GRU")),
         br(),
-        # Default changed to FALSE
         checkboxInput("show_ci", "Show Chronos Confidence Interval", value = FALSE),
         hr(),
         uiOutput("sidebar_pricing_image")
       ),
       div(
+        card(
+          card_header("Model Accuracy by Horizon Day (Card Specific)"),
+          p(style = "color: #bbb; font-size: 13px;", "Calculated by comparing past 'shadow' forecasts against actual market prices. Shows the median error, with min/max ranges available on hover."),
+          plotlyOutput("error_horizon_plot", height = "300px")
+        ),
         card(card_header("Micro View: 30-Day History & Backtest (Auto-Scaled)"), plotlyOutput("pricing_zoom_plot", height = "450px")),
         card(
           card_header("Macro View: All-Time History & Long Term Forecast"),
@@ -283,12 +286,10 @@ server <- function(input, output, session) {
     })
   })
 
-  # --- NEW: ML DIAGNOSTICS LOGIC ---
   ml_diag_data <- eventReactive(input$calc_diagnostics, ignoreNULL = FALSE, {
     withProgress(message = 'Pulling Latest Error Metrics...', value = 0.5, {
       con <- get_neon_con()
       
-      # 1. Fetch Accuracy Table
       diag_raw <- tryCatch(dbGetQuery(con, "SELECT card_id as tcgplayer_id, model, diagnostic_run_date, max_error, mape FROM card_accuracy_summary WHERE model IN ('Chronos', 'Single GRU')"), error = function(e) data.frame())
       
       if(nrow(diag_raw) == 0) {
@@ -296,11 +297,9 @@ server <- function(input, output, session) {
         return(NULL)
       }
       
-      # Filter to the absolutely newest sync
       max_date <- max(as.Date(diag_raw$diagnostic_run_date), na.rm = TRUE)
       diag_latest <- diag_raw %>% filter(as.Date(diagnostic_run_date) == max_date) %>% mutate(tcgplayer_id = as.integer(tcgplayer_id))
       
-      # 2. Get latest 30-day forecast targets
       c_pred <- tryCatch(dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)"), error = function(e) data.frame())
       g_pred <- tryCatch(dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)"), error = function(e) data.frame())
       dbDisconnect(con)
@@ -318,7 +317,6 @@ server <- function(input, output, session) {
       req(summary_data())
       actuals <- summary_data()$latest %>% select(tcgplayer_id, current_price = market_price)
       
-      # Join everything together
       res <- diag_latest %>%
         inner_join(actuals, by = "tcgplayer_id") %>%
         inner_join(all_30, by = c("tcgplayer_id", "model")) %>%
@@ -330,7 +328,7 @@ server <- function(input, output, session) {
         select(tcgplayer_id, id, folder_name, Card = cardname, Model = model, `Current Price` = current_price, `30d Forecast` = pred_price,
                `30d Change ($)` = diff_abs, `30d Change (%)` = diff_pct,
                MAPE = mape, `Max Error` = max_error) %>%
-        arrange(MAPE) # Sort best to worst
+        arrange(MAPE) 
       
       return(res)
     })
@@ -350,7 +348,6 @@ server <- function(input, output, session) {
       formatStyle('30d Change ($)', color = styleInterval(0, c('#e74c3c', '#2ecc71')))
   })
   
-  # Dynamics Steep Movers UI Boxes
   output$top_incline_box <- renderUI({
     df <- ml_diag_data()
     req(df)
@@ -455,7 +452,6 @@ server <- function(input, output, session) {
   
   output$listings_table <- renderDT({ req(card_details()); card_details() %>% filter(date_pulled == max(date_pulled)) %>% arrange(price_val) %>% select(Title = listing_title, Price = price_val, `Graded?` = is_graded, `Type` = listing_type) %>% datatable(options=list(pageLength=10, dom='tp'), rownames=FALSE) %>% formatCurrency("Price") })
   
-  # --- RELOCATED & UPDATED SIDEBAR UI ---
   output$sidebar_pricing_image <- renderUI({ 
     req(input$pricing_selected_card, pricing_details())
     info <- master_dict %>% filter(cardname == input$pricing_selected_card) %>% slice(1)
@@ -470,7 +466,6 @@ server <- function(input, output, session) {
         tags$div(
           style = "width: 100%; text-align: left;",
           
-          # 30-Day Metrics Section
           tags$div(style = "font-size: 13px; font-weight: bold; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "30-Day Metrics"),
           tags$div(
             style = "font-size: 13px; color: #bbb; line-height: 1.6; padding-top: 5px; margin-bottom: 10px;",
@@ -480,7 +475,6 @@ server <- function(input, output, session) {
             tags$div(style="display: flex; justify-content: space-between;", tags$strong(style="color:#f39c12;", "Skew: "), round(m_row$skewness_30d, 4))
           ),
           
-          # Lifetime / DB Stats Section
           tags$div(style = "font-size: 13px; font-weight: bold; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px;", "Tracking Stats"),
           tags$div(
             style = "font-size: 13px; color: #bbb; line-height: 1.6; padding-top: 5px;",
@@ -494,7 +488,6 @@ server <- function(input, output, session) {
     )
   })
 
-  # THE 30-DAY ZOOMED PLOT & BACKTEST
   output$pricing_zoom_plot <- renderPlotly({
     req(pricing_details()); d <- pricing_details()
     latest_pull <- max(d$hist$pull_date, na.rm = TRUE)
@@ -571,7 +564,6 @@ server <- function(input, output, session) {
       ) %>% config(displayModeBar = FALSE)
   })
 
-  # THE ALL-TIME MACRO PLOT
   output$pricing_plot <- renderPlotly({
     req(pricing_details()); d <- pricing_details()
     latest_pull <- max(d$hist$pull_date, na.rm = TRUE)
@@ -640,6 +632,71 @@ server <- function(input, output, session) {
                     xaxis = list(rangeslider = list(visible = TRUE, thickness = 0.08, bgcolor = "#34495e"), hoverformat = "%b %d, %Y"),
                     yaxis = list(tickprefix = "$", fixedrange = TRUE)) %>% config(displayModeBar = FALSE)
   })
+
+  # --- CARD-SPECIFIC HORIZON ERROR CALCULATION ---
+  card_error_metrics <- reactive({
+    req(pricing_details())
+    d <- pricing_details()
+    
+    shadows <- bind_rows(
+      if(nrow(d$chronos_shadow) > 0) d$chronos_shadow %>% mutate(Model = "Chronos") else data.frame(),
+      if(nrow(d$gru_shadow) > 0) d$gru_shadow %>% mutate(Model = "GRU") else data.frame()
+    )
+    
+    shadows <- shadows %>% filter(Model %in% input$show_models)
+    
+    if(nrow(shadows) == 0) return(NULL)
+    
+    error_df <- shadows %>%
+      mutate(horizon_day = as.numeric(target_date - run_date)) %>%
+      inner_join(d$hist %>% select(pull_date, actual_price = market_price), 
+                 by = c("target_date" = "pull_date")) %>%
+      mutate(ape = abs(pred_price - actual_price) / actual_price) %>%
+      group_by(Model, horizon_day) %>%
+      summarise(
+        mdape = median(ape, na.rm = TRUE),
+        min_ape = min(ape, na.rm = TRUE),
+        max_ape = max(ape, na.rm = TRUE),
+        n_samples = n(), 
+        .groups = "drop"
+      )
+    
+    return(error_df)
+  })
+
+  # --- HORIZON ERROR PLOT RENDER ---
+  output$error_horizon_plot <- renderPlotly({
+    df <- card_error_metrics()
+    
+    if(is.null(df) || nrow(df) == 0) {
+      return(plotly_empty(type = "scatter", mode = "markers") %>%
+               layout(title = list(text = "Not enough historical data to calculate error yet.", font=list(color="#bbb", size=14)),
+                      plot_bgcolor = "#1a252f", paper_bgcolor = "#1a252f"))
+    }
+    
+    p <- ggplot(df, aes(x = horizon_day, y = mdape, fill = Model, 
+                        text = paste0("<b>Horizon Day:</b> ", horizon_day, 
+                                      "<br><b>Median Error (MdAPE):</b> ", scales::percent(mdape, accuracy=0.1),
+                                      "<br><b>Min Error:</b> ", scales::percent(min_ape, accuracy=0.1),
+                                      "<br><b>Max Error:</b> ", scales::percent(max_ape, accuracy=0.1),
+                                      "<br><b>Sample Size:</b> ", n_samples, " past predictions"))) +
+      geom_col(position = "dodge", alpha = 0.85, width = 0.7) +
+      scale_fill_manual(values = c("Chronos" = "#f1c40f", "GRU" = "#2ecc71")) +
+      scale_y_continuous(labels = scales::percent) +
+      scale_x_continuous(limits = c(0, 31), breaks = seq(1, 30, by = 2)) + 
+      my_dark_theme() +
+      labs(x = "Days Out (Forecast Horizon)", y = "Median Error Rate (MdAPE)") +
+      theme(panel.grid.major.x = element_blank()) 
+    
+    ggplotly(p, tooltip = "text") %>%
+      layout(
+        hovermode = "x unified",
+        plot_bgcolor = "#1a252f", paper_bgcolor = "#1a252f",
+        legend = list(orientation = "h", x = 0.5, y = 1.15, xanchor = "center")
+      ) %>%
+      config(displayModeBar = FALSE)
+  })
+
 }
 
 # ==========================================
