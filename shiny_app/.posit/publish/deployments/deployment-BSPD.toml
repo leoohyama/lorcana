@@ -11,8 +11,8 @@ id = '019d62f2-f52d-91f6-7b8e-e21c60bc2991'
 dashboard_url = 'https://connect.posit.cloud/leoohyama/content/019d62f2-f52d-91f6-7b8e-e21c60bc2991'
 direct_url = 'https://019d62f2-f52d-91f6-7b8e-e21c60bc2991.share.connect.posit.cloud'
 logs_url = 'https://connect.posit.cloud/leoohyama/content/019d62f2-f52d-91f6-7b8e-e21c60bc2991/history'
-deployed_at = '2026-04-08T11:25:13-04:00'
-bundle_id = '019d6db2-8b79-c338-8416-13fa8bf277aa'
+deployed_at = '2026-04-08T11:32:05-04:00'
+bundle_id = '019d6db8-d59f-329c-c060-b741cb76c5c2'
 files = [
   '.posit/publish/Lorcana Forcast-OT8D.toml',
   '.posit/publish/deployments/deployment-BSPD.toml',
