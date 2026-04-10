@@ -17,8 +17,8 @@
 
 ### 🎯 My Project Roadmap & To-Dos
 1.  **LLM Fine-Tuning:** I'm exploring LoRA (Low-Rank Adaptation) to see if I can train the **Gemma 4.0 2B** model to better handle "edge-case" Lorcana titles (like seller misspellings or weird promotional jargon that currently trips up the pipeline).
-2.  **Attention Mechanisms:** I want to try adding attention layers into my GRU architecture to see if it helps the model capture key market events and weigh them more heavily in the forecasts.
-3.  **Confidence Intervals:** A major goal is integrating model confidence percentages for individual price forecasts so I have a better sense of when the model is basically just guessing.
+2.  **Attention Mechanisms:** I want to try adding attention layers into my GRU architecture to see if it helps the model capture key market events and weigh them more heavily in the forecasts. DONE
+3.  **Confidence Intervals:** A major goal is integrating model confidence percentages for individual price forecasts so I have a better sense of when the model is basically just guessing. Moved to somethin else
 4.  **Blue Chip Index:** I'm working on developing a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
 5.  **UI Enhancements:** I need to add a "Last Trained" timestamp to the dashboard so I know if a run failed, and I'm currently implementing a "Filter by Grade" (PSA, CGC, etc.) feature for better granularity.
 
