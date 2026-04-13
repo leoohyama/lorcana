@@ -1,5 +1,10 @@
 # Lorcana Market Data Analysis & Forecasting
 
+🚀 **UPDATE: The Lorecaster dashboard is now officially live!**
+
+[![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/103c05f6-bb5b-4c34-bd9d-0930aa1932dc)](http://lorecaster.ink)
+*Click the image above to explore the live market forecasts.*
+
 ## Table of Contents
 - [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
 - [Project Overview](#project-overview)
