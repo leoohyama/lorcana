@@ -1,15 +1,26 @@
-# Lorcana Market Data Analysis & Forecasting
+# Lorecaster: Lorcana Market Data Analysis & Forecasting
 
-🚀 **UPDATE: The Lorecaster dashboard is now officially live!**
+<p align="center">
+  <img src="https://img.shields.io/badge/R-276DC3?style=for-the-badge&logo=r&logoColor=white" alt="R" />
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
+  <img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/DigitalOcean-0080FF?style=for-the-badge&logo=digitalocean&logoColor=white" alt="DigitalOcean" />
+  <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
+</p>
+
+**Please note** this is an ongoing project and the readme (for my own sanity) might be out of date. 
+
+🚀 **UPDATE: Lorecaster is now live!**
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/103c05f6-bb5b-4c34-bd9d-0930aa1932dc)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
 
 ## Table of Contents
-- [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
 - [Project Overview](#project-overview)
-  - [AI Data Cleaning (Gemma 4.0)](#-ai-data-cleaning-gemma-40)
-  - [System Architecture Workflow](#️-system-architecture-workflow)
+- [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
+- [Data Pipeline & Ecosystem](#️-data-pipeline--ecosystem)
 - [Context & Market Dynamics](#context--market-dynamics)
   - [1. Rarity & Grading](#1-rarity--grading)
   - [2. Artwork & Nostalgia](#2-artwork--nostalgia)
@@ -20,21 +31,28 @@
   - [Monitoring & Health](#monitoring--health)
 
 
-### 🎯 My Project Roadmap & To-Dos
-1.  **LLM Fine-Tuning:** I'm exploring LoRA (Low-Rank Adaptation) to see if I can train the **Gemma 4.0 2B** model to better handle "edge-case" Lorcana titles (like seller misspellings or weird promotional jargon that currently trips up the pipeline).
-2.  **Attention Mechanisms:** I want to try adding attention layers into my GRU architecture to see if it helps the model capture key market events and weigh them more heavily in the forecasts. DONE
-3.  **Confidence Intervals:** A major goal is integrating model confidence percentages for individual price forecasts so I have a better sense of when the model is basically just guessing. Moved to somethin else
-4.  **Blue Chip Index:** I'm working on developing a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
-5.  **UI Enhancements:** I need to add a "Last Trained" timestamp to the dashboard so I know if a run failed, and I'm currently implementing a "Filter by Grade" (PSA, CGC, etc.) feature for better granularity.
-
----
-
 ### Project Overview
 This repository houses my personal data pipeline and forecasting experiments for the Disney Lorcana TCG. I've set up a **Hybrid Local-Cloud Architecture** that combines some cloud scraping with local **Large Language Model (LLM)** inference. My main goal here is to try and clean up the inherently messy secondary market data as much as possible before feeding it into any predictive models.
 
-### 🤖 AI Data Cleaning (Gemma 4.0)
-Trying to filter out the "noise" in eBay TCG data (proxies, digital codes, and "repack" scams) is a huge headache. To tackle this, I'm currently experimenting with **Gemma 4.0 (2B Effective)** running locally via **Ollama** on my Apple Silicon runner. 
+---
 
+### 🎯 My Project Roadmap & To-Dos
+1.  **fix system graph** update to show shinyapp hosted of digital ocean
+4.  **Blue Chip Index:** I'm working on developing a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
+5.  figure out ebay data and how it can be used!!!
+
+
+---
+
+### 🏗️ Data Pipeline & Ecosystem
+
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/13e49a31-7878-49d9-a841-d6633839729e" alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
+</p>
+
+1.  **Sourcing (Cloud):** I use GitHub Actions (Ubuntu-latest) to run a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to my **Neon (Postgres)** database.
+2.  **AI Cleaning (Local MacBook Runner):** Once the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls down any new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
 * **Title Validation:** I have Gemma performing a character-and-subtitle check to try and verify that the listing matches the target card exactly, helping me filter out seller "keyword stuffing."
 * **Structured Extraction:** I'm prompting the model to extract structured JSON data from the raw, messy eBay listing strings to identify:
     * **Match Validity:** (Match/No Match)
@@ -42,17 +60,10 @@ Trying to filter out the "noise" in eBay TCG data (proxies, digital codes, and "
     * **Grading Company:** (PSA, BGS, CGC, SGC, PCG)
     * **Grade Value:** (e.g., 10, 9.5, 9)
 * **Incremental Processing:** To save on compute time, the pipeline uses a "Delta-only" approach. It cross-references new `item_ids` against my existing metadata table so that each listing only goes through the AI extraction process once.
+3.  **Preprocessing** Data is preprocessed using primarily R in order to filter out items that can't be used in the deep learning process and to remove any problematic data structures.
+4.  **Forecasting** Done using Pytorch with more info found [here](#forecasting-models) regarding training schedule and inference.
+5.  **Deployment (Shiny App):** The forecast and general market metrics are all presented via a shinyapp dashboard (Lorecaster). This dashboard is hosted on a Digital Ocean Droplet which is done through containerizing the shinyapp via docker in a different repository. 
 
-### 🏗️ System Architecture Workflow
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/13e49a31-7878-49d9-a841-d6633839729e" alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
-</p>
-
-
-1.  **Sourcing (Cloud):** I use GitHub Actions (Ubuntu-latest) to run a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to my **Neon (Postgres)** database.
-2.  **AI Cleaning (Local MacBook Runner):** Once the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls down any new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
-3.  **Deployment (Shiny App):** On the frontend, my dashboard performs a relational join between the raw price logs and the AI-verified metadata. This lets me filter out "dirty" or mismatched data in real-time when I'm looking at the charts.
 
 ---
 
@@ -144,4 +155,3 @@ I'm still tweaking how I monitor the pipeline, but right now I'm focusing on:
 <img width="1248" height="563" alt="Screenshot 2026-04-08 at 2 46 02 PM" src="https://github.com/user-attachments/assets/f9ffa787-2569-4384-b1ed-ea32fc89f124" />
 
 <img width="233" height="591" alt="Screenshot 2026-04-08 at 2 44 56 PM" src="https://github.com/user-attachments/assets/3a23b88b-fd81-4097-84d9-a05169388301" />
-
