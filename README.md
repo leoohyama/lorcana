@@ -40,6 +40,7 @@ This repository houses my personal data pipeline and forecasting experiments for
 1.  **fix system graph** update to show shinyapp hosted of digital ocean
 4.  **Blue Chip Index:** I'm working on developing a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
 5.  figure out ebay data and how it can be used!!!
+6.  start playing around with diffustion transformer models and using llms to capture market sentiment
 
 
 ---
