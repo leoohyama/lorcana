@@ -21,7 +21,7 @@ ask_gemma_json <- function(target_card, ebay_title) {
     "RULES:\n",
     "1. 'validity': 'Match' ONLY if the title represents the Character Name and Subtitle of the target card. 'No Match' if it is a different version/subtitle, proxy, digital code, or empty box.\n",
     "2. COLLECTOR NUMBERS: The target card ends with a number (e.g., '- 213'). It is still a 'Match' if the eBay title formats it differently (e.g., '213/204') or omits the number entirely, as long as the names match.\n",
-    "3. IGNORE set names, foil types, and eBay seller jargon (e.g., 'IN HAND', 'US SHIP', 'Pack Fresh') when determining validity.\n",
+    "3. IGNORE set names, foil types, and eBay seller jargon (e.g., 'IN HAND', 'PSA','CGC','BGS', 'GRADED','US SHIP', 'Pack Fresh') when determining validity.\n",
     
     "EXAMPLES:\n",
     "Target Card: Alice - Growing Girl - Enchanted - 213\n",
