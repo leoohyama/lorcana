@@ -105,6 +105,28 @@ Special artwork and beloved Disney characters—like Stitch, which is a major fo
 
 ---
 
+# Conceptual Framework of the Lorcana Market
+
+Note I have added this section post forecasting model development (at least after the initial version of the stable models) because I saw the need to describe the larger context in which one would "believe" the flows of the secondary Lorcana market. 
+
+The first thing to note in this conceptual framework is that different rarities also delineate, in some ways, viewing the card as a collectible vs. a useful card for the actual trading card game. While both views exist in the market and the pricing of cards are often a combination of multiple factors such as those aforementioned this project assumes that card of higher rarities likely play more into the collectible aspect of demand because they are by definition more difficult to "pull" from a pack and often come with more unique and "desriable" artworks that make it attractive to collectors. That is why this project focuses on the card rarities of Epic, Enchanted, and Iconic. Combining all rarities (uncommon, common etc.) would make the modelling framework much more difficult as prices are likely to be further impacted by the card game's meta and developments as certain cards are seen as more useful or powerful than others. 
+
+## GRADING
+Another thing to note is that my models currently predict the prices of UNGRADED cards. A GRADED card is a card that has been certified and graded (usually on a scale of 1-10) by a third party company based on the card's condition (scratches, whitening), overall aesthetic appeal, centering (how centered the image is) and a host of other factors. GRADED cards, especially those with higher grades (9-10) often sell for much higher on the secondary market relative to UNGRADED cards. It is very difficult to monitor and capture pricing data for GRADED cards as not many data sources are freely available that host this sort of information. Additionally, GRADED card pricing has a lot more variance as the pricing for these are usually higher and swing a lot more steeply. 
+
+## EBAY
+Ebay is one of the major marketplaces for TCG cards, especially higher end cards. Other markets, such TCGplayer, also exist but given the focus of this project being the collectible cards of Lorcana, ebay is likely to have more data on the transactions of such cards. Ebay also permits the sales of graded and ungraded cards while marketplaces like TCGplayer do not sell graded cards. Because of this item listing and sales data from ebay can be a treasure trove as it captures very high-end sales of graded cards that are often indicative of not just the particular card's demand/supply but potentially even the general sentiment of the Lorcana secondary market. 
+
+Additionally, I believe that listing prices for cards on ebay can be a good indicator of future market prices, especially when examined in the context of previous listing prices and listing volume history. While the upper echelons of listing prices (usually with buy it now or best offer) may be considered outliers given their high $$ values, those can be quickly identified and possibly removed from analyses. Often times, a card is listed at extremely high prices because (but not limited to):
+
+  1. The card is rare/new and so a market price has not been established for it
+  2. The seller may have not read the market correctly and is overpricing it
+  3. Item listing error
+
+
+I am currently collecting ebay item listing data using the ebay developer API on a daily basis. At some point I hope to incorporate these data into our models to better predict UNGRADED card prices. Given that ebay does not provide historical postings (sold listing or completed listings), the accumulation of data is still underway. 
+
+
 # Forecasting Models
 
 I'm approaching the price forecasting aspect as a multi-modal time-series problem. Right now, I'm testing out two very different architectures to see what handles the volatility best:
