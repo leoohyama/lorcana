@@ -1,0 +1,33 @@
+name: Gemma 4 eBay Title Cleaner (Dry Run)
+
+on:
+  push:
+  workflow_dispatch: 
+
+jobs:
+  evaluate-titles:
+    runs-on: self-hosted 
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Wake up Ollama
+        run: |
+          nohup ollama serve > ollama.log 2>&1 &
+          sleep 5 
+          curl -I http://localhost:11434/ || echo "Ollama failed to start"
+
+      - name: Run Dry Run Script
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: |
+          Rscript dryrun.R
+          
+      - name: Upload Audit CSV
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gemma-kill-list-audit
+          path: gemma_kill_list_audit.csv
+          if-no-files-found: ignore
