@@ -1,5 +1,6 @@
 # ==========================================
-# GEMMA 4 DEDUPE - DRY RUN / AUDIT MODE
+# GEMMA 4 DEDUPE - LIVE DELETION MODE
+# File: dedupe_gemma4.R
 # ==========================================
 
 library(DBI)
@@ -91,7 +92,7 @@ suspected_dupes <- raw_listings %>%
   ungroup()
 
 if(nrow(suspected_dupes) == 0) {
-  message("✅ No cross-pollinated duplicates found! Exiting.")
+  message("✅ No cross-pollinated duplicates found! Database is clean.")
   dbDisconnect(con)
   quit()
 }
@@ -115,7 +116,7 @@ processing_queue <- suspected_dupes %>%
 evaluations <- processing_queue %>% mutate(is_valid = NA)
 
 # ==========================================
-# 4. RUN GEMMA EVALUATIONS (GitHub Actions Friendly Logging)
+# 4. RUN GEMMA EVALUATIONS
 # ==========================================
 message(paste("🤖 Asking Gemma to evaluate", nrow(processing_queue), "combinations..."))
 message("--------------------------------------------------")
@@ -129,8 +130,8 @@ for (i in 1:nrow(processing_queue)) {
   is_match <- ifelse(result_list$validity == "Match", TRUE, FALSE)
   evaluations$is_valid[i] <- is_match
   
-  # Action-friendly logging: One clear line per evaluation
-  eval_status <- ifelse(is_match, "✅ MATCH", "❌ NO MATCH (KILL)")
+  # Action-friendly logging
+  eval_status <- ifelse(is_match, "✅ MATCH", "❌ NO MATCH (WILL DELETE)")
   message(sprintf("[%d/%d] %s", i, nrow(processing_queue), eval_status))
   message(sprintf("   Target : %s", curr_target))
   message(sprintf("   Listing: %s", curr_title))
@@ -138,27 +139,32 @@ for (i in 1:nrow(processing_queue)) {
 }
 
 # ==========================================
-# 5. DRY RUN AUDIT (No Database Changes)
+# 5. EXECUTE NEON DELETIONS
 # ==========================================
 kill_list <- evaluations %>% filter(is_valid == FALSE)
 
 message("\n==================================================")
-message("☠️ KILL LIST AUDIT (DRY RUN)")
+message("☠️ EXECUTING LIVE DELETIONS")
 message("==================================================")
 
 if(nrow(kill_list) > 0) {
-  message(sprintf("Gemma identified %d false matches that WOULD be deleted.", nrow(kill_list)))
+  message(sprintf("Gemma identified %d false matches. Deleting from Neon...", nrow(kill_list)))
   
-  # Print the data frame cleanly to the GitHub Actions log
-  print(kill_list %>% select(item_id, card_name, listing_title, is_valid), n = 50)
+  for(i in 1:nrow(kill_list)) {
+    
+    # Safely inject the exact item_id and id combination into the DELETE statement
+    del_query <- glue::glue_sql("
+      DELETE FROM lorcana_active_listings 
+      WHERE item_id = {kill_list$item_id[i]} AND id = {kill_list$id[i]};
+    ", .con = con)
+    
+    dbExecute(con, del_query)
+  }
   
-  # Save to CSV for artifact uploading
-  write_csv(kill_list, "gemma_kill_list_audit.csv")
-  message("\n💾 Saved to 'gemma_kill_list_audit.csv'.")
-  message("You can add an 'actions/upload-artifact' step to your workflow to download this file!")
+  message("✅ Deletions complete! Database is clean.")
   
 } else {
-  message("✅ Gemma determined all pairings were somehow valid. Kill list is empty.")
+  message("✅ Gemma determined all pairings were somehow valid. No deletions made.")
 }
 
 dbDisconnect(con)
