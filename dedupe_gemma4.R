@@ -1,5 +1,5 @@
 # ==========================================
-# GEMMA 4 DEDUPE - LIVE DELETION MODE
+# GEMMA 4 DEDUPE - LIVE DELETION MODE (TIMEOUT PROOF)
 # File: dedupe_gemma4.R
 # ==========================================
 
@@ -84,6 +84,10 @@ con <- dbConnect(
 message("📥 Downloading raw eBay identifiers...")
 raw_listings <- dbGetQuery(con, "SELECT DISTINCT item_id, id, listing_title FROM lorcana_active_listings")
 
+# VERY IMPORTANT: Disconnect immediately so the connection doesn't time out while Gemma thinks!
+dbDisconnect(con)
+message("🔒 Disconnected from Neon to save resources.")
+
 message("🔍 Identifying cross-pollinated listings...")
 suspected_dupes <- raw_listings %>%
   group_by(item_id) %>%
@@ -93,7 +97,6 @@ suspected_dupes <- raw_listings %>%
 
 if(nrow(suspected_dupes) == 0) {
   message("✅ No cross-pollinated duplicates found! Database is clean.")
-  dbDisconnect(con)
   quit()
 }
 
@@ -148,7 +151,18 @@ message("☠️ EXECUTING LIVE DELETIONS")
 message("==================================================")
 
 if(nrow(kill_list) > 0) {
-  message(sprintf("Gemma identified %d false matches. Deleting from Neon...", nrow(kill_list)))
+  message(sprintf("Gemma identified %d false matches. Reconnecting to Neon...", nrow(kill_list)))
+  
+  # RECONNECT: Open a fresh connection just for the deletions
+  con <- dbConnect(
+    RPostgres::Postgres(),
+    host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
+    dbname   = "neondb", 
+    user     = "neondb_owner",
+    password = Sys.getenv("NEON_PASSWORD"), 
+    port     = 5432, 
+    sslmode  = "require"
+  )
   
   for(i in 1:nrow(kill_list)) {
     
@@ -158,13 +172,13 @@ if(nrow(kill_list) > 0) {
       WHERE item_id = {kill_list$item_id[i]} AND id = {kill_list$id[i]};
     ", .con = con)
     
-    dbExecute(con, del_query)
+    # Execute with immediate = TRUE to bypass the prepared statement pooler issue
+    dbExecute(con, del_query, immediate = TRUE)
   }
   
+  dbDisconnect(con)
   message("✅ Deletions complete! Database is clean.")
   
 } else {
   message("✅ Gemma determined all pairings were somehow valid. No deletions made.")
 }
-
-dbDisconnect(con)
