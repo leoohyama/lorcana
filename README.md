@@ -10,70 +10,52 @@
   <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
 </p>
 
-**Please note** this is an ongoing project and the readme (for my own sanity) might be out of date. 
+> **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested. 
 
 🚀 **UPDATE: Lorecaster is now live!**
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/103c05f6-bb5b-4c34-bd9d-0930aa1932dc)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
 
+---
+
 ## Table of Contents
 - [Project Overview](#project-overview)
-- [Project Roadmap & To-Dos](#-my-project-roadmap--to-dos)
-- [Data Pipeline & Ecosystem](#️-data-pipeline--ecosystem)
 - [Context & Market Dynamics](#context--market-dynamics)
-  - [1. Rarity & Grading](#1-rarity--grading)
-  - [2. Artwork & Nostalgia](#2-artwork--nostalgia)
+- [Data Pipeline & Ecosystem](#data-pipeline--ecosystem)
 - [Forecasting Models](#forecasting-models)
-  - [1. Hybrid Gated Recurrent Unit (GRU)](#1-hybrid-gated-recurrent-unit-gru)
-  - [2. Pre-trained Transformer (Amazon Chronos)](#2-pre-trained-transformer-amazon-chronos)
-- [My Training & Inference Schedule](#my-training--inference-schedule)
-  - [Monitoring & Health](#monitoring--health)
-
-
-### Project Overview
-This repository houses my personal data pipeline and forecasting experiments for the Disney Lorcana TCG. I've set up a **Hybrid Local-Cloud Architecture** that combines some cloud scraping with local **Large Language Model (LLM)** inference. My main goal here is to try and clean up the inherently messy secondary market data as much as possible before feeding it into any predictive models.
+- [Training & Inference Schedule](#training--inference-schedule)
+- [Project Roadmap & To-Dos](#project-roadmap--to-dos)
 
 ---
 
-### 🎯 My Project Roadmap & To-Dos
-1.  **fix system graph** update to show shinyapp hosted of digital ocean
-4.  **Blue Chip Index:** I'm working on developing a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
-5.  figure out ebay data and how it can be used!!!
-6.  start playing around with diffustion transformer models and using llms to capture market sentiment
+## Project Overview
+This repository houses my personal data pipeline and forecasting experiments for the Disney Lorcana TCG. I've set up a **Hybrid Local-Cloud Architecture** that combines cloud scraping with local **Large Language Model (LLM)** inference. 
 
-
----
-### 🏗️ Data Pipeline & Ecosystem
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/bff3f837-54a6-414b-abf2-ac27c10327f8"  alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
-</p>
-
-1.  **Sourcing (Cloud):** I use GitHub Actions (Ubuntu-latest) to run a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to my **Neon (Postgres)** database.
-2.  **AI Cleaning (Local MacBook Runner):** Once the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls down any new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
-* **Title Validation:** I have Gemma performing a character-and-subtitle check to try and verify that the listing matches the target card exactly, helping me filter out seller "keyword stuffing."
-* **Structured Extraction:** I'm prompting the model to extract structured JSON data from the raw, messy eBay listing strings to identify:
-    * **Match Validity:** (Match/No Match)
-    * **Grading Status:** (True/False)
-    * **Grading Company:** (PSA, BGS, CGC, SGC, PCG)
-    * **Grade Value:** (e.g., 10, 9.5, 9)
-* **Incremental Processing:** To save on compute time, the pipeline uses a "Delta-only" approach. It cross-references new `item_ids` against my existing metadata table so that each listing only goes through the AI extraction process once.
-3.  **Preprocessing** Data is preprocessed using primarily R in order to filter out items that can't be used in the deep learning process and to remove any problematic data structures.
-4.  **Forecasting** Done using Pytorch with more info found [here](#forecasting-models) regarding training schedule and inference.
-5.  **Deployment (Shiny App):** The forecast and general market metrics are all presented via a shinyapp dashboard (Lorecaster). This dashboard is hosted on a Digital Ocean Droplet which is done through containerizing the shinyapp via docker in a different repository. 
-
+Trading card games (TCGs) have incredibly speculative and volatile secondary markets. The main goal of this project is to clean up inherently messy secondary market data as much as possible before feeding it into predictive models, ultimately providing stable forecasts and market health metrics.
 
 ---
 
-# Context & Market Dynamics
+## Context & Market Dynamics
+Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. The pricing of cards is a combination of multiple factors, and to accurately forecast prices, we have to understand the specific dynamics driving this secondary market.
 
-Trading card games (TCGs) have incredibly speculative and volatile secondary markets. Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. 
+### 1. The Collectible vs. Playable Divide (Rarity)
+Different rarities delineate whether a card is viewed primarily as a collectible or as a useful game piece. While both views exist, this project assumes that cards of higher rarities play more into the collectible aspect of demand. They are harder to "pull" from a pack and feature unique artworks. Because of this, Lorecaster focuses on the higher-end card rarities: **Epic, Enchanted, and Iconic**. Combining all rarities (including common/uncommon) would make modeling much more difficult, as lower-tier card prices fluctuate wildly based on the game's current competitive meta.
 
-From what I've observed tracking this data, a few key factors drive the market:
+### 2. Artwork & Nostalgia
+Special artwork and beloved Disney characters (like Stitch, a major focus for my own collection) evoke powerful emotional connections. This creates intrinsic value and high demand among collectors that doesn't always align with a card's actual playability.
 
-### 1. Rarity & Grading
-A card's baseline value is tied to its pull rate. Lorcana has several rarity classifications ("Common", "Uncommon", "Rare", "Super Rare", "Legendary", "Epic", "Enchanted", and "Iconic"). Beyond raw rarity, the "Graded" market (PSA, CGC, BGS) introduces wild price premiums for high-quality "slabs" that are hard to consistently track.
+### 3. Grading 
+A card's baseline value is tied to its pull rate, but the "Graded" market introduces wild price premiums. A graded card has been certified (usually on a scale of 1-10) by a third-party company (PSA, CGC, BGS) based on condition, centering, and aesthetics. 
+
+**Note:** My models currently predict the prices of **UNGRADED** cards. Graded cards, especially higher grades (9-10), sell for much higher premiums and swing much more steeply. It is also difficult to consistently capture graded pricing data due to a lack of freely available sources.
+
+### 4. The eBay Factor
+eBay is one of the major marketplaces for high-end TCG cards, making it a treasure trove for transaction data—especially since it permits the sale of graded cards (unlike TCGPlayer). 
+Listing prices on eBay can act as a strong indicator of future market prices when examined alongside listing volume history. While upper-echelon listing prices (Buy It Now / Best Offer) can be outliers, they often indicate:
+1. The card is rare/new, and a market price hasn't been established.
+2. The seller is misreading the market.
+3. Simple listing errors.
 
 <div align="center">
   <table>
@@ -97,82 +79,79 @@ A card's baseline value is tied to its pull rate. Lorcana has several rarity cla
   </table>
 </div>
 
+---
 
-### 2. Artwork & Nostalgia
-Special artwork and beloved Disney characters—like Stitch, which is a major focus for my own collection—evoke powerful emotional connections. This creates a sort of intrinsic value and high demand among collectors that doesn't always align with a card's actual playability in the game.
+## Data Pipeline & Ecosystem
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/bff3f837-54a6-414b-abf2-ac27c10327f8"  alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
+</p>
+
+1. **Sourcing (Cloud):** GitHub Actions (Ubuntu-latest) runs a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to a **Neon (PostgreSQL)** database.
+2. **AI Cleaning (Local MacBook Runner):** After the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
+    * **Title Validation:** Gemma performs a character-and-subtitle check to verify the listing matches the target card exactly, filtering out seller "keyword stuffing."
+    * **Structured Extraction:** The model extracts structured JSON data from messy eBay listing strings to identify:
+        * **Match Validity:** (Match/No Match)
+        * **Grading Status:** (True/False)
+        * **Grading Company:** (PSA, BGS, CGC, SGC, PCG)
+        * **Grade Value:** (e.g., 10, 9.5, 9)
+    * **Incremental Processing:** To save on compute time, a "Delta-only" approach cross-references new `item_ids` against existing metadata. Each listing only goes through the AI extraction process once.
+3. **Preprocessing:** Data is preprocessed primarily in **R** to filter out items unsuitable for the deep learning process and to remove problematic data structures.
+4. **Forecasting:** Managed via **PyTorch** (detailed in the [Forecasting Models](#forecasting-models) section below).
+5. **Deployment (Shiny App):** Forecasts and market metrics are presented via the Lorecaster ShinyApp dashboard. The app is containerized via Docker and hosted on a **DigitalOcean Droplet**.
 
 ---
 
-# Conceptual Framework of the Lorcana Market
+## Forecasting Models
 
-Note I have added this section post forecasting model development (at least after the initial version of the stable models) because I saw the need to describe the larger context in which one would "believe" the flows of the secondary Lorcana market. 
-
-The first thing to note in this conceptual framework is that different rarities also delineate, in some ways, viewing the card as a collectible vs. a useful card for the actual trading card game. While both views exist in the market and the pricing of cards are often a combination of multiple factors such as those aforementioned this project assumes that card of higher rarities likely play more into the collectible aspect of demand because they are by definition more difficult to "pull" from a pack and often come with more unique and "desriable" artworks that make it attractive to collectors. That is why this project focuses on the card rarities of Epic, Enchanted, and Iconic. Combining all rarities (uncommon, common etc.) would make the modelling framework much more difficult as prices are likely to be further impacted by the card game's meta and developments as certain cards are seen as more useful or powerful than others. 
-
-## GRADING
-Another thing to note is that my models currently predict the prices of UNGRADED cards. A GRADED card is a card that has been certified and graded (usually on a scale of 1-10) by a third party company based on the card's condition (scratches, whitening), overall aesthetic appeal, centering (how centered the image is) and a host of other factors. GRADED cards, especially those with higher grades (9-10) often sell for much higher on the secondary market relative to UNGRADED cards. It is very difficult to monitor and capture pricing data for GRADED cards as not many data sources are freely available that host this sort of information. Additionally, GRADED card pricing has a lot more variance as the pricing for these are usually higher and swing a lot more steeply. 
-
-## EBAY
-Ebay is one of the major marketplaces for TCG cards, especially higher end cards. Other markets, such TCGplayer, also exist but given the focus of this project being the collectible cards of Lorcana, ebay is likely to have more data on the transactions of such cards. Ebay also permits the sales of graded and ungraded cards while marketplaces like TCGplayer do not sell graded cards. Because of this item listing and sales data from ebay can be a treasure trove as it captures very high-end sales of graded cards that are often indicative of not just the particular card's demand/supply but potentially even the general sentiment of the Lorcana secondary market. 
-
-Additionally, I believe that listing prices for cards on ebay can be a good indicator of future market prices, especially when examined in the context of previous listing prices and listing volume history. While the upper echelons of listing prices (usually with buy it now or best offer) may be considered outliers given their high $$ values, those can be quickly identified and possibly removed from analyses. Often times, a card is listed at extremely high prices because (but not limited to):
-
-  1. The card is rare/new and so a market price has not been established for it
-  2. The seller may have not read the market correctly and is overpricing it
-  3. Item listing error
-
-
-I am currently collecting ebay item listing data using the ebay developer API on a daily basis. At some point I hope to incorporate these data into our models to better predict UNGRADED card prices. Given that ebay does not provide historical postings (sold listing or completed listings), the accumulation of data is still underway. 
-
-
-# Forecasting Models
-
-I'm approaching the price forecasting aspect as a multi-modal time-series problem. Right now, I'm testing out two very different architectures to see what handles the volatility best:
+I'm approaching price forecasting as a multi-modal time-series problem. I am currently testing two different architectures to see what handles the volatility best:
 
 ### 1. Hybrid Gated Recurrent Unit (GRU)
-I built a custom **PyTorch** model that tries to look at more than just the temporal price sequences.
-* **Mechanism:** It ingests both the temporal data (historical prices) and static metadata (like the card's rarity and ink color).
-* **Theory:** By concatenating static embeddings with the recurrent outputs, I'm hoping the model better contextualizes price movements (e.g., learning that an "Enchanted" card's volatility behaves very differently than a "Rare" card's).
+I built a custom **PyTorch** model that ingests both temporal data (historical prices) and static metadata (card rarity, ink color). By concatenating static embeddings with recurrent outputs, the model better contextualizes price movements (e.g., learning that an "Enchanted" card's volatility behaves differently than a "Rare" card's).
 
 **Why a Hybrid GRU?**
-Standard time-series models treat every variable identically. Our hybrid approach separates the temporal data (price history) from the static metadata (card attributes):
-
-1.  **Temporal Branch:** A multi-layer GRU processes sequences of normalized price data and relative days.
-2.  **Static Branch:** Categorical attributes (Set, Rarity, Ink Cost) are mapped into dense vector spaces using PyTorch `nn.Embedding` layers. 
-3.  **The Merge:** The sequence features and static embeddings are concatenated and passed through a final multi-layer perceptron (MLP) to generate the 30-day forecast.
+Standard time-series models treat every variable identically. Our hybrid approach separates them:
+1. **Temporal Branch:** A multi-layer GRU processes sequences of normalized price data and relative days.
+2. **Static Branch:** Categorical attributes are mapped into dense vector spaces using PyTorch `nn.Embedding` layers. 
+3. **The Merge:** Sequence features and static embeddings are concatenated and passed through a final multi-layer perceptron (MLP) to generate the 30-day forecast.
 
 #### The Attention Mechanism
-To handle the erratic nature of the secondary market—where a single buyout can dictate a month's trend—we implemented an **Additive Attention Mechanism** over the GRU outputs.
-
-Instead of relying solely on the final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day in the sequence. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts, ensuring that crucial historical signals are not lost in the sequence bottleneck.
+To handle the erratic nature of the secondary market, I implemented an **Additive Attention Mechanism** over the GRU outputs. Instead of relying on a final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts.
 
 **Key Features of the Training Pipeline:**
-* **Multi-Window Training & Selection:** We train parallel models across different historical lookback windows (15, 30, and 45 days) to find the optimal signal-to-noise ratio. The final deployed model is selected based on a rigorous evaluation suite that prioritizes business-aligned metrics like **wMAPE** (Volume-Weighted MAPE) and **30-Day Macro Trend Accuracy**.
-* **Rolling-Origin Backtesting (Time-Series CV):** To prevent data leakage and accurately gauge real-world reliability, the model is evaluated using a time-traveling validation approach. Instead of a single static test set, the script simulates past market eras (e.g., 30 days ago, 60 days ago) to stress-test the architecture against multiple historical regime changes and set releases.
-* **Custom "Horizon Trend" Loss Function:** Standard loss functions are blind to trajectory. We engineered a custom loss function that uses `SmoothL1Loss` (Huber Loss) as a base to handle extreme TCG price outliers, but layers on a dynamic penalty for guessing the wrong market direction. This penalty scales with the forecast horizon and includes a "jitter threshold" to ignore daily pricing noise while aggressively punishing the model for missing the long-term macro destination.
-* **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point, rather than predicting the raw absolute value, greatly improving stability.
+* **Multi-Window Training:** Models are trained across different historical lookback windows (15, 30, and 45 days) to find the optimal signal-to-noise ratio, evaluated via metrics like **wMAPE** (Volume-Weighted MAPE).
+* **Rolling-Origin Backtesting:** A time-traveling validation approach that simulates past market eras to stress-test the architecture against historical regime changes and set releases.
+* **Custom "Horizon Trend" Loss Function:** Uses `SmoothL1Loss` (Huber Loss) as a base to handle extreme outliers, but adds a dynamic penalty for guessing the wrong market direction. It ignores daily pricing noise but heavily punishes missing the long-term macro destination.
+* **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point rather than the raw absolute value, greatly improving stability.
 
 ### 2. Pre-trained Transformer (Amazon Chronos)
 I'm also experimenting with **Chronos**, a time-series forecasting framework built on language model architectures.
-* **Mechanism:** Chronos essentially tokenizes the price values and uses a transformer to predict the next tokens in the sequence. 
-* **Theory:** I've found it provides pretty solid zero-shot forecasting out of the box, which is really helpful for newly released cards that don't have enough historical data to train the GRU effectively.
+* **Mechanism:** Chronos tokenizes price values and uses a transformer to predict the next tokens in the sequence. 
+* **Theory:** It provides solid zero-shot forecasting out of the box, which is incredibly helpful for newly released cards that lack the historical data required to train the GRU effectively.
 
 ---
 
-# My Training & Inference Schedule
+## Training & Inference Schedule
 
-To bridge the gap between academic model evaluation and real-world deployment, the GRU forecasting engine operates on a strict **Two-Script Pipeline**. This ensures the live model is trained on 100% of available market data without sacrificing honest accuracy tracking.
+To bridge the gap between academic model evaluation and real-world deployment, the GRU forecasting engine operates on a strict **Two-Script Pipeline**:
 
-1. **The Evaluator (`model_testing_gru.py`):** Run weekly. This script acts as the "Honest Grader." It performs the rolling-origin backtesting across three historical eras to ensure the architecture remains stable. The most recent fold acts as an unseen holdout set, successfully isolating real-world performance metrics and safely exporting them to `lorcana_global_metrics.csv` for the Shiny dashboard.
-2. **The Production Brain (`train_lorcana_model.py`):** Run weekly after evaluation. This is a lean, ultra-fast script that strips away early-stopping and test splits. It trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs (discovered via the Evaluator). This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
-3. **Daily Inference (`daily_inference_gru.py`):** Run daily. It wakes up, loads the fully-trained production `.pth` weights, generates the actual, unknown 30-day forecast for the future, and pushes the live predictions to the Neon PostgreSQL database.
+1. **The Evaluator (`model_testing_gru.py`):** Runs weekly. This acts as the "Honest Grader," performing rolling-origin backtesting across three historical eras. The most recent fold acts as an unseen holdout set, isolating real-world performance metrics and exporting them to `lorcana_global_metrics.csv` for the dashboard.
+2. **The Production Brain (`train_lorcana_model.py`):** Runs weekly after evaluation. A lean script that trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs. This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
+3. **Daily Inference (`daily_inference_gru.py`):** Runs daily. It loads the production weights, generates the 30-day future forecast, and pushes predictions to the Neon PostgreSQL database.
 
 ### Monitoring & Health
-I'm still tweaking how I monitor the pipeline, but right now I'm focusing on:
-* **Model Divergence:** Keeping an eye on how wildly the Hybrid GRU and Chronos predictions differ from one another.
-* **Data Integrity:** Tracking the "Match" rate coming out of Gemma. If it suddenly drops, it usually means eBay listing patterns or seller jargon have changed and I need to adjust my prompts.
-* **Outlier Detection:** Trying to flag cards where my price predictions diverge significantly from what's actually happening in the market, which usually highlights a flaw in my data or an unpredictable market buyout.
+* **Model Divergence:** Tracking how wildly the Hybrid GRU and Chronos predictions differ from one another.
+* **Data Integrity:** Monitoring the "Match" rate coming out of Gemma. A sudden drop usually means eBay listing patterns or seller jargon have changed, requiring prompt adjustments.
+* **Outlier Detection:** Flagging cards where price predictions diverge significantly from the actual market, usually highlighting a data flaw or an unpredictable market buyout.
 
-<img width="1248" height="563" alt="Screenshot 2026-04-08 at 2 46 02 PM" src="https://github.com/user-attachments/assets/f9ffa787-2569-4384-b1ed-ea32fc89f124" />
+*(Monitoring Dashboards Preview)*
+<img width="1248" height="563" alt="Monitoring Metrics" src="https://github.com/user-attachments/assets/f9ffa787-2569-4384-b1ed-ea32fc89f124" />
+<img width="233" height="591" alt="Match Rate Health" src="https://github.com/user-attachments/assets/3a23b88b-fd81-4097-84d9-a05169388301" />
 
-<img width="233" height="591" alt="Screenshot 2026-04-08 at 2 44 56 PM" src="https://github.com/user-attachments/assets/3a23b88b-fd81-4097-84d9-a05169388301" />
+---
+
+## Project Roadmap & To-Dos
+- [ ] **Fix System Graph:** Update the workflow diagram to reflect the Shiny App currently being hosted on DigitalOcean.
+- [ ] **Blue Chip Index:** Develop a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
+- [ ] **eBay Data Integration:** Expand on the collection of eBay API item listing data to directly incorporate it into the models for Ungraded cards. 
+- [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
