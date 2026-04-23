@@ -44,12 +44,10 @@ This repository houses my personal data pipeline and forecasting experiments for
 
 
 ---
-
 ### 🏗️ Data Pipeline & Ecosystem
 
-
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/13e49a31-7878-49d9-a841-d6633839729e" alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
+  <img src="https://github.com/user-attachments/assets/bff3f837-54a6-414b-abf2-ac27c10327f8"  alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
 </p>
 
 1.  **Sourcing (Cloud):** I use GitHub Actions (Ubuntu-latest) to run a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to my **Neon (Postgres)** database.
