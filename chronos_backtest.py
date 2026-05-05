@@ -20,7 +20,7 @@ context_tensors, valid_card_ids, target_dates_list = [], [], []
 print("Preparing Tensors (Hiding the last 30 days)...")
 for cid, group in df.groupby('card_id'):
     group = group.sort_values('date')
-    if len(group) < 180: continue
+    if len(group) < 91: continue
     
     # 🛑 HIDE THE LAST 30 DAYS FOR BACKTESTING
     history = group.iloc[:-prediction_length]

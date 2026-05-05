@@ -1,5 +1,5 @@
 # ==========================================
-# TIME SERIES METRICS ETL PIPELINE
+# TIME SERIES METRICS ETL PIPELINE (30-DAY WINDOW)
 # ==========================================
 library(DBI)
 library(RPostgres)
@@ -7,6 +7,7 @@ library(tidyverse)
 library(pracma)  # For Sample Entropy and Hurst
 library(moments) # For Skewness
 library(glue)    # Added for pooler-safe SQL construction
+library(lubridate)
 
 message(paste("Starting Metrics Job at", Sys.time()))
 
@@ -50,45 +51,66 @@ df_prices <- dbGetQuery(con, "
     WHERE market_price IS NOT NULL
     ORDER BY tcgplayer_id, pull_date ASC
 ", immediate = TRUE)
+<<<<<<< HEAD
+=======
+
+# Ensure dates are correctly formatted
+df_prices$pull_date <- as.Date(df_prices$pull_date)
+current_date <- Sys.Date()
+thirty_days_ago <- current_date - days(30)
+>>>>>>> 9cd02adce334c1eb73bb3a7fa5a56cae4398101f
 
 # --- 4. CALCULATE & ROUND METRICS ---
-message("Crunching advanced time-series metrics...")
+message("Crunching 30-day time-series metrics...")
 
 metrics_df <- df_prices %>%
   group_by(tcgplayer_id) %>%
-  filter(n() >= 10) %>% # Require at least 10 days of history
+  filter(n() >= 10) %>% # Require at least 10 days of lifetime history
   summarise(
-    n_days        = n(),
+    # Lifetime Baseline
+    lifetime_days = n(),
     current_price = round(last(market_price), 2),
-    avg_price     = round(mean(market_price, na.rm = TRUE), 2),
-    cv            = round(sd(market_price, na.rm = TRUE) / mean(market_price, na.rm = TRUE), 4),
-    samp_entropy  = round(safe_entropy(market_price), 4),
-    hurst_exp     = round(safe_hurst(market_price), 4),
-    lag1_corr     = round(safe_autocorr(market_price), 4),
-    skewness      = round(safe_skewness(market_price), 4),
+    
+    # 30-Day Window Calculations
+    price_30d = list(market_price[pull_date >= thirty_days_ago]),
+    days_in_30d = length(unlist(price_30d)),
+    
+    avg_price_30d = round(mean(unlist(price_30d), na.rm = TRUE), 2),
+    cv_30d        = round(sd(unlist(price_30d), na.rm = TRUE) / mean(unlist(price_30d), na.rm = TRUE), 4),
+    samp_ent_30d  = round(safe_entropy(unlist(price_30d)), 4),
+    hurst_30d     = round(safe_hurst(unlist(price_30d)), 4),
+    lag1_corr_30d = round(safe_autocorr(unlist(price_30d)), 4),
+    skewness_30d  = round(safe_skewness(unlist(price_30d)), 4),
     .groups       = 'drop'
   ) %>%
+  # Clean up the list column before upload
+  select(-price_30d) %>%
   mutate(
-    last_updated = Sys.Date() # Tag the run date
+    last_updated = current_date # Tag the run date
   )
 
 # --- 5. UPLOAD TO NEON (POOLER-SAFE UPSERT) ---
 message("Uploading results to Neon table: 'card_ts_metrics'...")
 
-# 5a. Create the table explicitly if it doesn't exist to define data types
+# 5a. Drop the old table schema to avoid column mismatch errors
+dbExecute(con, "DROP TABLE IF EXISTS card_ts_metrics;", immediate = TRUE)
+
+# 5b. Create the table explicitly with the new 30-day schema
 dbExecute(con, "
-  CREATE TABLE IF NOT EXISTS card_ts_metrics (
+  CREATE TABLE card_ts_metrics (
     tcgplayer_id VARCHAR PRIMARY KEY,
-    n_days INTEGER,
+    lifetime_days INTEGER,
+    days_in_30d INTEGER,
     current_price NUMERIC,
-    avg_price NUMERIC,
-    cv NUMERIC,
-    samp_entropy NUMERIC,
-    hurst_exp NUMERIC,
-    lag1_corr NUMERIC,
-    skewness NUMERIC,
+    avg_price_30d NUMERIC,
+    cv_30d NUMERIC,
+    samp_ent_30d NUMERIC,
+    hurst_30d NUMERIC,
+    lag1_corr_30d NUMERIC,
+    skewness_30d NUMERIC,
     last_updated DATE
   );
+<<<<<<< HEAD
 ", immediate = TRUE) # Added immediate = TRUE
 
 # 5b. If the table was previously created by dbWriteTable, it won't have a Primary Key. 
@@ -98,6 +120,9 @@ tryCatch({
 }, error = function(e) {
   # Safe to ignore; means the PK already exists
 })
+=======
+", immediate = TRUE)
+>>>>>>> 9cd02adce334c1eb73bb3a7fa5a56cae4398101f
 
 # 5c. The Pooler-Safe Loop Update
 message(paste("Upserting", nrow(metrics_df), "rows securely..."))
@@ -105,36 +130,49 @@ message(paste("Upserting", nrow(metrics_df), "rows securely..."))
 for (i in 1:nrow(metrics_df)) {
   row <- metrics_df[i, ]
   
-  # Handle NA conversions for SQL
+  # Handle NA, NaN, Inf conversions using explicit NA_real_ to prevent boolean typing
   curr_id <- as.character(row$tcgplayer_id)
-  curr_n_days <- as.integer(row$n_days)
-  curr_cp <- ifelse(is.na(row$current_price), NA, row$current_price)
-  curr_avg <- ifelse(is.na(row$avg_price), NA, row$avg_price)
-  curr_cv <- ifelse(is.na(row$cv), NA, row$cv)
-  curr_entropy <- ifelse(is.na(row$samp_entropy), NA, row$samp_entropy)
-  curr_hurst <- ifelse(is.na(row$hurst_exp), NA, row$hurst_exp)
-  curr_lag <- ifelse(is.na(row$lag1_corr), NA, row$lag1_corr)
-  curr_skew <- ifelse(is.na(row$skewness), NA, row$skewness)
+  curr_lt_days <- as.integer(row$lifetime_days)
+  curr_30d_days <- as.integer(row$days_in_30d)
+  
+  curr_cp <- ifelse(!is.finite(row$current_price), NA_real_, row$current_price)
+  curr_avg <- ifelse(!is.finite(row$avg_price_30d), NA_real_, row$avg_price_30d)
+  curr_cv <- ifelse(!is.finite(row$cv_30d), NA_real_, row$cv_30d)
+  curr_entropy <- ifelse(!is.finite(row$samp_ent_30d), NA_real_, row$samp_ent_30d)
+  curr_hurst <- ifelse(!is.finite(row$hurst_30d), NA_real_, row$hurst_30d)
+  curr_lag <- ifelse(!is.finite(row$lag1_corr_30d), NA_real_, row$lag1_corr_30d)
+  curr_skew <- ifelse(!is.finite(row$skewness_30d), NA_real_, row$skewness_30d)
+  
   curr_date <- as.character(row$last_updated)
   
-  # Construct the raw text string locally
+  # Construct the raw text string locally with explicit Postgres ::TYPE casting
   insert_query <- glue::glue_sql("
     INSERT INTO card_ts_metrics (
-      tcgplayer_id, n_days, current_price, avg_price, cv, 
-      samp_entropy, hurst_exp, lag1_corr, skewness, last_updated
+      tcgplayer_id, lifetime_days, days_in_30d, current_price, avg_price_30d, cv_30d, 
+      samp_ent_30d, hurst_30d, lag1_corr_30d, skewness_30d, last_updated
     ) VALUES (
-      {curr_id}, {curr_n_days}, {curr_cp}, {curr_avg}, {curr_cv}, 
-      {curr_entropy}, {curr_hurst}, {curr_lag}, {curr_skew}, {curr_date}
+      {curr_id}::VARCHAR, 
+      {curr_lt_days}::INTEGER, 
+      {curr_30d_days}::INTEGER, 
+      {curr_cp}::NUMERIC, 
+      {curr_avg}::NUMERIC, 
+      {curr_cv}::NUMERIC, 
+      {curr_entropy}::NUMERIC, 
+      {curr_hurst}::NUMERIC, 
+      {curr_lag}::NUMERIC, 
+      {curr_skew}::NUMERIC, 
+      {curr_date}::DATE
     )
     ON CONFLICT (tcgplayer_id) DO UPDATE SET 
-      n_days = EXCLUDED.n_days,
+      lifetime_days = EXCLUDED.lifetime_days,
+      days_in_30d = EXCLUDED.days_in_30d,
       current_price = EXCLUDED.current_price,
-      avg_price = EXCLUDED.avg_price,
-      cv = EXCLUDED.cv,
-      samp_entropy = EXCLUDED.samp_entropy,
-      hurst_exp = EXCLUDED.hurst_exp,
-      lag1_corr = EXCLUDED.lag1_corr,
-      skewness = EXCLUDED.skewness,
+      avg_price_30d = EXCLUDED.avg_price_30d,
+      cv_30d = EXCLUDED.cv_30d,
+      samp_ent_30d = EXCLUDED.samp_ent_30d,
+      hurst_30d = EXCLUDED.hurst_30d,
+      lag1_corr_30d = EXCLUDED.lag1_corr_30d,
+      skewness_30d = EXCLUDED.skewness_30d,
       last_updated = EXCLUDED.last_updated;
   ", .con = con)
   
@@ -143,4 +181,4 @@ for (i in 1:nrow(metrics_df)) {
 }
 
 dbDisconnect(con)
-message("✅ Pipeline complete! Metrics successfully updated in the database.")
+message("✅ Pipeline complete! 30-Day Metrics successfully updated in the database.")
