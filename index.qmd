@@ -1,0 +1,811 @@
+---
+title: "Lorcana Forecasting"
+format: 
+  dashboard:
+    theme: darkly
+    scrolling: true
+    orientation: columns
+    nav-buttons:
+      - icon: github
+        href: https://github.com/
+execute:
+  echo: false
+  warning: false
+  message: false
+resources:
+  - "data/enchanteds/images/"
+---
+
+```{r}
+#| context: setup
+#| include: false
+# ==========================================
+# 1. THE CHEF: R Data Processing (Runs Once)
+# ==========================================
+library(tidyverse)
+library(DBI)
+library(RPostgres)
+
+# Load Dictionary & Fix Image Paths
+master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
+  mutate(
+    id = as.character(id), 
+    tcgplayer_id = as.integer(tcgplayer_id), 
+    cardname = paste(name, replace_na(version, ""), rarity, sep = " - "),
+    folder_name = str_replace_all(set_name, "[ ']", "_"),
+    image_path = paste0("data/enchanteds/images/", folder_name, "/", id, ".avif")
+  ) %>%
+  distinct(id, .keep_all = TRUE)
+
+# Connect to Neon
+con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9.c-5.us-east-1.aws.neon.tech", dbname = "neondb", user = "neondb_owner", password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
+
+# Fetch Core Data
+latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
+past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
+hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '365 days'")
+chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions")
+gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions")
+metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
+dbDisconnect(con)
+
+# --- Process Momentum ---
+momentum <- latest_prices %>% 
+  inner_join(past_prices, by = "tcgplayer_id", suffix = c("_cur", "_past")) %>% 
+  mutate(pct = (market_price_cur - market_price_past)/market_price_past * 100, abs = market_price_cur - market_price_past) %>% 
+  left_join(master_dict, by = "tcgplayer_id") %>% drop_na(cardname)
+
+# Safety check: If momentum is empty, movers will be empty but won't crash R
+if(nrow(momentum) > 0) {
+  top_pct_g <- momentum %>% arrange(desc(pct)) %>% slice(1) %>% mutate(Category = "Top % Gainer")
+  top_pct_l <- momentum %>% arrange(pct) %>% slice(1) %>% mutate(Category = "Top % Loser")
+  top_abs_g <- momentum %>% arrange(desc(abs)) %>% slice(1) %>% mutate(Category = "Top $ Gainer")
+  top_abs_l <- momentum %>% arrange(abs) %>% slice(1) %>% mutate(Category = "Top $ Loser")
+  movers <- bind_rows(top_pct_g, top_pct_l, top_abs_g, top_abs_l)
+} else {
+  movers <- data.frame()
+}
+
+# --- Process Forecasts for Plotting ---
+max_c_run <- if(nrow(chronos_pred) > 0) max(chronos_pred$run_id, na.rm=TRUE) else 0
+max_g_run <- if(nrow(gru_pred) > 0) max(gru_pred$run_id, na.rm=TRUE) else 0
+
+forecast_flat <- bind_rows(
+  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos", is_shadow = ifelse(run_id == max_c_run, FALSE, TRUE)) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id),
+  gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", is_shadow = ifelse(run_id == max_g_run, FALSE, TRUE), conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id)
+) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
+
+hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
+
+# --- Process Deeper Dive Data ---
+if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
+unified <- master_dict %>% 
+  left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>%
+  left_join(metrics_df, by="tcgplayer_id")
+
+# --- Find the Most Expensive Card ---
+top_card <- unified %>% 
+  drop_na(current_price) %>% 
+  arrange(desc(current_price)) %>% 
+  slice(1) %>% 
+  pull(cardname)
+
+if(length(top_card) == 0) top_card <- "Stitch - Carefree Surfer - Enchanted"
+
+# Transfer to JavaScript
+ojs_define(
+  ojs_movers = movers,
+  ojs_hist = hist_flat,
+  ojs_forecast = forecast_flat,
+  ojs_info = unified,
+  ojs_cards = sort(unique(master_dict$cardname)),
+  ojs_sets = c("All Sets", sort(unique(master_dict$set_name))),
+  ojs_default_card = top_card
+)
+```
+
+# Market Overview {orientation="rows"}
+
+<style>
+  .momentum-box { background: linear-gradient(135deg, #2b3e50, #1a252f); border-left: 5px solid #f39c12; padding: 15px; border-radius: 8px; margin-bottom: 25px; color: #ecf0f1; font-size: 15px;}
+  .green-text { color: #2ecc71; font-weight: bold; }
+  .red-text { color: #e74c3c; font-weight: bold; }
+  
+  /* FLIP CARD LOGIC RESTORED */
+  .flip-card { perspective: 1000px; cursor: pointer; }
+  .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
+  .flip-card-inner.is-flipped { transform: rotateY(180deg); }
+  .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 10px; }
+  .flip-card-back { transform: rotateY(180deg); background-color: #1a252f; border: 2px solid #18bc9c; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
+
+  /* OVERRIDE OBSERVABLE PLOT TOOLTIPS (HTML & SVG) */
+  g[aria-label="tip"] path {
+    fill: #ffffff !important; 
+    stroke: #3498db !important; 
+    stroke-width: 2px !important;
+    fill-opacity: 1 !important;
+  }
+  g[aria-label="tip"] text {
+    fill: #000000 !important; 
+    font-size: 18px !important; 
+    font-weight: 900 !important;
+    stroke: none !important;
+  }
+</style>
+
+## Row {.flow}
+
+```{ojs}
+//| output: false
+movers_data = transpose(ojs_movers)
+```
+
+```{ojs}
+// THE RAW DOM MANIPULATION FIX FOR SPARKLINES (FUSED BANNER)
+market_overview_node = {
+  const top_div = document.createElement("div");
+  top_div.style.width = "100%";
+  top_div.style.maxWidth = "1200px";
+  top_div.style.margin = "0 auto";
+  top_div.style.paddingTop = "20px";
+  
+  const banner = document.createElement("div");
+  banner.className = "momentum-box";
+  banner.innerHTML = "<strong>Market Momentum:</strong> The dashboard has been statically rendered. High-performance, serverless caching is active.";
+  top_div.appendChild(banner);
+  
+  const container = document.createElement("div");
+  container.style.display = "flex";
+  container.style.justifyContent = "space-around";
+  container.style.background = "#1a252f";
+  container.style.padding = "20px 10px";
+  container.style.borderRadius = "8px";
+  container.style.flexWrap = "wrap";
+  
+  if (movers_data.length === 0) {
+    container.innerHTML = "<div style='color:#bbb;'>Not enough recent market movement to calculate momentum.</div>";
+  } else {
+    const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
+    
+    movers_data.forEach(row => {
+      let p_c = row.pct >= 0 ? "green-text" : "red-text";
+      let sign = row.abs >= 0 ? "+" : "";
+      
+      const wrapper = document.createElement("div");
+      wrapper.style.display = "flex";
+      wrapper.style.flexDirection = "column";
+      wrapper.style.alignItems = "center";
+      wrapper.style.width = "260px";
+      wrapper.style.textAlign = "center";
+      wrapper.style.margin = "10px";
+      
+      wrapper.innerHTML = `
+        <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');" style="width: 260px; height: 380px;">
+          <div class="flip-card-inner">
+            <div class="flip-card-front" style="background-color: #2b3e50; border: 2px solid #34495e; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
+              <div style="font-size: 15px; font-weight: bold; color: #18bc9c; text-transform: uppercase; margin-bottom: 10px;">${row.Category}</div>
+              <img src="${row.image_path}" style="height: 180px; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
+              <div style="margin-top: 12px; font-size: 14px; font-weight: bold; color: #ecf0f1; height: 36px; line-height: 1.2;">${row.cardname}</div>
+              <div style="margin-top: 8px; font-size: 16px; font-weight: bold; color: #f1c40f;">$${row.market_price_cur.toFixed(2)}</div>
+              <div class="${p_c}" style="font-size: 15px; font-weight: bold; margin-top: 2px;">${sign}$${row.abs.toFixed(2)} (${row.pct.toFixed(1)}%)</div>
+            </div>
+            <div class="flip-card-back" id="back-${row.tcgplayer_id}">
+              <span style="border-bottom: 1px solid #18bc9c; padding-bottom: 5px; margin-bottom: 10px; font-weight: bold; font-size: 18px;">${row.Category}</span>
+              <span style="font-size: 14px; color: #bbb;">Current Price</span>
+              <span style="font-size: 26px; font-weight: bold; color: #f1c40f; margin-bottom: 15px;">$${row.market_price_cur.toFixed(2)}</span>
+              <span style="font-size: 14px; color: #bbb; margin-bottom: 5px;">7-Day Trend</span>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      const card_hist = all_hist
+         .filter(d => d.cardname === row.cardname)
+         .filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+         .sort((a, b) => a.date - b.date); 
+         
+      const sparkline = Plot.plot({
+        height: 120,
+        width: 220,
+        style: { background: "transparent" },
+        x: { axis: null },
+        y: { axis: null },
+        marks: [
+          Plot.lineY(card_hist, {x: "date", y: "price", stroke: "#18bc9c", strokeWidth: 3}),
+          Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "#f1c40f", r: 5 })
+        ]
+      });
+
+      wrapper.querySelector(`#back-${row.tcgplayer_id}`).appendChild(sparkline);
+      container.appendChild(wrapper);
+    });
+  }
+  
+  top_div.appendChild(container);
+  return top_div; 
+}
+```
+
+# Price Forecasts {orientation="rows"}
+
+<style>
+  .hover-table { width: 100%; border-collapse: collapse; color: #ecf0f1; font-size: 14px; text-align: left; }
+  .hover-table th { background-color: #2b3e50; padding: 12px; border-bottom: 2px solid #18bc9c; position: sticky; top: 0; z-index: 10; transition: background 0.2s; user-select: none; white-space: nowrap; }
+  .hover-table th:hover { background-color: #34495e; }
+  .hover-table td { padding: 10px 12px; border-bottom: 1px solid #34495e; vertical-align: middle; white-space: nowrap; }
+  .hover-table tbody tr { transition: background-color 0.2s; cursor: pointer; background-color: #1a252f; }
+  .hover-table tbody tr:hover { background-color: #34495e; }
+  
+  /* STICKY COLUMN CSS */
+  .hover-table th.sticky-card-col,
+  .hover-table td.sticky-card-col {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background-color: inherit;
+    border-right: 2px solid #3498db;
+    box-shadow: 4px 0 8px rgba(0,0,0,0.3);
+  }
+  .hover-table thead th.sticky-card-col {
+    z-index: 15;
+    background-color: #2b3e50;
+  }
+  
+  /* Increased image cell sizing */
+  .card-img-cell { width: 80px; text-align: center; }
+  .card-img-cell img { width: 75px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+  
+  /* Modal Overlay CSS - UPDATED FOR SCROLLING */
+  .modal-overlay {
+    display: none; position: fixed; z-index: 9999; left: 0; top: 0;
+    width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);
+    align-items: center; justify-content: center;
+  }
+  .modal-content {
+    background-color: #1a252f; border: 2px solid #3498db;
+    border-radius: 10px; width: 95%; max-width: 1100px;
+    padding: 20px; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    max-height: 90vh; overflow-y: auto; /* ENABLE SCROLLING */
+  }
+  .close-btn {
+    color: #ecf0f1; position: absolute; top: 10px; right: 20px;
+    font-size: 28px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99;
+  }
+  .close-btn:hover { color: #e74c3c; }
+</style>
+
+## Row {.flow}
+
+```{ojs}
+//| output: false
+Plotly = require("plotly.js-dist-min@2.30.0")
+```
+
+```{ojs}
+// ENGINE: PRE-CALCULATE ACCURACY AND METRICS BEFORE RENDERING
+dd_table_and_modal = {
+  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
+  const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date) }));
+  const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  // --- Dynamic Data Pre-Calculation Engine ---
+  let raw_data = transpose(ojs_info).map(d => {
+    const c_hist = all_hist.filter(h => h.cardname === d.cardname);
+    const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
+    
+    const cur_price = d.current_price || 0;
+    
+    // Live 30-Day Forecast Extraction
+    const live_c = c_fcst.filter(f => f.model === "Chronos" && !f.is_shadow).sort((a,b)=>a.date-b.date);
+    const live_g = c_fcst.filter(f => f.model === "GRU" && !f.is_shadow).sort((a,b)=>a.date-b.date);
+    const c_pred = live_c.length > 0 ? live_c[live_c.length - 1].price : null;
+    const g_pred = live_g.length > 0 ? live_g[live_g.length - 1].price : null;
+    
+    const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
+    const g_pct = (g_pred !== null && cur_price > 0) ? ((g_pred - cur_price) / cur_price) * 100 : null;
+    
+    // Shadow Backtest Accuracy (MAPE) Calculation
+    function calc_mape(model_name) {
+      const shadows = c_fcst.filter(f => f.model === model_name && f.is_shadow);
+      if(shadows.length === 0) return null;
+      
+      const runs = [...new Set(shadows.map(s => s.run_id))];
+      let total_err = 0;
+      let valid_runs = 0;
+      
+      runs.forEach(rid => {
+        const run_data = shadows.filter(s => s.run_id === rid).sort((a,b)=>a.date-b.date);
+        const day30_pred = run_data[run_data.length - 1]; 
+        
+        let closest_hist = null;
+        let min_diff = Infinity;
+        c_hist.forEach(h => {
+           const diff = Math.abs(h.date - day30_pred.date);
+           if(diff < min_diff && diff <= 2 * 24 * 60 * 60 * 1000) { 
+              min_diff = diff; closest_hist = h;
+           }
+        });
+        
+        if(closest_hist && closest_hist.price > 0) {
+           total_err += Math.abs((day30_pred.price - closest_hist.price) / closest_hist.price);
+           valid_runs++;
+        }
+      });
+      return valid_runs > 0 ? (total_err / valid_runs) * 100 : null;
+    }
+    
+    return {
+      ...d,
+      c_pred_30d: c_pred,
+      c_pct_30d: c_pct,
+      g_pred_30d: g_pred,
+      g_pct_30d: g_pct,
+      c_err_30d: calc_mape("Chronos"),
+      g_err_30d: calc_mape("GRU")
+    };
+  });
+
+  // Setup Modal Container in the DOM
+  let existingModal = document.getElementById('lorecaster-modal');
+  if(existingModal) existingModal.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "lorecaster-modal";
+  modal.className = "modal-overlay";
+  modal.innerHTML = `
+    <div class="modal-content">
+      <span class="close-btn" onclick="document.getElementById('lorecaster-modal').style.display='none'">&times;</span>
+      <div id="modal-header" style="margin-bottom: 15px; border-bottom: 1px solid #34495e; padding-bottom: 10px;"></div>
+      
+      <div id="modal-graph-target" style="width: 100%; height: 420px; overflow: hidden; margin-bottom: 10px;"></div>
+      
+      <div style="font-size: 18px; font-weight: bold; color: #3498db; border-bottom: 1px solid #34495e; padding-bottom: 5px; margin-bottom: 5px; margin-top: 15px;">
+        30-Day Forecast Error (Backtest Validation)
+      </div>
+      <div id="modal-error-target" style="width: 100%; height: 320px; overflow: hidden;"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Allow clicking outside the modal content to close it
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      modal.style.display = "none";
+    }
+  });
+
+  // Setup Page Wrapper
+  const page_wrapper = document.createElement("div");
+  page_wrapper.style.width = "100%";
+  page_wrapper.style.display = "flex";
+  page_wrapper.style.flexDirection = "column";
+
+  // Fused Banner
+  const banner = document.createElement("div");
+  banner.className = "momentum-box";
+  banner.style.marginTop = "20px";
+  banner.innerHTML = "<strong>Card-Level Market Trajectory & Diagnostics</strong><p style='font-size: 13px; color: #bbb; margin-bottom:0;'>Click any row to view the 30-Day Model Forecast!</p>";
+  page_wrapper.appendChild(banner);
+
+  // --- FILTER BAR INJECTION ---
+  const filter_bar = document.createElement("div");
+  filter_bar.style.display = "flex";
+  filter_bar.style.gap = "15px";
+  filter_bar.style.marginBottom = "15px";
+  filter_bar.style.background = "#1a252f";
+  filter_bar.style.padding = "15px";
+  filter_bar.style.borderRadius = "8px";
+  filter_bar.style.border = "1px solid #34495e";
+  filter_bar.style.alignItems = "center";
+
+  const search_input = document.createElement("input");
+  search_input.type = "text";
+  search_input.placeholder = "🔍 Search by card name...";
+  search_input.style.flex = "1";
+  search_input.style.padding = "10px";
+  search_input.style.borderRadius = "6px";
+  search_input.style.border = "1px solid #34495e";
+  search_input.style.background = "#2b3e50";
+  search_input.style.color = "#ecf0f1";
+  search_input.style.fontSize = "15px";
+
+  const selectStyle = "padding: 10px; border-radius: 6px; border: 1px solid #34495e; background: #2b3e50; color: #ecf0f1; font-size: 15px; cursor: pointer;";
+  
+  const set_select = document.createElement("select");
+  set_select.style.cssText = selectStyle;
+  const unique_sets = ["All Sets", ...Array.from(new Set(raw_data.map(d => d.set_name).filter(Boolean))).sort()];
+  unique_sets.forEach(s => { let opt = document.createElement("option"); opt.value = s; opt.text = s; set_select.appendChild(opt); });
+
+  const rarity_select = document.createElement("select");
+  rarity_select.style.cssText = selectStyle;
+  const unique_rarities = ["All Rarities", ...Array.from(new Set(raw_data.map(d => d.rarity).filter(Boolean))).sort()];
+  unique_rarities.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; rarity_select.appendChild(opt); });
+
+  filter_bar.appendChild(search_input);
+  filter_bar.appendChild(set_select);
+  filter_bar.appendChild(rarity_select);
+  page_wrapper.appendChild(filter_bar);
+  // ----------------------------
+
+  // Setup Table Container
+  const container = document.createElement("div");
+  container.style.maxHeight = "800px";
+  container.style.overflowY = "auto";
+  container.style.overflowX = "auto";
+  container.style.background = "#1a252f";
+  container.style.borderRadius = "8px";
+  container.style.border = "1px solid #34495e";
+  container.style.width = "100%";
+  container.style.flex = "1";
+  page_wrapper.appendChild(container);
+
+  let current_sort = "current_price"; 
+  let is_asc = false;
+
+  const formatPct = (val, price) => {
+    if (val === null || val === undefined) return '<span style="color:#bbb;">N/A</span>';
+    const color = val >= 0 ? '#2ecc71' : '#e74c3c';
+    const sign = val >= 0 ? '+' : '';
+    return `<span style="color:${color}; font-weight:bold;">${sign}${val.toFixed(1)}%</span> <span style="color:#bbb; font-size:12px; font-weight:normal;">($${price.toFixed(2)})</span>`;
+  };
+  const formatErr = (val) => val !== null && val !== undefined ? `<span style="color:#f39c12; font-weight:bold;">±${val.toFixed(1)}%</span>` : '<span style="color:#bbb;">N/A</span>';
+
+
+  function renderTable() {
+    // Grab the current filter values
+    const q = search_input.value.toLowerCase();
+    const s = set_select.value;
+    const r = rarity_select.value;
+
+    // Filter the raw data first
+    let filtered_data = raw_data.filter(d => {
+      const match_q = d.cardname.toLowerCase().includes(q);
+      const match_s = s === "All Sets" || d.set_name === s;
+      const match_r = r === "All Rarities" || d.rarity === r;
+      return match_q && match_s && match_r;
+    });
+
+    // Then sort the filtered data
+    let sorted_data = filtered_data.sort((a, b) => {
+      let valA = a[current_sort] !== null && a[current_sort] !== undefined ? a[current_sort] : -9999;
+      let valB = b[current_sort] !== null && b[current_sort] !== undefined ? b[current_sort] : -9999;
+      if (typeof valA === "string") {
+        return is_asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return is_asc ? valA - valB : valB - valA;
+    });
+
+    const th = (key, label, cls="") => {
+      let arrow = current_sort === key ? (is_asc ? " ↑" : " ↓") : "";
+      return `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${arrow}</th>`;
+    };
+
+    container.innerHTML = `
+      <table class="hover-table" style="width: 100%; min-width: 1400px;">
+        <thead>
+          <tr>
+            ${th('cardname', 'Card', 'sticky-card-col')}
+            ${th('current_price', 'Current Price')}
+            ${th('c_pct_30d', 'Chronos (30D)')}
+            ${th('g_pct_30d', 'GRU (30D)')}
+            ${th('c_err_30d', 'Chronos Acc')}
+            ${th('g_err_30d', 'GRU Acc')}
+            ${th('samp_ent_30d', 'Sample Entropy')}
+            ${th('hurst_30d', 'Hurst Exponent')}
+            ${th('cv_30d', 'Volatility (CV)')}
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted_data.map(d => `
+            <tr class="card-row" data-cardname="${d.cardname.replace(/"/g, '&quot;')}" data-price="${d.current_price || 0}">
+              
+              <td class="sticky-card-col">
+                <div style="display: flex; align-items: center; gap: 15px; min-width: 250px;">
+                  <img src="${d.image_path}" style="width: 45px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+                  <span style="font-weight: bold; white-space: normal;">${d.cardname}</span>
+                </div>
+              </td>
+              
+              <td style="color: #f1c40f; font-weight: bold; font-size: 15px;">${d.current_price ? '$' + d.current_price.toFixed(2) : 'N/A'}</td>
+              <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td>
+              <td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
+              <td>${formatErr(d.c_err_30d)}</td>
+              <td>${formatErr(d.g_err_30d)}</td>
+              <td>${d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A'}</td>
+              <td>${d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A'}</td>
+              <td>${d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  // Hook up event listeners for the filters
+  search_input.addEventListener("input", renderTable);
+  set_select.addEventListener("change", renderTable);
+  rarity_select.addEventListener("change", renderTable);
+
+  container.addEventListener("do_sort", (e) => {
+    if(current_sort === e.detail) { is_asc = !is_asc; } 
+    else { current_sort = e.detail; is_asc = current_sort === 'cardname' ? true : false; }
+    renderTable();
+  });
+
+  // Handle Row Click -> Compute Dynamic Error & Open Modal
+  container.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.card-row");
+    if(tr && tr.dataset.cardname) {
+      const cardname = tr.dataset.cardname;
+      const price = parseFloat(tr.dataset.price);
+
+      // Locate Image Path dynamically
+      const card_info = raw_data.find(d => d.cardname === cardname);
+      const img_src = card_info ? card_info.image_path : '';
+
+      // Extract FULL history to compute accurate backtests without the 30-day cutoff
+      const full_c_hist = all_hist.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
+      const full_c_fcst = all_fcst.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
+
+      // Micro View Data (Windowed for 30 days)
+      const c_hist = full_c_hist.filter(d => d.date >= t_ago && d.date <= t_fut);
+      const c_fcst = full_c_fcst.filter(d => d.date >= t_ago && d.date <= t_fut);
+
+      // Extract Predicted Prices
+      const c_val_obj = c_fcst.filter(d => d.model === "Chronos" && d.is_shadow === false).slice(-1)[0];
+      const g_val_obj = c_fcst.filter(d => d.model === "GRU" && d.is_shadow === false).slice(-1)[0];
+      const c_val = c_val_obj ? c_val_obj.price : null;
+      const g_val = g_val_obj ? g_val_obj.price : null;
+      const c_text = c_val ? "$" + c_val.toFixed(2) : "N/A";
+      const g_text = g_val ? "$" + g_val.toFixed(2) : "N/A";
+
+      // Update Modal Header with Forecasts & Image
+      document.getElementById('modal-header').innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-right: 30px;">
+          
+          <div style="display: flex; align-items: center; gap: 20px;">
+            <img src="${img_src}" style="height: 180px; border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
+            <div>
+              <div style="font-size: 22px; font-weight: bold; color: #3498db; margin-bottom: 5px;">${cardname}</div>
+              <div style="font-size: 16px; color: #ecf0f1;">Current Price: <span style="font-weight:bold; color:#f1c40f;">$${price.toFixed(2)}</span></div>
+            </div>
+          </div>
+
+          <div style="font-size: 16px; font-weight: normal; background: #1a252f; padding: 10px 20px; border-radius: 6px; border: 1px solid #34495e;">
+            <span style='color: #bbb; text-transform: uppercase; font-size: 12px;'>Chronos (30D):</span> 
+            <span style='color: #f1c40f; font-weight: bold; margin-right: 20px;'>${c_text}</span>
+            <span style='color: #bbb; text-transform: uppercase; font-size: 12px;'>GRU (30D):</span> 
+            <span style='color: #2ecc71; font-weight: bold;'>${g_text}</span>
+          </div>
+        </div>
+      `;
+
+      // ----------------------------------------------------
+      // PLOT 1: FORECAST GRAPH
+      // ----------------------------------------------------
+      const last_m_pt = c_hist.length > 0 ? c_hist[c_hist.length - 1] : null;
+      const link_m_c = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "Chronos", conf_low: last_m_pt.price, conf_high: last_m_pt.price } : null;
+      const link_m_g = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "GRU" } : null;
+
+      const live_c = c_fcst.filter(d => d.model === "Chronos" && d.is_shadow === false);
+      const live_g = c_fcst.filter(d => d.model === "GRU" && d.is_shadow === false);
+      const shadow = c_fcst.filter(d => d.is_shadow === true);
+
+      const live_c_conn = link_m_c ? [link_m_c, ...live_c] : live_c;
+      const live_g_conn = link_m_g ? [link_m_g, ...live_g] : live_g;
+
+      const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'History', line: {color: '#3498db', width: 3}, hovertemplate: 'Price: $%{y:.2f}<extra></extra>' };
+      const trace_c = { x: live_c_conn.map(d => d.date), y: live_c_conn.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#f1c40f', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
+      const trace_g = { x: live_g_conn.map(d => d.date), y: live_g_conn.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#2ecc71', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
+      
+      const shadow_traces = Array.from(new Set(shadow.map(d => d.run_id))).map(rid => {
+        const run_data = shadow.filter(d => d.run_id === rid);
+        if(run_data.length === 0) return null;
+        return { x: run_data.map(d => d.date), y: run_data.map(d => d.price), mode: 'lines', line: {color: run_data[0].model === 'Chronos' ? '#f1c40f' : '#2ecc71', width: 1}, opacity: 0.2, showlegend: false, hoverinfo: 'skip' };
+      }).filter(d => d !== null);
+
+      const layout_graph = {
+        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+        font: { color: '#ecf0f1', family: 'system-ui, sans-serif' },
+        xaxis: { title: '', gridcolor: '#34495e', linecolor: '#34495e', hoverformat: '%b %d, %Y' },
+        yaxis: { title: 'Market Price', gridcolor: '#34495e', linecolor: '#34495e', tickprefix: '$', nticks: 6 },
+        margin: { l: 60, r: 20, t: 20, b: 40 },
+        hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#2b3e50', bordercolor: '#3498db', font: { color: '#ffffff', size: 16 } },
+        showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }
+      };
+
+      // ----------------------------------------------------
+      // PLOT 2: ERROR HORIZON GRAPH ENGINE (Fixed OJS Hoisting Bug)
+      // ----------------------------------------------------
+      const build_error = (model_name, fcst_data, hist_data) => {
+         const shadow_data = fcst_data.filter(d => d.model === model_name && d.is_shadow);
+         const runs = [...new Set(shadow_data.map(d => d.run_id))];
+         let error_records = [];
+         
+         runs.forEach(rid => {
+            let run_pts = shadow_data.filter(d => d.run_id === rid).sort((a,b) => a.date - b.date);
+            if(run_pts.length === 0) return;
+            
+            let first_date = run_pts[0].date.getTime();
+            let anchor_pt = hist_data.filter(h => h.date.getTime() < first_date).sort((a,b) => b.date - a.date)[0];
+            let anchor_price = anchor_pt ? anchor_pt.price : null;
+            
+            run_pts.forEach((pt, idx) => {
+               let actual_pt = hist_data.find(h => h.date.getTime() === pt.date.getTime());
+               if(actual_pt && anchor_price > 0 && actual_pt.price > 0) {
+                  error_records.push({
+                     horizon: idx + 1,
+                     ape: Math.abs(pt.price - actual_pt.price) / actual_pt.price,
+                     naive_ape: Math.abs(anchor_price - actual_pt.price) / actual_pt.price
+                  });
+               }
+            });
+         });
+         
+         let agg = [];
+         for(let h=1; h<=30; h++) {
+            let h_recs = error_records.filter(r => r.horizon === h);
+            if(h_recs.length > 0) {
+               let apes = h_recs.map(r => r.ape).sort((a,b)=>a-b);
+               let naives = h_recs.map(r => r.naive_ape).sort((a,b)=>a-b);
+               let mdape = apes.length % 2 !== 0 ? apes[Math.floor(apes.length/2)] : (apes[Math.floor(apes.length/2)-1] + apes[Math.floor(apes.length/2)])/2;
+               let n_mdape = naives.length % 2 !== 0 ? naives[Math.floor(naives.length/2)] : (naives[Math.floor(naives.length/2)-1] + naives[Math.floor(naives.length/2)])/2;
+               agg.push({ horizon: h, mdape: mdape, min: apes[0], max: apes[apes.length-1], naive: n_mdape, n: h_recs.length });
+            }
+         }
+         return agg;
+      };
+
+      let err_c = build_error("Chronos", full_c_fcst, full_c_hist);
+      let err_g = build_error("GRU", full_c_fcst, full_c_hist);
+
+      const trace_base = {
+        x: err_c.map(d => d.horizon),
+        y: err_c.map(d => d.naive),
+        type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(236,240,241,0.15)',
+        name: 'Persistence Baseline', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>'
+      };
+
+      const trace_err_c = {
+        x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos',
+        marker: {color: '#f1c40f'}, customdata: err_c.map(d => [d.min, d.max, d.n]),
+        hovertemplate: '<b>Chronos: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>'
+      };
+
+      const trace_err_g = {
+        x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU',
+        marker: {color: '#2ecc71'}, customdata: err_g.map(d => [d.min, d.max, d.n]),
+        hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>'
+      };
+
+      const layout_err = {
+        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+        font: { color: '#ecf0f1', family: 'system-ui, sans-serif' },
+        xaxis: { title: 'Days Out (Forecast Horizon)', gridcolor: '#34495e', linecolor: '#34495e', tickvals: [1,5,10,15,20,25,30], hoverformat: 'Day %{x}' },
+        yaxis: { title: 'Median Error Rate (MdAPE)', gridcolor: '#34495e', linecolor: '#34495e', tickformat: '.0%', rangemode: 'tozero' },
+        margin: { l: 60, r: 20, t: 10, b: 50 },
+        barmode: 'group', hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#2b3e50', bordercolor: '#3498db', font: { color: '#ffffff', size: 14 } },
+        showlegend: true, legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }
+      };
+
+      // ----------------------------------------------------
+      // RENDER EVERYTHING
+      // ----------------------------------------------------
+      modal.style.display = "flex";
+      
+      const target_graph = document.getElementById('modal-graph-target');
+      const target_err = document.getElementById('modal-error-target');
+      
+      target_graph.innerHTML = '';
+      target_err.innerHTML = '';
+
+      Plotly.newPlot(target_graph, [...shadow_traces, trace_hist, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
+      
+      if(err_c.length === 0 && err_g.length === 0) {
+         target_err.innerHTML = '<div style="text-align:center; color:#bbb; padding-top: 50px;">Not enough historical backtesting data to calculate error yet.</div>';
+      } else {
+         Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g], layout_err, {responsive: true, displayModeBar: false});
+      }
+    }
+  });
+
+  renderTable();
+  return page_wrapper; 
+}
+```
+
+# Long-term Trends
+
+## Sidebar {.sidebar}
+```{ojs}
+safe_default_card = Array.isArray(ojs_default_card) ? ojs_default_card[0] : ojs_default_card;
+
+viewof selected_card = Inputs.select(ojs_cards, { value: safe_default_card, label: "Select a Card:" })
+viewof show_ci = Inputs.toggle({label: "Show Confidence Interval", value: false})
+```
+
+```{ojs}
+//| output: false
+my_hist = transpose(ojs_hist)
+  .filter(d => d.cardname === selected_card)
+  .map(d => ({ ...d, date: new Date(d.date) }))
+  .sort((a, b) => a.date - b.date)
+
+my_fcst = transpose(ojs_forecast)
+  .filter(d => d.cardname === selected_card)
+  .map(d => ({ ...d, date: new Date(d.date) }))
+  .sort((a, b) => a.date - b.date)
+
+live_fcst = my_fcst.filter(d => d.is_shadow === false)
+shadow_fcst = my_fcst.filter(d => d.is_shadow === true)
+my_info = transpose(ojs_info).find(d => d.cardname === selected_card) || {}
+current_price = my_hist.length > 0 ? my_hist[my_hist.length - 1].price : 0
+
+thirty_days_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+thirty_days_future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+
+// BRIDGE THE GAP: Connect the end of history to the start of the forecast
+last_hist_pt = my_hist.length > 0 ? my_hist[my_hist.length - 1] : null;
+link_c = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "Chronos", conf_low: last_hist_pt.price, conf_high: last_hist_pt.price } : null;
+link_g = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "GRU" } : null;
+
+micro_hist = my_hist.filter(d => d.date >= thirty_days_ago && d.date <= thirty_days_future)
+micro_live_c = live_fcst.filter(d => d.model === "Chronos" && d.date >= thirty_days_ago && d.date <= thirty_days_future)
+micro_live_g = live_fcst.filter(d => d.model === "GRU" && d.date >= thirty_days_ago && d.date <= thirty_days_future)
+micro_shadow = shadow_fcst.filter(d => d.date >= thirty_days_ago && d.date <= thirty_days_future)
+
+micro_live_c_conn = link_c ? [link_c, ...micro_live_c] : micro_live_c;
+micro_live_g_conn = link_g ? [link_g, ...micro_live_g] : micro_live_g;
+live_fcst_conn = [...(link_c ? [link_c] : []), ...(link_g ? [link_g] : []), ...live_fcst];
+
+c_val_obj = my_fcst.filter(d => d.model === "Chronos" && d.is_shadow === false).slice(-1)[0]
+g_val_obj = my_fcst.filter(d => d.model === "GRU" && d.is_shadow === false).slice(-1)[0]
+c_val = c_val_obj ? c_val_obj.price : null
+g_val = g_val_obj ? g_val_obj.price : null
+ensemble_val = (c_val && g_val) ? (c_val + g_val) / 2 : (c_val || g_val || 0)
+trend_pct = current_price ? ((ensemble_val - current_price) / current_price) : 0
+trend_color = trend_pct >= 0 ? "#2ecc71" : "#e74c3c"
+trend_icon = trend_pct >= 0 ? "▲" : "▼"
+```
+
+```{ojs}
+// Rendered HTML Sidebar Info
+html`
+<div style="background: #1a252f; border-radius: 8px; padding: 15px; border: 1px solid #34495e; text-align: center; margin-top: 10px;">
+  <img src="${my_info.image_path}" style="width:100%; max-width: 250px; border-radius:8px; box-shadow: 0 4px 8px rgba(0,0,0,0.8); margin-bottom: 15px;">
+  <div style="font-size:14px; color:#ecf0f1; margin-bottom: 8px; border-bottom: 1px solid #18bc9c; padding-bottom: 4px;">${my_info.cardname}</div>
+  <div style="font-size: 24px; font-weight: bold; color: #3498db; margin-bottom: 15px;">$${current_price.toFixed(2)}</div>
+  
+  <div style="font-size: 13px; color: #18bc9c; margin-top: 5px; border-bottom: 1px solid #34495e; padding-bottom: 2px; text-align: left;">30-Day Metrics</div>
+  <div style="font-size: 13px; color: #bbb; line-height: 1.6; padding-top: 5px; text-align: left;">
+    <div style="display: flex; justify-content: space-between;"><span style="color:#f39c12;">Entropy: </span> ${my_info.samp_ent_30d ? my_info.samp_ent_30d.toFixed(3) : "N/A"}</div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:#f39c12;">Hurst: </span> ${my_info.hurst_30d ? my_info.hurst_30d.toFixed(3) : "N/A"}</div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:#f39c12;">Vol (CV): </span> ${my_info.cv_30d ? my_info.cv_30d.toFixed(3) : "N/A"}</div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:#f39c12;">Skew: </span> ${my_info.skewness_30d ? my_info.skewness_30d.toFixed(3) : "N/A"}</div>
+  </div>
+</div>
+`
+```
+
+## Column
+
+```{ojs}
+//| title: "Macro View: All-Time History & Long Term Forecast"
+Plot.plot({
+  height: 350,
+  style: { background: "#1a252f", color: "#ecf0f1", fontSize: "14px" },
+  marginLeft: 75, marginRight: 40, marginTop: 20, marginBottom: 40, grid: true,
+  x: { type: "time", label: "Date" },
+  y: { tickFormat: "$.2f", label: "Market Price", ticks: 6 },
+  color: { domain: ["Chronos", "GRU"], range: ["#f1c40f", "#2ecc71"] },
+  marks: [
+    show_ci ? Plot.areaY(live_fcst_conn.filter(d => d.model === "Chronos"), { x: "date", y1: "conf_low", y2: "conf_high", fill: "#f1c40f", fillOpacity: 0.15 }) : null,
+    Plot.lineY(live_fcst_conn, { x: "date", y: "price", stroke: "model", strokeWidth: 2.5, strokeDasharray: d => d.model === "Chronos" ? "4 4" : "2 2", tip: true }),
+    Plot.lineY(my_hist, { x: "date", y: "price", stroke: "#3498db", strokeWidth: 2.5, tip: true }),
+    Plot.dot(my_hist, Plot.selectLast({ x: "date", y: "price", fill: "#3498db", r: 5 }))
+  ]
+})
+```
