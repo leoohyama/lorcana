@@ -116,7 +116,6 @@ tryCatch({
 }, error = function(e) {
   # Safe to ignore; means the PK already exists
 })
-", immediate = TRUE)
 
 # 5c. The Pooler-Safe Loop Update
 message(paste("Upserting", nrow(metrics_df), "rows securely..."))
