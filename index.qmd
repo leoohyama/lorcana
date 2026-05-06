@@ -856,7 +856,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-  <a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button">
-    ☕ Support Lorecaster on Ko-fi
-  </a>
+<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button">
+  ☕ Support Lorecaster on Ko-fi
+</a>
 </div>
