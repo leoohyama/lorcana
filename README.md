@@ -12,7 +12,7 @@
 
 > **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested. 
 
-🚀 **UPDATE: Lorecaster is temporarily down for maintenance!**
+🚀 **UPDATE: Lorecaster is back up!**
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/103c05f6-bb5b-4c34-bd9d-0930aa1932dc)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
