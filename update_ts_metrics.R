@@ -51,14 +51,11 @@ df_prices <- dbGetQuery(con, "
     WHERE market_price IS NOT NULL
     ORDER BY tcgplayer_id, pull_date ASC
 ", immediate = TRUE)
-<<<<<<< HEAD
-=======
 
 # Ensure dates are correctly formatted
 df_prices$pull_date <- as.Date(df_prices$pull_date)
 current_date <- Sys.Date()
 thirty_days_ago <- current_date - days(30)
->>>>>>> 9cd02adce334c1eb73bb3a7fa5a56cae4398101f
 
 # --- 4. CALCULATE & ROUND METRICS ---
 message("Crunching 30-day time-series metrics...")
@@ -110,7 +107,6 @@ dbExecute(con, "
     skewness_30d NUMERIC,
     last_updated DATE
   );
-<<<<<<< HEAD
 ", immediate = TRUE) # Added immediate = TRUE
 
 # 5b. If the table was previously created by dbWriteTable, it won't have a Primary Key. 
@@ -120,9 +116,7 @@ tryCatch({
 }, error = function(e) {
   # Safe to ignore; means the PK already exists
 })
-=======
 ", immediate = TRUE)
->>>>>>> 9cd02adce334c1eb73bb3a7fa5a56cae4398101f
 
 # 5c. The Pooler-Safe Loop Update
 message(paste("Upserting", nrow(metrics_df), "rows securely..."))
