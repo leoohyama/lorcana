@@ -809,3 +809,62 @@ Plot.plot({
   ]
 })
 ```
+
+# FAQ & Info {orientation="columns"}
+
+## Column {width="50%"}
+
+### 🃏 The Market & The Data
+
+**What exactly is Lorecaster predicting?**
+Lorecaster predicts the future secondary market prices of high-end, ungraded Disney Lorcana trading cards (specifically Epic, Legendary, and Enchanted rarities). 
+
+**Why only high-rarity cards?**
+Lorcana is both a collectible and a playable game. Lower-rarity cards fluctuate wildly based on what is currently winning tournaments (the "meta"). High-rarity cards are driven much more by collector demand, special artwork, and beloved characters (like Stitch), making their long-term trajectories a different beast to forecast. 
+
+**Why doesn't this track graded cards (PSA 9, PSA 10)?**
+Graded cards—cards certified for their pristine condition by third-party companies—sell for massive premiums. The market for a PSA 10 is fundamentally different and much more volatile than the raw, ungraded market. Furthermore, consistent daily pricing data for graded Lorcana cards is currently too sparse to model accurately. 
+
+**Where does the data come from?**
+Pricing data is aggregated daily. We also monitor eBay, which is the premier marketplace for high-end TCGs. We use a local AI (Gemma 4.0) to clean and validate eBay listing data, helping us filter out seller typos or wildly unrealistic "Buy It Now" prices so the models only see real market signals.
+
+### 🧠 How the AI Works
+
+**How does the forecast actually get generated?**
+Lorecaster doesn't rely on just one algorithm; it uses a multi-model approach to handle the chaos of the secondary market:
+* **The Hybrid GRU:** A custom-built AI that looks at two things at once: a card's historical price movements and its static DNA (like its ink color or rarity). By combining these, the model learns that an "Enchanted" card behaves very differently than a standard "Rare" card. 
+* **Chronos (by Amazon):** An AI model that treats price charts like language. Just like ChatGPT guesses the next word in a sentence, Chronos looks at the shape of a price trend and guesses the next "token" (price) in the sequence. This is especially helpful for brand-new cards that don't have much history yet.
+
+**What is the "Attention Mechanism"?**
+Not all days in a market are equal. Instead of looking at the last 30 days as a flat average, our model uses an "Attention" layer. This allows the AI to prioritize sudden price shocks or major market shifts, ignoring quiet days and focusing heavily on the days that actually triggered a trend change.
+
+**How often does the AI learn?**
+The dashboard updates with fresh prices and new 30-day forecasts every single morning. Behind the scenes, the AI models are fully retrained from scratch once a week to ensure they are adapting to new sets and shifting market regimes.
+
+## Column {width="50%"}
+
+### 📊 Dashboard Glossary (Understanding the Metrics)
+
+If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts** table, you will see several advanced metrics. Here is what they actually mean in collector terms:
+
+**Sample Entropy (Unpredictability)**
+* *What it means:* How chaotic or random a card's price movement is. 
+* *How to read it:* A low number means the card's price moves in smooth, predictable patterns. A high number means the price is jittery, random, and prone to unpredictable daily swings.
+
+**Hurst Exponent (Momentum vs. Reversion)**
+* *What it means:* Tells us if a card is currently riding a wave or stuck in a rut.
+* *How to read it:* * **Near 0.5:** The price is wandering randomly.
+    * **Above 0.5:** The card has *Momentum*. If it's going up, it will likely keep going up. If it's dropping, it's likely going to keep dropping.
+    * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up, it will likely snap back down soon.
+
+**Volatility / CV (Risk)**
+* *What it means:* The Coefficient of Variation measures how wide the price swings are relative to the card's total value.
+* *How to read it:* Higher percentage = higher risk. A $200 card that fluctuates by $5 a day has low volatility. A $10 card that fluctuates by $5 a day has massive volatility. 
+
+**Skewness (Spike Potential)**
+* *What it means:* Measures the asymmetry of price changes. Are the surprises mostly good or mostly bad?
+* *How to read it:* A positive number means the card occasionally experiences massive price *spikes* upwards. A negative number means the card is prone to sudden, steep *crashes*.
+
+**30-Day Forecast Error / MdAPE**
+* *What it means:* "Median Absolute Percentage Error." This is our model's report card. 
+* *How to read it:* We make the AI predict prices for historical dates it already knows, and then grade its homework. If the Chronos Acc says `±5.2%`, it means that historically, the Chronos model's 30-day forecast for this specific card is usually off by about 5.2%.
