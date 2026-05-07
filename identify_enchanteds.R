@@ -44,14 +44,14 @@ target_cards <- all_lorcast_cards %>%
   filter(!is.na(tcgplayer_id))
 
 # Save the target list for your Price Tracking script
-saveRDS(target_cards, "data/enchanteds/enchanted_list.rds")
+saveRDS(target_cards, "data/enchanteds/enchanted_list_05_07.rds")
 
 
 # --- STEP 3: The Image Download Pipeline ---
 message("Starting image downloads...")
 
 # 1. Create a root folder for these specific images
-root_dir <- "data/enchanteds/images"
+root_dir <- "data/enchanteds/images2"
 if (!dir.exists(root_dir)) dir.create(root_dir, recursive = TRUE)
 
 # 2. Recreate your download function
