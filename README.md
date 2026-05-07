@@ -14,9 +14,8 @@
 
 🚀 **UPDATE: Lorecaster is back up!**
 
-[![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/6b04c1c8-5810-49b2-9d8e-692a193ee195)](http://lorecaster.ink)
+[![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/5890e5b9-3c4a-43de-b9ef-a480722ce660)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
-
 
 ---
 
