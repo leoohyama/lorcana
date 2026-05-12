@@ -367,7 +367,7 @@ dd_table_and_modal = {
     <div class="modal-content">
       <span class="close-btn" onclick="document.getElementById('lorecaster-modal').style.display='none'">&times;</span>
       <div id="modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
-      <div id="modal-graph-target" style="width: 100%; height: 420px; overflow: hidden; margin-bottom: 15px;"></div>
+      <div id="modal-graph-target" style="width: 100%; height: 420px; min-height: 420px; overflow: hidden; margin-bottom: 15px;"></div>
       <div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); margin-top: 20px;">
         <div style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 5px;">📊 30-Day Forecast Error (Historical Backtesting)</div>
         <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px; line-height: 1.5;">
@@ -375,7 +375,7 @@ dd_table_and_modal = {
           The bar charts below show the <span style="color:var(--text-main); font-weight:600;">Median Percentage Error</span> for forecasts spanning 1 to 30 days into the future. Lower bars mean higher accuracy. 
           The shaded gray background represents the "Naive Baseline" (what happens if you just guess today's price won't change at all). If our models are below the gray wave, the AI is successfully beating the random market.
         </div>
-        <div id="modal-error-target" style="width: 100%; height: 320px; overflow: hidden;"></div>
+        <div id="modal-error-target" style="width: 100%; height: 320px; min-height: 320px; overflow: hidden;"></div>
       </div>
     </div>
   `;
@@ -507,8 +507,8 @@ dd_table_and_modal = {
       const c_text = c_val ? "$" + c_val.toFixed(2) : "N/A"; const g_text = g_val ? "$" + g_val.toFixed(2) : "N/A";
 
       document.getElementById('modal-header').innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; padding-right: 30px;">
-          <div style="display: flex; align-items: center; gap: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
+          <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
             <img src="${img_src}" style="height: 220px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
             <div><div style="font-size: 24px; font-weight: 800; color: var(--text-main); margin-bottom: 5px;">${cardname}</div><div style="font-size: 16px; color: var(--text-muted);">Current Price: <span style="font-weight:700; color:var(--accent-yellow); font-size:18px;">$${price.toFixed(2)}</span></div></div>
           </div>
@@ -540,6 +540,7 @@ dd_table_and_modal = {
       }).filter(d => d !== null);
 
       const layout_graph = {
+        height: 420, // EXPLICIT HEIGHT FIXES ZERO-RENDER BUG
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
         xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d, %Y' },
         yaxis: { title: 'Market Price', gridcolor: '#334155', linecolor: '#334155', tickprefix: '$', nticks: 6 },
@@ -587,6 +588,7 @@ dd_table_and_modal = {
       const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Error', marker: {color: '#22d3ee'}, customdata: err_g.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
 
       const layout_err = {
+        height: 320, // EXPLICIT HEIGHT FIXES ZERO-RENDER BUG
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
         xaxis: { title: 'Days into the Future (Horizon)', gridcolor: '#334155', linecolor: '#334155', tickvals: [1,5,10,15,20,25,30], hoverformat: 'Day %{x}' },
         yaxis: { title: 'Median % Error', gridcolor: '#334155', linecolor: '#334155', tickformat: '.0%', rangemode: 'tozero' },
@@ -683,11 +685,8 @@ Plot.plot({
 ## Sidebar {.sidebar}
 
 ```{ojs}
-viewof card_search = Inputs.text({label: "🔍 Search Card:", placeholder: "Type to find..."})
-```
-
-```{ojs}
 //| output: false
+// All data manipulation is hidden from the sidebar using the chunk option above
 filtered_cards_options = {
   const query = card_search.toLowerCase();
   const matches = ojs_cards.filter(c => c.toLowerCase().includes(query));
@@ -704,6 +703,8 @@ ebay_card_info = transpose(ojs_info).find(d => d.cardname === ebay_selected_card
 ```
 
 ```{ojs}
+viewof card_search = Inputs.text({label: "🔍 Search Card:", placeholder: "Type to find..."})
+
 viewof ebay_selected_card = Inputs.select(filtered_cards_options, {
   label: "Select Card:", 
   value: filtered_cards_options.includes(safe_default_card) ? safe_default_card : filtered_cards_options[0]
@@ -746,14 +747,14 @@ raw_ebay = transpose(ojs_ebay).map(d => {
   };
 }).filter(d => !isNaN(d.clean_price) && d.clean_price > 0)
 
-// 2. Apply Filters
+// 2. Apply Filters (Including the new Grade Checkboxes)
 filtered_ebay = raw_ebay.filter(d => 
   (d.cardname === ebay_selected_card) &&
   (ebay_selected_company === "All" || d.grading_company === ebay_selected_company) &&
   (ebay_selected_grades.includes(d.grade_val || "Raw"))
 )
 
-// 3. Dynamic Color Mapping
+// 3. Dynamic Color Mapping (Using a local variable loop to avoid Observable reactivity crashes)
 unique_labels = [...new Set(filtered_ebay.map(d => d.label))].sort()
 color_palette = ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa', '#f472b6', '#2dd4bf', '#a3e635']
 
@@ -785,6 +786,7 @@ bin_plot_node = {
     let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
     if(subset.length === 0) return;
     
+    // Individual listings as scatter points
     traces.push({
       x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price),
       mode: 'markers', name: lbl, legendgroup: lbl,
@@ -792,6 +794,7 @@ bin_plot_node = {
       text: subset.map(d => d.hover_text), hoverinfo: 'text'
     });
     
+    // Mathematical median daily trend line
     let grouped = {};
     subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
     let meds = Object.keys(grouped).map(date => {
@@ -839,6 +842,7 @@ auc_plot_node = {
     let subset = auc_data.filter(d => d.label === lbl);
     if(subset.length === 0) return;
     
+    // Group auctions strictly by item_id so we draw lines connecting the SAME listing over time
     let item_ids = [...new Set(subset.map(d => d.item_id))];
     
     item_ids.forEach((iid, idx) => {
@@ -846,7 +850,7 @@ auc_plot_node = {
        traces.push({
          x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price),
          mode: 'lines+markers', name: lbl, legendgroup: lbl, 
-         showlegend: idx === 0, 
+         showlegend: idx === 0, // Only render one legend toggle per unique grade
          line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]},
          text: item_data.map(d => d.hover_text), hoverinfo: 'text'
        });
