@@ -1,0 +1,954 @@
+---
+title: "Lorcana Forecasting"
+format: 
+  dashboard:
+    theme: darkly
+    scrolling: true
+    orientation: columns
+    nav-buttons:
+      - icon: github
+        href: https://github.com/
+execute:
+  echo: false
+  warning: false
+  message: false
+resources:
+  - "data/enchanteds/images/"
+---
+
+```{r}
+#| context: setup
+#| include: false
+# ==========================================
+# 1. THE CHEF: R Data Processing (Runs Once)
+# ==========================================
+library(tidyverse)
+library(DBI)
+library(RPostgres)
+
+# Load Dictionary & Fix Image Paths
+master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
+  mutate(
+    id = as.character(id), 
+    tcgplayer_id = as.integer(tcgplayer_id), 
+    cardname = paste(name, replace_na(version, ""), rarity, sep = " - "),
+    folder_name = str_replace_all(set_name, "[ ']", "_"),
+    image_path = paste0("data/enchanteds/images/", folder_name, "/", id, ".avif")
+  ) %>%
+  distinct(id, .keep_all = TRUE)
+
+# Connect to Neon
+con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9.c-5.us-east-1.aws.neon.tech", dbname = "neondb", user = "neondb_owner", password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
+
+# Fetch Core Data
+latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
+past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
+hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '365 days'")
+chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions")
+gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions")
+metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
+
+# --- Fetch NEW eBay Data using SQL Join to save RAM ---
+ebay_query <- "
+  SELECT 
+    a.item_id, a.price_val, a.listing_type, a.date_pulled,
+    l.id, l.grading_company, l.grade_val
+  FROM lorcana_active_listings a
+  INNER JOIN llm_listing_metadata l ON a.item_id = l.item_id
+  WHERE (l.is_valid = 'TRUE' OR l.is_valid = true)
+    AND a.price_val IS NOT NULL 
+    AND a.price_val > 0
+"
+raw_ebay_sql <- tryCatch(dbGetQuery(con, ebay_query), error = function(e) data.frame())
+
+dbDisconnect(con)
+
+# --- Process Momentum ---
+momentum <- latest_prices %>% 
+  inner_join(past_prices, by = "tcgplayer_id", suffix = c("_cur", "_past")) %>% 
+  mutate(pct = (market_price_cur - market_price_past)/market_price_past * 100, abs = market_price_cur - market_price_past) %>% 
+  left_join(master_dict, by = "tcgplayer_id") %>% drop_na(cardname)
+
+if(nrow(momentum) > 0) {
+  top_pct_g <- momentum %>% arrange(desc(pct)) %>% slice(1) %>% mutate(Category = "Top % Gainer")
+  top_pct_l <- momentum %>% arrange(pct) %>% slice(1) %>% mutate(Category = "Top % Loser")
+  top_abs_g <- momentum %>% arrange(desc(abs)) %>% slice(1) %>% mutate(Category = "Top $ Gainer")
+  top_abs_l <- momentum %>% arrange(abs) %>% slice(1) %>% mutate(Category = "Top $ Loser")
+  movers <- bind_rows(top_pct_g, top_pct_l, top_abs_g, top_abs_l)
+} else {
+  movers <- data.frame()
+}
+
+# --- Process Forecasts for Plotting ---
+max_c_run <- if(nrow(chronos_pred) > 0) max(chronos_pred$run_id, na.rm=TRUE) else 0
+max_g_run <- if(nrow(gru_pred) > 0) max(gru_pred$run_id, na.rm=TRUE) else 0
+
+forecast_flat <- bind_rows(
+  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos", is_shadow = ifelse(run_id == max_c_run, FALSE, TRUE)) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id),
+  gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", is_shadow = ifelse(run_id == max_g_run, FALSE, TRUE), conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id)
+) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
+
+hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
+
+# --- Process Deeper Dive Data ---
+if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
+unified <- master_dict %>% 
+  left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>%
+  left_join(metrics_df, by="tcgplayer_id")
+
+# --- Process NEW eBay Listings Data ---
+if(nrow(raw_ebay_sql) > 0) {
+  ebay_master <- raw_ebay_sql %>%
+    mutate(id = as.character(id)) %>%
+    left_join(master_dict, by = "id") %>%
+    mutate(
+      type_simple = if_else(str_detect(listing_type, regex("AUCTION", ignore_case = TRUE)), "Auction", "Buy It Now"),
+      grade_val = replace_na(as.character(grade_val), "Raw"),
+      grading_company = replace_na(as.character(grading_company), "Raw"),
+      date_pulled = as.character(date_pulled) 
+    ) %>%
+    select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, type_simple) %>%
+    drop_na(cardname)
+} else {
+  ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character())
+}
+
+# --- Find the Most Expensive Card ---
+top_card <- unified %>% 
+  drop_na(current_price) %>% 
+  arrange(desc(current_price)) %>% 
+  slice(1) %>% 
+  pull(cardname)
+
+if(length(top_card) == 0) top_card <- "Stitch - Carefree Surfer - Enchanted"
+
+# Transfer to JavaScript
+ojs_define(
+  ojs_movers = movers,
+  ojs_hist = hist_flat,
+  ojs_forecast = forecast_flat,
+  ojs_info = unified,
+  ojs_ebay = ebay_master,
+  ojs_cards = sort(unique(master_dict$cardname)),
+  ojs_default_card = top_card
+)
+```
+
+```{=html}
+<style>
+  @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap)');
+
+  :root {
+    --bg-base: #0f172a;       
+    --bg-card: #1e293b;       
+    --bg-hover: #334155;      
+    --border-subtle: #475569; 
+    
+    --text-main: #f8fafc;     
+    --text-muted: #94a3b8;    
+    
+    --accent-blue: #38bdf8;   
+    --accent-cyan: #22d3ee;   
+    --accent-yellow: #fbbf24; 
+    --accent-red: #f87171;    
+    --accent-green: #34d399;  
+  }
+
+  body, .dashboard-container, text, th, td, div {
+    font-family: 'Inter', sans-serif !important;
+  }
+
+  .momentum-box { 
+    background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); 
+    border-left: 5px solid var(--accent-blue); 
+    padding: 18px 22px; 
+    border-radius: 12px; 
+    margin-bottom: 25px; 
+    color: var(--text-main); 
+    font-size: 15px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  }
+  
+  .green-text { color: var(--accent-green); font-weight: 700; }
+  .red-text { color: var(--accent-red); font-weight: 700; }
+  
+  .flip-card { perspective: 1000px; cursor: pointer; }
+  .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; }
+  .flip-card-inner.is-flipped { transform: rotateY(180deg); }
+  .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; }
+  .flip-card-back { transform: rotateY(180deg); background-color: var(--bg-base); border: 2px solid var(--accent-blue); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
+
+  g[aria-label="tip"] path { fill: var(--bg-card) !important; stroke: var(--accent-blue) !important; stroke-width: 2px !important; fill-opacity: 0.95 !important; }
+  g[aria-label="tip"] text { fill: var(--text-main) !important; font-size: 14px !important; font-weight: 600 !important; stroke: none !important; }
+
+  .hover-table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 14px; text-align: left; }
+  .hover-table th { background-color: var(--bg-card); padding: 14px 12px; border-bottom: 2px solid var(--accent-blue); position: sticky; top: 0; z-index: 10; transition: background 0.2s; user-select: none; white-space: nowrap; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 12px;}
+  .hover-table th:hover { background-color: var(--bg-hover); }
+  .hover-table td { padding: 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; white-space: nowrap; }
+  .hover-table tbody tr { transition: background-color 0.2s; cursor: pointer; background-color: var(--bg-base); }
+  .hover-table tbody tr:hover { background-color: var(--bg-hover); }
+  
+  .hover-table th.sticky-card-col, .hover-table td.sticky-card-col { position: sticky; left: 0; z-index: 5; background-color: inherit; border-right: 1px solid var(--border-subtle); box-shadow: 4px 0 8px rgba(0,0,0,0.2); }
+  .hover-table thead th.sticky-card-col { z-index: 15; background-color: var(--bg-card); }
+  
+  .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
+  .modal-content { background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; width: 95%; max-width: 1200px; padding: 24px; position: relative; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; }
+  .close-btn { color: var(--text-muted); position: absolute; top: 12px; right: 24px; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99; }
+  .close-btn:hover { color: var(--accent-red); }
+</style>
+```
+
+# Market Overview {orientation="rows"}
+
+::: {.callout-note appearance="minimal" icon="false"}
+## 📈 Understanding the Market Metrics
+* **7-Day Changes:** All percentage shifts and momentum categories represent a **7-day rolling window**. This captures actual weekly momentum rather than noisy day-to-day spikes.
+:::
+
+## Row {.flow}
+
+```{ojs}
+//| output: false
+movers_data = transpose(ojs_movers)
+```
+
+```{ojs}
+market_overview_node = {
+  const top_div = document.createElement("div");
+  top_div.style.width = "100%";
+  top_div.style.maxWidth = "1200px";
+  top_div.style.margin = "0 auto";
+  
+  const container = document.createElement("div");
+  container.style.display = "flex";
+  container.style.justifyContent = "space-around";
+  container.style.background = "var(--bg-card)";
+  container.style.padding = "25px 10px";
+  container.style.borderRadius = "12px";
+  container.style.flexWrap = "wrap";
+  container.style.boxShadow = "0 4px 6px -1px rgba(0,0,0,0.3)";
+  
+  if (movers_data.length === 0) {
+    container.innerHTML = "<div style='color:var(--text-muted);'>Not enough recent market movement to calculate momentum.</div>";
+  } else {
+    const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
+    
+    movers_data.forEach(row => {
+      let p_c = row.pct >= 0 ? "green-text" : "red-text";
+      let sign = row.abs >= 0 ? "+" : "";
+      
+      const wrapper = document.createElement("div");
+      wrapper.style.display = "flex";
+      wrapper.style.flexDirection = "column";
+      wrapper.style.alignItems = "center";
+      wrapper.style.width = "260px";
+      wrapper.style.textAlign = "center";
+      wrapper.style.margin = "10px";
+      
+      wrapper.innerHTML = `
+        <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');" style="width: 260px; height: 380px;">
+          <div class="flip-card-inner">
+            <div class="flip-card-front" style="background-color: var(--bg-base); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
+              <div style="font-size: 20px; font-weight: 500; color: var(--accent-blue); text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px;">${row.Category}</div>
+              <img src="${row.image_path}" style="height: 210px; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+              <div style="margin-top: 15px; font-size: 14px; font-weight: 600; color: var(--text-main); height: 36px; line-height: 1.3;">${row.cardname}</div>
+              <div style="margin-top: 8px; font-size: 18px; font-weight: 800; color: var(--accent-yellow);">$${row.market_price_cur.toFixed(2)}</div>
+              <div class="${p_c}" style="font-size: 14px; margin-top: 4px;">${sign}$${row.abs.toFixed(2)} (${row.pct.toFixed(1)}%)</div>
+            </div>
+            <div class="flip-card-back" id="back-${row.tcgplayer_id}">
+              <span style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; margin-bottom: 15px; font-weight: 700; font-size: 16px; color: var(--accent-blue);">${row.Category}</span>
+              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Current Price</span>
+              <span style="font-size: 28px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 20px;">$${row.market_price_cur.toFixed(2)}</span>
+              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;">7-Day Trend</span>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      const card_hist = all_hist
+         .filter(d => d.cardname === row.cardname)
+         .filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+         .sort((a, b) => a.date - b.date); 
+         
+      const sparkline = Plot.plot({
+        height: 120,
+        width: 220,
+        style: { background: "transparent", fontFamily: "Inter" },
+        x: { axis: null },
+        y: { axis: null },
+        marks: [
+          Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}),
+          Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 })
+        ]
+      });
+
+      wrapper.querySelector(`#back-${row.tcgplayer_id}`).appendChild(sparkline);
+      container.appendChild(wrapper);
+    });
+  }
+  
+  top_div.appendChild(container);
+  return top_div; 
+}
+```
+
+## Row {.flow}
+::: {.callout-note appearance="minimal" icon="false"}
+## FUTURE PLANS 
+* I am currently collecting ebay data on Lorcana listings (for both graded and ungraded). I plan to take a deep dive into these data and use them to feed the forecasting models AND to utilize them to assess proxies of demand, supply etc. 
+:::
+
+# Price Forecasts {orientation="rows"}
+
+## Row {.flow}
+
+```{ojs}
+//| output: false
+Plotly = require("plotly.js-dist-min@2.30.0")
+```
+
+```{ojs}
+dd_table_and_modal = {
+  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
+  const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date) }));
+  const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  let raw_data = transpose(ojs_info).map(d => {
+    const c_hist = all_hist.filter(h => h.cardname === d.cardname);
+    const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
+    const cur_price = d.current_price || 0;
+    
+    const live_c = c_fcst.filter(f => f.model === "Chronos" && !f.is_shadow).sort((a,b)=>a.date-b.date);
+    const live_g = c_fcst.filter(f => f.model === "GRU" && !f.is_shadow).sort((a,b)=>a.date-b.date);
+    const c_pred = live_c.length > 0 ? live_c[live_c.length - 1].price : null;
+    const g_pred = live_g.length > 0 ? live_g[live_g.length - 1].price : null;
+    
+    const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
+    const g_pct = (g_pred !== null && cur_price > 0) ? ((g_pred - cur_price) / cur_price) * 100 : null;
+    
+    function calc_mape(model_name) {
+      const shadows = c_fcst.filter(f => f.model === model_name && f.is_shadow);
+      if(shadows.length === 0) return null;
+      const runs = [...new Set(shadows.map(s => s.run_id))];
+      let total_err = 0; let valid_runs = 0;
+      runs.forEach(rid => {
+        const run_data = shadows.filter(s => s.run_id === rid).sort((a,b)=>a.date-b.date);
+        const day30_pred = run_data[run_data.length - 1]; 
+        let closest_hist = null; let min_diff = Infinity;
+        c_hist.forEach(h => {
+           const diff = Math.abs(h.date - day30_pred.date);
+           if(diff < min_diff && diff <= 2 * 24 * 60 * 60 * 1000) { min_diff = diff; closest_hist = h; }
+        });
+        if(closest_hist && closest_hist.price > 0) {
+           total_err += Math.abs((day30_pred.price - closest_hist.price) / closest_hist.price);
+           valid_runs++;
+        }
+      });
+      return valid_runs > 0 ? (total_err / valid_runs) * 100 : null;
+    }
+    
+    return {
+      ...d,
+      c_pred_30d: c_pred, c_pct_30d: c_pct,
+      g_pred_30d: g_pred, g_pct_30d: g_pct,
+      c_err_30d: calc_mape("Chronos"),
+      g_err_30d: calc_mape("GRU")
+    };
+  });
+
+  let existingModal = document.getElementById('lorecaster-modal');
+  if(existingModal) existingModal.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "lorecaster-modal";
+  modal.className = "modal-overlay";
+  modal.innerHTML = `
+    <div class="modal-content">
+      <span class="close-btn" onclick="document.getElementById('lorecaster-modal').style.display='none'">&times;</span>
+      <div id="modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
+      <div id="modal-graph-target" style="width: 100%; height: 420px; overflow: hidden; margin-bottom: 15px;"></div>
+      <div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); margin-top: 20px;">
+        <div style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 5px;">📊 30-Day Forecast Error (Historical Backtesting)</div>
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px; line-height: 1.5;">
+          <strong>How to read this:</strong> We test our AI models by hiding historical data and asking them to predict past prices they haven't seen. 
+          The bar charts below show the <span style="color:var(--text-main); font-weight:600;">Median Percentage Error</span> for forecasts spanning 1 to 30 days into the future. Lower bars mean higher accuracy. 
+          The shaded gray background represents the "Naive Baseline" (what happens if you just guess today's price won't change at all). If our models are below the gray wave, the AI is successfully beating the random market.
+        </div>
+        <div id="modal-error-target" style="width: 100%; height: 320px; overflow: hidden;"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+
+  const page_wrapper = document.createElement("div");
+  page_wrapper.style.width = "100%";
+  page_wrapper.style.display = "flex";
+  page_wrapper.style.flexDirection = "column";
+
+  const banner = document.createElement("div");
+  banner.className = "momentum-box";
+  banner.style.marginTop = "20px";
+  banner.innerHTML = "<strong>Card-Level Trajectory & Diagnostics</strong><p style='font-size: 14px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Click any row below to open the interactive 30-Day ML Forecast & Backtest Validation visualizer.</p>";
+  page_wrapper.appendChild(banner);
+
+  const filter_bar = document.createElement("div");
+  filter_bar.style.display = "flex"; filter_bar.style.gap = "15px"; filter_bar.style.marginBottom = "20px";
+  filter_bar.style.background = "var(--bg-card)"; filter_bar.style.padding = "15px"; filter_bar.style.borderRadius = "12px";
+  filter_bar.style.border = "1px solid var(--border-subtle)"; filter_bar.style.alignItems = "center";
+
+  const search_input = document.createElement("input");
+  search_input.type = "text"; search_input.placeholder = "🔍 Search by card name...";
+  search_input.style.flex = "1"; search_input.style.padding = "12px"; search_input.style.borderRadius = "8px";
+  search_input.style.border = "1px solid var(--border-subtle)"; search_input.style.background = "var(--bg-base)";
+  search_input.style.color = "var(--text-main)"; search_input.style.fontSize = "14px"; search_input.style.fontFamily = "Inter";
+
+  const selectStyle = "padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;";
+  
+  const set_select = document.createElement("select"); set_select.style.cssText = selectStyle;
+  const unique_sets = ["All Sets", ...Array.from(new Set(raw_data.map(d => d.set_name).filter(Boolean))).sort()];
+  unique_sets.forEach(s => { let opt = document.createElement("option"); opt.value = s; opt.text = s; set_select.appendChild(opt); });
+
+  const rarity_select = document.createElement("select"); rarity_select.style.cssText = selectStyle;
+  const unique_rarities = ["All Rarities", ...Array.from(new Set(raw_data.map(d => d.rarity).filter(Boolean))).sort()];
+  unique_rarities.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; rarity_select.appendChild(opt); });
+
+  filter_bar.appendChild(search_input); filter_bar.appendChild(set_select); filter_bar.appendChild(rarity_select);
+  page_wrapper.appendChild(filter_bar);
+
+  const container = document.createElement("div");
+  container.style.maxHeight = "800px"; container.style.overflowY = "auto"; container.style.overflowX = "auto";
+  container.style.background = "var(--bg-card)"; container.style.borderRadius = "12px";
+  container.style.border = "1px solid var(--border-subtle)"; container.style.width = "100%"; container.style.flex = "1";
+  page_wrapper.appendChild(container);
+
+  let current_sort = "current_price"; let is_asc = false;
+
+  const formatPct = (val, price) => {
+    if (val === null || val === undefined) return '<span style="color:var(--text-muted);">N/A</span>';
+    const color = val >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    const sign = val >= 0 ? '+' : '';
+    return `<span style="color:${color}; font-weight:700;">${sign}${val.toFixed(1)}%</span> <span style="color:var(--text-muted); font-size:12px; font-weight:400; margin-left:4px;">($${price.toFixed(2)})</span>`;
+  };
+  const formatErr = (val) => val !== null && val !== undefined ? `<span style="color:var(--accent-blue); font-weight:600;">±${val.toFixed(1)}%</span>` : '<span style="color:var(--text-muted);">N/A</span>';
+
+  function renderTable() {
+    const q = search_input.value.toLowerCase(); const s = set_select.value; const r = rarity_select.value;
+    let filtered_data = raw_data.filter(d => d.cardname.toLowerCase().includes(q) && (s === "All Sets" || d.set_name === s) && (r === "All Rarities" || d.rarity === r));
+    let sorted_data = filtered_data.sort((a, b) => {
+      let valA = a[current_sort] !== null && a[current_sort] !== undefined ? a[current_sort] : -9999;
+      let valB = b[current_sort] !== null && b[current_sort] !== undefined ? b[current_sort] : -9999;
+      if (typeof valA === "string") return is_asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      return is_asc ? valA - valB : valB - valA;
+    });
+
+    const th = (key, label, cls="") => {
+      let arrow = current_sort === key ? (is_asc ? " ↑" : " ↓") : "";
+      return `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${arrow}</th>`;
+    };
+
+    container.innerHTML = `
+      <table class="hover-table" style="width: 100%; min-width: 1400px;">
+        <thead>
+          <tr>
+            ${th('cardname', 'Card', 'sticky-card-col')}
+            ${th('current_price', 'Current Price')}
+            ${th('c_pct_30d', 'Chronos (30D)')}
+            ${th('g_pct_30d', 'GRU (30D)')}
+            ${th('c_err_30d', 'Chronos Acc')}
+            ${th('g_err_30d', 'GRU Acc')}
+            ${th('samp_ent_30d', 'Sample Entropy')}
+            ${th('hurst_30d', 'Hurst Exponent')}
+            ${th('cv_30d', 'Volatility (CV)')}
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted_data.map(d => `
+            <tr class="card-row" data-cardname="${d.cardname.replace(/"/g, '&quot;')}" data-price="${d.current_price || 0}">
+              <td class="sticky-card-col"><div style="display: flex; align-items: center; gap: 15px; min-width: 250px;"><img src="${d.image_path}" style="width: 70px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);"><span style="font-weight: 600; white-space: normal;">${d.cardname}</span></div></td>
+              <td style="color: var(--accent-yellow); font-weight: 700; font-size: 15px;">${d.current_price ? '$' + d.current_price.toFixed(2) : 'N/A'}</td>
+              <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td><td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
+              <td>${formatErr(d.c_err_30d)}</td><td>${formatErr(d.g_err_30d)}</td>
+              <td style="color:var(--text-muted);">${d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A'}</td>
+              <td style="color:var(--text-muted);">${d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A'}</td>
+              <td style="color:var(--text-muted);">${d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  search_input.addEventListener("input", renderTable);
+  set_select.addEventListener("change", renderTable);
+  rarity_select.addEventListener("change", renderTable);
+  container.addEventListener("do_sort", (e) => {
+    if(current_sort === e.detail) { is_asc = !is_asc; } 
+    else { current_sort = e.detail; is_asc = current_sort === 'cardname' ? true : false; }
+    renderTable();
+  });
+
+  container.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.card-row");
+    if(tr && tr.dataset.cardname) {
+      const cardname = tr.dataset.cardname; const price = parseFloat(tr.dataset.price);
+      const card_info = raw_data.find(d => d.cardname === cardname);
+      const img_src = card_info ? card_info.image_path : '';
+      const full_c_hist = all_hist.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
+      const full_c_fcst = all_fcst.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
+      const c_hist = full_c_hist.filter(d => d.date >= t_ago && d.date <= t_fut);
+      const c_fcst = full_c_fcst.filter(d => d.date >= t_ago && d.date <= t_fut);
+
+      const c_val_obj = c_fcst.filter(d => d.model === "Chronos" && !d.is_shadow).slice(-1)[0];
+      const g_val_obj = c_fcst.filter(d => d.model === "GRU" && !d.is_shadow).slice(-1)[0];
+      const c_val = c_val_obj ? c_val_obj.price : null; const g_val = g_val_obj ? g_val_obj.price : null;
+      const c_text = c_val ? "$" + c_val.toFixed(2) : "N/A"; const g_text = g_val ? "$" + g_val.toFixed(2) : "N/A";
+
+      document.getElementById('modal-header').innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-right: 30px;">
+          <div style="display: flex; align-items: center; gap: 20px;">
+            <img src="${img_src}" style="height: 220px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+            <div><div style="font-size: 24px; font-weight: 800; color: var(--text-main); margin-bottom: 5px;">${cardname}</div><div style="font-size: 16px; color: var(--text-muted);">Current Price: <span style="font-weight:700; color:var(--accent-yellow); font-size:18px;">$${price.toFixed(2)}</span></div></div>
+          </div>
+          <div style="font-size: 14px; background: var(--bg-base); padding: 12px 20px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+            <div style="margin-bottom:4px;"><span style='color: var(--text-muted); text-transform: uppercase; font-size: 12px; letter-spacing:0.5px;'>Chronos 30-Day:</span> <span style='color: var(--accent-yellow); font-weight: 700; margin-left:8px; font-size:16px;'>${c_text}</span></div>
+            <div><span style='color: var(--text-muted); text-transform: uppercase; font-size: 12px; letter-spacing:0.5px;'>GRU 30-Day:</span> <span style='color: var(--accent-cyan); font-weight: 700; margin-left:26px; font-size:16px;'>${g_text}</span></div>
+          </div>
+        </div>
+      `;
+
+      const last_m_pt = c_hist.length > 0 ? c_hist[c_hist.length - 1] : null;
+      const link_m_c = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "Chronos", conf_low: last_m_pt.price, conf_high: last_m_pt.price } : null;
+      const link_m_g = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "GRU" } : null;
+      const live_c = c_fcst.filter(d => d.model === "Chronos" && !d.is_shadow);
+      const live_g = c_fcst.filter(d => d.model === "GRU" && !d.is_shadow);
+      const shadow = c_fcst.filter(d => d.is_shadow);
+
+      const live_c_conn = link_m_c ? [link_m_c, ...live_c] : live_c;
+      const live_g_conn = link_m_g ? [link_m_g, ...live_g] : live_g;
+
+      const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'History', line: {color: '#f8fafc', width: 3}, hovertemplate: 'Price: $%{y:.2f}<extra></extra>' };
+      const trace_c = { x: live_c_conn.map(d => d.date), y: live_c_conn.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
+      const trace_g = { x: live_g_conn.map(d => d.date), y: live_g_conn.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
+      
+      const shadow_traces = Array.from(new Set(shadow.map(d => d.run_id))).map(rid => {
+        const run_data = shadow.filter(d => d.run_id === rid);
+        if(run_data.length === 0) return null;
+        return { x: run_data.map(d => d.date), y: run_data.map(d => d.price), mode: 'lines', line: {color: run_data[0].model === 'Chronos' ? '#fbbf24' : '#22d3ee', width: 1}, opacity: 0.15, showlegend: false, hoverinfo: 'skip' };
+      }).filter(d => d !== null);
+
+      const layout_graph = {
+        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
+        xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d, %Y' },
+        yaxis: { title: 'Market Price', gridcolor: '#334155', linecolor: '#334155', tickprefix: '$', nticks: 6 },
+        margin: { l: 60, r: 20, t: 20, b: 40 }, hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
+        showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }
+      };
+
+      const build_error = (model_name, fcst_data, hist_data) => {
+         const shadow_data = fcst_data.filter(d => d.model === model_name && d.is_shadow);
+         const runs = [...new Set(shadow_data.map(d => d.run_id))];
+         let error_records = [];
+         runs.forEach(rid => {
+            let run_pts = shadow_data.filter(d => d.run_id === rid).sort((a,b) => a.date - b.date);
+            if(run_pts.length === 0) return;
+            let first_date = run_pts[0].date.getTime();
+            let anchor_pt = hist_data.filter(h => h.date.getTime() < first_date).sort((a,b) => b.date - a.date)[0];
+            let anchor_price = anchor_pt ? anchor_pt.price : null;
+            run_pts.forEach((pt, idx) => {
+               let actual_pt = hist_data.find(h => h.date.getTime() === pt.date.getTime());
+               if(actual_pt && anchor_price > 0 && actual_pt.price > 0) {
+                  error_records.push({ horizon: idx + 1, ape: Math.abs(pt.price - actual_pt.price) / actual_pt.price, naive_ape: Math.abs(anchor_price - actual_pt.price) / actual_pt.price });
+               }
+            });
+         });
+         let agg = [];
+         for(let h=1; h<=30; h++) {
+            let h_recs = error_records.filter(r => r.horizon === h);
+            if(h_recs.length > 0) {
+               let apes = h_recs.map(r => r.ape).sort((a,b)=>a-b);
+               let naives = h_recs.map(r => r.naive_ape).sort((a,b)=>a-b);
+               let mdape = apes.length % 2 !== 0 ? apes[Math.floor(apes.length/2)] : (apes[Math.floor(apes.length/2)-1] + apes[Math.floor(apes.length/2)])/2;
+               let n_mdape = naives.length % 2 !== 0 ? naives[Math.floor(naives.length/2)] : (naives[Math.floor(naives.length/2)-1] + naives[Math.floor(naives.length/2)])/2;
+               agg.push({ horizon: h, mdape: mdape, min: apes[0], max: apes[apes.length-1], naive: n_mdape, n: h_recs.length });
+            }
+         }
+         return agg;
+      };
+
+      let err_c = build_error("Chronos", full_c_fcst, full_c_hist);
+      let err_g = build_error("GRU", full_c_fcst, full_c_hist);
+
+      const trace_base = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive), type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', name: 'Naive Market Baseline', yaxis: 'y2', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' };
+      const trace_err_c = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos Error', marker: {color: '#fbbf24'}, customdata: err_c.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>Chronos: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
+      const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Error', marker: {color: '#22d3ee'}, customdata: err_g.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
+
+      const layout_err = {
+        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
+        xaxis: { title: 'Days into the Future (Horizon)', gridcolor: '#334155', linecolor: '#334155', tickvals: [1,5,10,15,20,25,30], hoverformat: 'Day %{x}' },
+        yaxis: { title: 'Median % Error', gridcolor: '#334155', linecolor: '#334155', tickformat: '.0%', rangemode: 'tozero' },
+        yaxis2: { overlaying: 'y', matches: 'y', visible: false, layer: 'below traces' },
+        margin: { l: 60, r: 20, t: 10, b: 50 }, barmode: 'group', hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 13, family:'Inter' } },
+        showlegend: true, legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }
+      };
+
+      modal.style.display = "flex";
+      const target_graph = document.getElementById('modal-graph-target');
+      const target_err = document.getElementById('modal-error-target');
+      target_graph.innerHTML = ''; target_err.innerHTML = '';
+
+      Plotly.newPlot(target_graph, [...shadow_traces, trace_hist, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
+      
+      if(err_c.length === 0 && err_g.length === 0) {
+         target_err.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding-top: 50px;">Not enough historical backtesting data to calculate error yet. Model needs at least one full evaluation cycle.</div>';
+      } else {
+         Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g], layout_err, {responsive: true, displayModeBar: false});
+      }
+    }
+  });
+
+  renderTable();
+  return page_wrapper; 
+}
+```
+
+# Long-term Trends
+
+## Sidebar {.sidebar}
+```{ojs}
+safe_default_card = Array.isArray(ojs_default_card) ? ojs_default_card[0] : ojs_default_card;
+
+viewof selected_card = Inputs.select(ojs_cards, { value: safe_default_card, label: "Select a Card:" })
+viewof show_ci = Inputs.toggle({label: "Show Confidence Interval", value: false})
+```
+
+```{ojs}
+//| output: false
+my_hist = transpose(ojs_hist).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date) })).sort((a, b) => a.date - b.date)
+my_fcst = transpose(ojs_forecast).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date) })).sort((a, b) => a.date - b.date)
+live_fcst = my_fcst.filter(d => d.is_shadow === false)
+my_info = transpose(ojs_info).find(d => d.cardname === selected_card) || {}
+current_price = my_hist.length > 0 ? my_hist[my_hist.length - 1].price : 0
+
+last_hist_pt = my_hist.length > 0 ? my_hist[my_hist.length - 1] : null;
+link_c = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "Chronos", conf_low: last_hist_pt.price, conf_high: last_hist_pt.price } : null;
+link_g = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "GRU" } : null;
+live_fcst_conn = [...(link_c ? [link_c] : []), ...(link_g ? [link_g] : []), ...live_fcst];
+```
+
+```{ojs}
+html`
+<div style="background: var(--bg-card); border-radius: 12px; padding: 18px; border: 1px solid var(--border-subtle); text-align: center; margin-top: 15px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);">
+  <img src="${my_info.image_path}" style="width:100%; max-width: 250px; border-radius:8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); margin-bottom: 15px;">
+  <div style="font-size:14px; font-weight: 600; color:var(--text-main); margin-bottom: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">${my_info.cardname}</div>
+  <div style="font-size: 26px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 15px;">$${current_price.toFixed(2)}</div>
+  
+  <div style="font-size: 13px; font-weight: 700; color: var(--accent-blue); margin-top: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px; text-align: left; text-transform: uppercase; letter-spacing: 0.5px;">30-Day Risk Metrics</div>
+  <div style="font-size: 13px; color: var(--text-main); line-height: 1.8; padding-top: 8px; text-align: left;">
+    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Entropy: </span> <span style="font-family: monospace;">${my_info.samp_ent_30d ? my_info.samp_ent_30d.toFixed(3) : "N/A"}</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Hurst Exp: </span> <span style="font-family: monospace;">${my_info.hurst_30d ? my_info.hurst_30d.toFixed(3) : "N/A"}</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Vol (CV): </span> <span style="font-family: monospace;">${my_info.cv_30d ? my_info.cv_30d.toFixed(3) : "N/A"}</span></div>
+    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Skew: </span> <span style="font-family: monospace;">${my_info.skewness_30d ? my_info.skewness_30d.toFixed(3) : "N/A"}</span></div>
+  </div>
+</div>
+`
+```
+
+## Column
+
+```{ojs}
+//| title: "Macro View: All-Time History & Long Term Forecast"
+Plot.plot({
+  height: 450,
+  style: { background: "var(--bg-card)", color: "var(--text-main)", fontFamily: "Inter", fontSize: "14px", borderRadius: "12px", padding: "10px" },
+  marginLeft: 75, marginRight: 40, marginTop: 20, marginBottom: 40, grid: true,
+  x: { type: "time", label: "Date" },
+  y: { tickFormat: "$.2f", label: "Market Price", ticks: 6 },
+  color: { domain: ["Chronos", "GRU"], range: ["#fbbf24", "#22d3ee"] },
+  marks: [
+    show_ci ? Plot.areaY(live_fcst_conn.filter(d => d.model === "Chronos"), { x: "date", y1: "conf_low", y2: "conf_high", fill: "#fbbf24", fillOpacity: 0.15 }) : null,
+    Plot.lineY(live_fcst_conn, { x: "date", y: "price", stroke: "model", strokeWidth: 2.5, strokeDasharray: d => d.model === "Chronos" ? "4 4" : "2 2", tip: true }),
+    Plot.lineY(my_hist, { x: "date", y: "price", stroke: "#f8fafc", strokeWidth: 2.5, tip: true }),
+    Plot.dot(my_hist, Plot.selectLast({ x: "date", y: "price", fill: "#f8fafc", r: 5 }))
+  ]
+})
+```
+
+# eBay Listings
+
+## Sidebar {.sidebar}
+
+```{ojs}
+viewof card_search = Inputs.text({label: "🔍 Search Card:", placeholder: "Type to find..."})
+```
+
+```{ojs}
+//| output: false
+filtered_cards_options = {
+  const query = card_search.toLowerCase();
+  const matches = ojs_cards.filter(c => c.toLowerCase().includes(query));
+  return matches.length > 0 ? matches : [safe_default_card];
+}
+
+available_grades = {
+  let subset = transpose(ojs_ebay).filter(d => d.cardname === ebay_selected_card);
+  if (ebay_selected_company !== "All") subset = subset.filter(d => d.grading_company === ebay_selected_company);
+  return [...new Set(subset.map(d => d.grade_val ? d.grade_val.toString() : "Raw"))].sort();
+}
+
+ebay_card_info = transpose(ojs_info).find(d => d.cardname === ebay_selected_card) || null
+```
+
+```{ojs}
+viewof ebay_selected_card = Inputs.select(filtered_cards_options, {
+  label: "Select Card:", 
+  value: filtered_cards_options.includes(safe_default_card) ? safe_default_card : filtered_cards_options[0]
+})
+
+viewof ebay_selected_company = Inputs.select(["All", "PSA", "BGS", "CGC", "SGC", "Raw"], {label: "Grading Company", value: "All"})
+
+viewof ebay_selected_grades = Inputs.checkbox(available_grades, {label: "Select Grades:", value: available_grades})
+
+html`
+${(ebay_card_info) ? 
+  `<div style="text-align: center; margin-top: 25px; padding-top: 15px; border-top: 1px solid var(--border-subtle);">
+    <img src="${ebay_card_info.image_path}" style="width: 100%; max-width: 200px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+   </div>` 
+  : ''
+}
+`
+```
+
+## Column
+::: {.callout-note appearance="minimal" icon="false"}
+## 🔍 eBay Market Explorer
+**Buy It Now** listings represent fixed-price market inventory (with daily medians), while **Auctions** are grouped by `item_id` to show exactly how bidding wars evolve over time. Use the interactive legend below the charts to toggle specific grades on or off!
+:::
+
+```{ojs}
+//| title: "Interactive Listing Tracker"
+//| padding: 0px
+
+// 1. Data Preparation & Label Generation
+raw_ebay = transpose(ojs_ebay).map(d => {
+  let grade = d.grade_val || "Raw";
+  let comp = d.grading_company || "Raw";
+  let label = comp === 'Raw' ? 'Raw' : `${comp} ${grade}`;
+  return {
+    ...d,
+    clean_price: +d.price_val,
+    label: label,
+    hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+  };
+}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0)
+
+// 2. Apply Filters
+filtered_ebay = raw_ebay.filter(d => 
+  (d.cardname === ebay_selected_card) &&
+  (ebay_selected_company === "All" || d.grading_company === ebay_selected_company) &&
+  (ebay_selected_grades.includes(d.grade_val || "Raw"))
+)
+
+// 3. Dynamic Color Mapping
+unique_labels = [...new Set(filtered_ebay.map(d => d.label))].sort()
+color_palette = ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa', '#f472b6', '#2dd4bf', '#a3e635']
+
+color_map = {
+  let local_map = {};
+  unique_labels.forEach((lbl, i) => {
+    local_map[lbl] = color_palette[i % color_palette.length];
+  });
+  return local_map;
+}
+
+// ==========================================
+// --- BUY IT NOW PLOT ---
+// ==========================================
+bin_plot_node = {
+  const div = document.createElement("div");
+  div.style.height = "450px"; 
+  div.style.marginBottom = "20px";
+  
+  const bin_data = filtered_ebay.filter(d => d.type_simple === "Buy It Now");
+  
+  if(bin_data.length === 0) {
+    div.innerHTML = "<div style='padding:50px; text-align:center; color:#94a3b8; background:transparent; border-radius:12px;'>No Buy It Now data available for your current filters.</div>";
+    return div;
+  }
+  
+  let traces = [];
+  unique_labels.forEach(lbl => {
+    let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
+    if(subset.length === 0) return;
+    
+    traces.push({
+      x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price),
+      mode: 'markers', name: lbl, legendgroup: lbl,
+      marker: {color: color_map[lbl], size: 6, opacity: 0.4, line: {width: 1, color: '#0f172a'}},
+      text: subset.map(d => d.hover_text), hoverinfo: 'text'
+    });
+    
+    let grouped = {};
+    subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
+    let meds = Object.keys(grouped).map(date => {
+      let prices = grouped[date].sort((a,b)=>a-b);
+      let mid = Math.floor(prices.length/2);
+      let med = prices.length%2!==0 ? prices[mid] : (prices[mid-1]+prices[mid])/2;
+      return {date: date, med: med};
+    }).sort((a,b) => new Date(a.date) - new Date(b.date));
+    
+    traces.push({
+      x: meds.map(d => d.date), y: meds.map(d => d.med),
+      mode: 'lines', name: lbl + ' Median', legendgroup: lbl, showlegend: false,
+      line: {color: color_map[lbl], width: 4}, hoverinfo: 'skip'
+    });
+  });
+  
+  Plotly.newPlot(div, traces, {
+     title: {text: 'Buy It Now: Daily Medians & Active Inventory', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
+     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
+     xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
+     yaxis: {gridcolor: '#334155', tickprefix: '$'},
+     margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest',
+     legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+  }, {responsive: true, displayModeBar: false});
+  
+  return div;
+}
+
+// ==========================================
+// --- AUCTION TRAJECTORY PLOT ---
+// ==========================================
+auc_plot_node = {
+  const div = document.createElement("div");
+  div.style.height = "450px";
+  
+  const auc_data = filtered_ebay.filter(d => d.type_simple === "Auction");
+  
+  if(auc_data.length === 0) {
+    div.innerHTML = "<div style='padding:50px; text-align:center; color:#94a3b8; background:transparent; border-radius:12px;'>No active Auctions available for your current filters.</div>";
+    return div;
+  }
+  
+  let traces = [];
+  unique_labels.forEach(lbl => {
+    let subset = auc_data.filter(d => d.label === lbl);
+    if(subset.length === 0) return;
+    
+    let item_ids = [...new Set(subset.map(d => d.item_id))];
+    
+    item_ids.forEach((iid, idx) => {
+       let item_data = subset.filter(d => d.item_id === iid).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
+       traces.push({
+         x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price),
+         mode: 'lines+markers', name: lbl, legendgroup: lbl, 
+         showlegend: idx === 0, 
+         line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]},
+         text: item_data.map(d => d.hover_text), hoverinfo: 'text'
+       });
+    });
+  });
+  
+  Plotly.newPlot(div, traces, {
+     title: {text: 'Auction Trajectories (Grouped by Listing ID)', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
+     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
+     xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
+     yaxis: {gridcolor: '#334155', tickprefix: '$'},
+     margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest',
+     legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+  }, {responsive: true, displayModeBar: false});
+  
+  return div;
+}
+```
+
+```{ojs}
+// Debugger to verify the data bridge is working
+html`<div style="text-align: right; padding: 10px 20px; font-size: 12px; color: var(--text-muted);">
+  <b>Data Diagnostics:</b> ${raw_ebay.length} total valid eBay listings loaded into dashboard. Currently displaying ${filtered_ebay.length}.
+</div>`
+```
+
+# Dashboard Guide & FAQ {orientation="columns"}
+
+## Column {width="50%"}
+
+### 🃏 The Market & The Data
+
+**What exactly is Lorecaster predicting?**
+Lorecaster predicts the future secondary market prices of high-end, ungraded Disney Lorcana trading cards (specifically Epic, Legendary, and Enchanted rarities). 
+
+**Why only high-rarity cards?**
+Lorcana is both a collectible and a playable game. Lower-rarity cards fluctuate wildly based on what is currently winning tournaments (the "meta"). High-rarity cards are driven much more by collector demand, special artwork, and beloved characters, making their long-term trajectories a different beast to forecast. 
+
+**Why doesn't this track graded cards (PSA 9, PSA 10)?**
+Graded cards—cards certified for their condition by third-party companies—sell for massive premiums. The market for a PSA 10 is fundamentally different and much more volatile than the raw market. Consistent daily pricing data for graded Lorcana cards is currently too sparse to model accurately. 
+
+**Where does the data come from?**
+Pricing data is aggregated daily. We monitor eBay, which is the premier marketplace for high-end TCGs. We use a local LLM (Google Gemma) to actively clean and validate granular eBay listing data, helping us filter out seller typos, fake listings, or wildly unrealistic prices so the models only see real market signals.
+
+### 🧠 How the AI Works
+
+**How does the forecast actually get generated?**
+Lorecaster uses a multi-model ensemble approach to handle the chaos of the secondary market:
+* **The Hybrid GRU:** A custom-built PyTorch architecture that looks at two things at once: a card's historical price movements and its static DNA (like its ink color or rarity). By combining these, the model learns that an "Enchanted" card behaves very differently than a standard "Rare" card. 
+* **Chronos (by Amazon):** A foundation model that treats time-series data like a language problem. Just like ChatGPT guesses the next word in a sentence, Chronos looks at the shape of a price chart and guesses the next "token" (price) in the sequence. 
+
+**What is the "Attention Mechanism"?**
+Not all days in a market are equal. Instead of looking at the last 30 days as a flat average, our GRU model uses an "Attention" layer. This allows the AI to prioritize sudden price shocks or major market shifts, ignoring quiet days and focusing heavily on the specific events that triggered a trend change.
+
+**How often does the AI learn?**
+The dashboard updates with fresh prices and new 30-day forecasts every single morning. Behind the scenes, the PyTorch AI models are fully retrained from scratch once a week via GitHub Actions to ensure they adapt to new card sets and shifting market regimes.
+
+## Column {width="50%"}
+
+### 📊 Glossary: Advanced Risk Metrics
+
+If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts** table, you will see several advanced metrics. Here is how to interpret them for trading/collecting:
+
+**Sample Entropy (Unpredictability)**
+* *What it means:* Measures how chaotic or random a card's daily price movement is. 
+* *How to read it:* A low number means the card's price moves in smooth, predictable patterns. A high number means the price is jittery, random, and highly susceptible to unpredictable daily swings.
+
+**Hurst Exponent (Momentum vs. Reversion)**
+* *What it means:* Tells us if a card is currently riding a consistent wave or if it's stuck in a rut.
+* *How to read it:* * **Near 0.5:** The price is wandering randomly (Geometric Brownian Motion).
+    * **Above 0.5:** The card has *Momentum*. If it's trending up, it will likely keep going up. 
+    * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up suddenly, it will likely snap back down soon.
+
+**Volatility / CV (Risk Profile)**
+* *What it means:* The Coefficient of Variation measures how wide the price swings are relative to the card's total underlying value.
+* *How to read it:* Higher percentage = higher risk. A $200 card that fluctuates by $5 a day has low volatility. A $10 card that fluctuates by $5 a day has massive volatility. 
+
+**Skewness (Spike Potential)**
+* *What it means:* Measures the asymmetry of price surprises. 
+* *How to read it:* A positive number means the card occasionally experiences massive price *spikes* upwards. A negative number means the card is prone to sudden, steep *crashes*.
+
+**30-Day Forecast Error (MdAPE)**
+* *What it means:* "Median Absolute Percentage Error." This is our model's backtested report card. 
+* *How to read it:* We force the AI to predict prices for historical dates it already knows, and then grade its accuracy. If the Chronos Acc says `±5.2%`, it means that historically, the Chronos model's 30-day forecast for this specific card is reliably within 5.2% of the actual outcome.
+
+# Support the Project!
+<div class="support-card">
+  <h2 style="color: var(--accent-blue); font-weight: 800; margin-bottom: 20px;">Keep Lorecaster Running</h2>
+  
+  <p style="font-size: 16px; color: var(--text-main); line-height: 1.6; margin-bottom: 15px;">
+    Hey there! I built Lorecaster to provide the Lorcana community with free, advanced AI market intelligence. 
+  </p>
+  
+  <p style="font-size: 16px; color: var(--text-main); line-height: 1.6; margin-bottom: 25px;">
+    While the dashboard is free to use, running the serverless Neon PostgreSQL databases, orchestrating the daily data pipelines and training the PyTorch AI models all require paid cloud resources.
+  </p>
+
+  <p style="font-size: 16px; color: var(--text-muted); line-height: 1.6; margin-bottom: 30px;">
+    Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
+  </p>
+
+<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+  ☕ Support Lorecaster on Ko-fi
+</a>
+</div>
