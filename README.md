@@ -164,11 +164,6 @@ To bridge the gap between academic model evaluation and real-world deployment, t
 * **Model Divergence:** Tracking how wildly the Hybrid GRU and Chronos predictions differ from one another.
 * **Data Integrity:** Monitoring the "Match" rate coming out of Gemma. A sudden drop usually means eBay listing patterns or seller jargon have changed, requiring prompt adjustments.
 * **Outlier Detection:** Flagging cards where price predictions diverge significantly from the actual market, usually highlighting a data flaw or an unpredictable market buyout.
-
-*(Monitoring Dashboards Preview)*
-<img width="1248" height="563" alt="Monitoring Metrics" src="https://github.com/user-attachments/assets/f9ffa787-2569-4384-b1ed-ea32fc89f124" />
-<img width="233" height="591" alt="Match Rate Health" src="https://github.com/user-attachments/assets/3a23b88b-fd81-4097-84d9-a05169388301" />
-
 ---
 
 ## Project Roadmap & To-Dos
