@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
   <img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/Quarto-4B9EAA?style=for-the-badge&logo=quarto&logoColor=white" alt="Quarto" />
   <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
 </p>
 
@@ -15,6 +15,7 @@
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/5890e5b9-3c4a-43de-b9ef-a480722ce660)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
+
 
 ---
 
@@ -82,9 +83,31 @@ Listing prices on eBay can act as a strong indicator of future market prices whe
 
 ## Data Pipeline & Ecosystem
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/bff3f837-54a6-414b-abf2-ac27c10327f8"  alt="Lorcana Workflow Diagram" style="max-width: 100%; height: auto;" />
-</p>
+```mermaid
+graph LR
+    %% Define Nodes
+    A([eBay])
+    B([JustTCG])
+    C[Downloads via<br>GitHub Actions]
+    D[(NEONdb for storage)]
+    E[Macbook runner via<br>GitHub Actions: runs MLOps<br>and saves ML data]
+    F[Lorecaster.ink<br>Quarto Document via GitHub Actions<br>pulls data and renders<br>static HTML dashboard daily]
+
+    %% Define Connections
+    A --> C
+    B --> C
+    C --> D
+    D <--> E
+    D --> F
+
+    %% Styling to loosely match your original blueprint
+    style A fill:#0f5b78,stroke:#002b3d,stroke-width:2px,color:#fff
+    style B fill:#0f5b78,stroke:#002b3d,stroke-width:2px,color:#fff
+    style C fill:#166a8f,stroke:#002b3d,stroke-width:2px,color:#fff,rx:10,ry:10
+    style D fill:#166a8f,stroke:#002b3d,stroke-width:2px,color:#fff
+    style E fill:#166a8f,stroke:#002b3d,stroke-width:2px,color:#fff,rx:10,ry:10
+    style F fill:#166a8f,stroke:#002b3d,stroke-width:2px,color:#fff,rx:10,ry:10
+```
 
 1. **Sourcing (Cloud):** GitHub Actions (Ubuntu-latest) runs a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to a **Neon (PostgreSQL)** database.
 2. **AI Cleaning (Local MacBook Runner):** After the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
