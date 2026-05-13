@@ -6,7 +6,6 @@
   <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
   <img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/DigitalOcean-0080FF?style=for-the-badge&logo=digitalocean&logoColor=white" alt="DigitalOcean" />
   <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
 </p>
 
@@ -98,8 +97,7 @@ Listing prices on eBay can act as a strong indicator of future market prices whe
     * **Incremental Processing:** To save on compute time, a "Delta-only" approach cross-references new `item_ids` against existing metadata. Each listing only goes through the AI extraction process once.
 3. **Preprocessing:** Data is preprocessed primarily in **R** to filter out items unsuitable for the deep learning process and to remove problematic data structures.
 4. **Forecasting:** Managed via **PyTorch** (detailed in the [Forecasting Models](#forecasting-models) section below).
-5. **Deployment (Shiny App):** Forecasts and market metrics are presented via the Lorecaster ShinyApp dashboard. The app is containerized via Docker and hosted on a **DigitalOcean Droplet**.
-
+5. **Deployment (Quarto):** Forecasts and market metrics are presented via the Lorecaster dashboard, an html page updated daily to show the latest pricing, forecasts, and ebay data. 
 ---
 
 ## Forecasting Models
@@ -151,7 +149,9 @@ To bridge the gap between academic model evaluation and real-world deployment, t
 ---
 
 ## Project Roadmap & To-Dos
-- [ ] **Fix System Graph:** Update the workflow diagram to reflect the Shiny App currently being hosted on DigitalOcean.
 - [ ] **Blue Chip Index:** Develop a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
-- [ ] **eBay Data Integration:** Expand on the collection of eBay API item listing data to directly incorporate it into the models for Ungraded cards. 
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
+
+## Project changelog (significant change logs)
+- I have removed the digitial ocean/docker approach as I realized that an html page could better support web traffic but also show daily data and market changes
+- The shiny app code is still available in the repo but is not being actively used and is out-of-date
