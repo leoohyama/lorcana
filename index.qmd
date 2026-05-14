@@ -45,7 +45,7 @@ chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pr
 gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions")
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 
-# --- Fetch NEW eBay Data using SQL Join to save RAM ---
+# Fetch eBay Data
 ebay_query <- "
   SELECT 
     a.item_id, a.price_val, a.listing_type, a.date_pulled,
@@ -76,7 +76,7 @@ if(nrow(momentum) > 0) {
   movers <- data.frame()
 }
 
-# --- Process Forecasts for Plotting ---
+# --- Process Forecasts ---
 max_c_run <- if(nrow(chronos_pred) > 0) max(chronos_pred$run_id, na.rm=TRUE) else 0
 max_g_run <- if(nrow(gru_pred) > 0) max(gru_pred$run_id, na.rm=TRUE) else 0
 
@@ -91,9 +91,10 @@ hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% selec
 if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
 unified <- master_dict %>% 
   left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>%
-  left_join(metrics_df, by="tcgplayer_id")
+  left_join(metrics_df, by="tcgplayer_id") %>%
+  mutate(is_index = FALSE) # Prep for Future Index functionality
 
-# --- Process NEW eBay Listings Data ---
+# --- Process eBay Listings ---
 if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- raw_ebay_sql %>%
     mutate(id = as.character(id)) %>%
@@ -110,40 +111,29 @@ if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character())
 }
 
-# --- Find the Most Expensive Card ---
-top_card <- unified %>% 
-  drop_na(current_price) %>% 
-  arrange(desc(current_price)) %>% 
-  slice(1) %>% 
-  pull(cardname)
-
+# --- Find Default Card ---
+top_card <- unified %>% drop_na(current_price) %>% arrange(desc(current_price)) %>% slice(1) %>% pull(cardname)
 if(length(top_card) == 0) top_card <- "Stitch - Carefree Surfer - Enchanted"
 
 # Transfer to JavaScript
 ojs_define(
-  ojs_movers = movers,
-  ojs_hist = hist_flat,
-  ojs_forecast = forecast_flat,
-  ojs_info = unified,
-  ojs_ebay = ebay_master,
-  ojs_cards = sort(unique(master_dict$cardname)),
-  ojs_default_card = top_card
+  ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, 
+  ojs_info = unified, ojs_ebay = ebay_master,
+  ojs_cards = sort(unique(master_dict$cardname)), ojs_default_card = top_card
 )
 ```
 
 ```{=html}
 <style>
-  @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap)');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
   :root {
     --bg-base: #0f172a;       
     --bg-card: #1e293b;       
     --bg-hover: #334155;      
     --border-subtle: #475569; 
-    
     --text-main: #f8fafc;     
     --text-muted: #94a3b8;    
-    
     --accent-blue: #38bdf8;   
     --accent-cyan: #22d3ee;   
     --accent-yellow: #fbbf24; 
@@ -151,21 +141,9 @@ ojs_define(
     --accent-green: #34d399;  
   }
 
-  body, .dashboard-container, text, th, td, div {
-    font-family: 'Inter', sans-serif !important;
-  }
+  body, .dashboard-container, text, th, td, div { font-family: 'Inter', sans-serif !important; }
 
-  .momentum-box { 
-    background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); 
-    border-left: 5px solid var(--accent-blue); 
-    padding: 18px 22px; 
-    border-radius: 12px; 
-    margin-bottom: 25px; 
-    color: var(--text-main); 
-    font-size: 15px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-  }
-  
+  .momentum-box { background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-left: 5px solid var(--accent-blue); padding: 18px 22px; border-radius: 12px; margin-bottom: 25px; color: var(--text-main); font-size: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
   .green-text { color: var(--accent-green); font-weight: 700; }
   .red-text { color: var(--accent-red); font-weight: 700; }
   
@@ -192,27 +170,18 @@ ojs_define(
   .hover-table th.sticky-card-col, .hover-table td.sticky-card-col { position: sticky; left: 0; z-index: 5; background-color: inherit; border-right: 1px solid var(--border-subtle); box-shadow: 4px 0 8px rgba(0,0,0,0.2); }
   .hover-table thead th.sticky-card-col { z-index: 15; background-color: var(--bg-card); }
   
-  /* Modal Overlay - FIXED FLEXBOX OVERFLOW BUG */
-  .modal-overlay { 
-    display: none; position: fixed; z-index: 9999; left: 0; top: 0; 
-    width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); 
-    backdrop-filter: blur(4px); overflow-y: auto; padding: 4vh 20px; box-sizing: border-box;
-  }
-  .modal-content { 
-    background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; 
-    width: 100%; max-width: 1200px; padding: 24px; position: relative; margin: 0 auto; 
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); 
-  }
+  /* Modal Overlay */
+  .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); overflow-y: auto; padding: 4vh 20px; box-sizing: border-box; }
+  .modal-content { background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; width: 100%; max-width: 1200px; padding: 24px; position: relative; margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
   .close-btn { color: var(--text-muted); position: absolute; top: 12px; right: 24px; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99; }
   .close-btn:hover { color: var(--accent-red); }
 
-  /* 📱 MOBILE RESPONSIVENESS TWEAKS 📱 */
+  /* 📱 RESPONSIVENESS TWEAKS 📱 */
   @media (max-width: 768px) {
     .flip-card-wrapper { width: 100% !important; margin: 15px 0 !important; padding: 0 10px; box-sizing: border-box; }
     .momentum-box { font-size: 13px !important; padding: 12px !important; }
     .modal-content { padding: 15px !important; border-radius: 8px !important; }
-    
-    /* Make the modal header stack nicely instead of squishing */
+    .hide-on-mobile { display: none !important; } 
     #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
     #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
     #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
@@ -236,33 +205,27 @@ movers_data = transpose(ojs_movers)
 
 ```{ojs}
 market_overview_node = {
-  const top_div = document.createElement("div");
-  top_div.style.width = "100%";
-  top_div.style.maxWidth = "1200px";
-  top_div.style.margin = "0 auto";
-  
-  const container = document.createElement("div");
-  container.style.display = "flex";
-  container.style.justifyContent = "space-around";
-  container.style.background = "var(--bg-card)";
-  container.style.padding = "25px 10px";
-  container.style.borderRadius = "12px";
-  container.style.flexWrap = "wrap";
-  container.style.boxShadow = "0 4px 6px -1px rgba(0,0,0,0.3)";
-  
   if (movers_data.length === 0) {
-    container.innerHTML = "<div style='color:var(--text-muted);'>Not enough recent market movement to calculate momentum.</div>";
-  } else {
-    const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
+    return html`<div style='color:var(--text-muted); text-align:center; width:100%;'>Not enough recent market movement to calculate momentum.</div>`;
+  } 
+
+  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })); // Timezone Fix
+  
+  const container = html`
+    <div style="width: 100%; max-width: 1200px; margin: 0 auto;">
+      <div id="cards-flex" style="display: flex; justify-content: space-around; background: var(--bg-card); padding: 25px 10px; border-radius: 12px; flex-wrap: wrap; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);">
+      </div>
+    </div>
+  `;
+
+  const flex_target = container.querySelector('#cards-flex');
+
+  movers_data.forEach(row => {
+    let p_c = row.pct >= 0 ? "green-text" : "red-text";
+    let sign = row.abs >= 0 ? "+" : "";
     
-    movers_data.forEach(row => {
-      let p_c = row.pct >= 0 ? "green-text" : "red-text";
-      let sign = row.abs >= 0 ? "+" : "";
-      
-      const wrapper = document.createElement("div");
-      wrapper.className = "flip-card-wrapper";
-      
-      wrapper.innerHTML = `
+    const wrapper = html`
+      <div class="flip-card-wrapper">
         <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');">
           <div class="flip-card-inner">
             <div class="flip-card-front" style="background-color: var(--bg-base); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
@@ -280,32 +243,29 @@ market_overview_node = {
             </div>
           </div>
         </div>
-      `;
-      
-      const card_hist = all_hist
-         .filter(d => d.cardname === row.cardname)
-         .filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
-         .sort((a, b) => a.date - b.date); 
-         
-      const sparkline = Plot.plot({
-        height: 120,
-        width: 220,
-        style: { background: "transparent", fontFamily: "Inter" },
-        x: { axis: null },
-        y: { axis: null },
-        marks: [
-          Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}),
-          Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 })
-        ]
-      });
-
-      wrapper.querySelector(`#back-${row.tcgplayer_id}`).appendChild(sparkline);
-      container.appendChild(wrapper);
+      </div>
+    `;
+    
+    const card_hist = all_hist
+       .filter(d => d.cardname === row.cardname)
+       .filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+       .sort((a, b) => a.date - b.date); 
+       
+    const sparkline = Plot.plot({
+      height: 120, width: 220,
+      style: { background: "transparent", fontFamily: "Inter" },
+      x: { axis: null }, y: { axis: null },
+      marks: [
+        Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}),
+        Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 })
+      ]
     });
-  }
-  
-  top_div.appendChild(container);
-  return top_div; 
+
+    wrapper.querySelector(`#back-${row.tcgplayer_id}`).appendChild(sparkline);
+    flex_target.appendChild(wrapper);
+  });
+
+  return container; 
 }
 ```
 
@@ -326,8 +286,9 @@ Plotly = require("plotly.js-dist-min@2.30.0")
 
 ```{ojs}
 dd_table_and_modal = {
-  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date) }));
-  const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date) }));
+  // Bug Fix: "T12:00:00" locks parser to local noon, avoiding standard JS Date offset bugs
+  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
@@ -367,10 +328,8 @@ dd_table_and_modal = {
     
     return {
       ...d,
-      c_pred_30d: c_pred, c_pct_30d: c_pct,
-      g_pred_30d: g_pred, g_pct_30d: g_pct,
-      c_err_30d: calc_mape("Chronos"),
-      g_err_30d: calc_mape("GRU")
+      c_pred_30d: c_pred, c_pct_30d: c_pct, g_pred_30d: g_pred, g_pct_30d: g_pct,
+      c_err_30d: calc_mape("Chronos"), g_err_30d: calc_mape("GRU")
     };
   });
 
@@ -417,19 +376,46 @@ dd_table_and_modal = {
   filter_bar.style.border = "1px solid var(--border-subtle)"; filter_bar.style.alignItems = "center";
   filter_bar.style.flexWrap = "wrap";
 
+  // Improv 4: UI Toggle for Future Index Implementation
+  const view_toggle = document.createElement("div");
+  view_toggle.style.display = "flex"; view_toggle.style.alignItems = "center"; view_toggle.style.marginRight = "15px";
+  view_toggle.innerHTML = `
+    <div style="background: var(--bg-base); border: 1px solid var(--border-subtle); padding: 5px; border-radius: 8px; display: flex; gap: 5px;">
+      <label style="padding: 6px 12px; cursor: pointer; color: var(--text-main); font-size: 13px; font-weight: 600; border-radius: 6px; background: var(--bg-hover);">
+        <input type="radio" name="view_mode" value="cards" checked style="display:none;"> Individual Cards
+      </label>
+      <label style="padding: 6px 12px; cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600; border-radius: 6px; transition: 0.2s;">
+        <input type="radio" name="view_mode" value="indices" style="display:none;"> Market Indices
+      </label>
+    </div>
+  `;
+
+  // UI Toggle Logic
+  let current_view_mode = "cards";
+  view_toggle.querySelectorAll('input').forEach(input => {
+    input.addEventListener('change', (e) => {
+      current_view_mode = e.target.value;
+      view_toggle.querySelectorAll('label').forEach(lbl => {
+        lbl.style.background = 'transparent'; lbl.style.color = 'var(--text-muted)';
+      });
+      e.target.parentElement.style.background = 'var(--bg-hover)';
+      e.target.parentElement.style.color = 'var(--text-main)';
+      renderTable();
+    });
+  });
+
   const search_input = document.createElement("input");
-  search_input.type = "text"; search_input.placeholder = "🔍 Search by card name...";
-  search_input.style.flex = "1"; search_input.style.minWidth = "200px"; search_input.style.padding = "12px"; search_input.style.borderRadius = "8px";
+  search_input.type = "text"; search_input.placeholder = "🔍 Search by name...";
+  search_input.style.flex = "1"; search_input.style.minWidth = "180px"; search_input.style.padding = "10px"; search_input.style.borderRadius = "8px";
   search_input.style.border = "1px solid var(--border-subtle)"; search_input.style.background = "var(--bg-base)";
   search_input.style.color = "var(--text-main)"; search_input.style.fontSize = "14px"; search_input.style.fontFamily = "Inter";
 
-  const selectStyle = "padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter; min-width: 150px;";
-  
-  const rarity_select = document.createElement("select"); rarity_select.style.cssText = selectStyle;
+  const rarity_select = document.createElement("select"); 
+  rarity_select.style.cssText = "padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter; min-width: 150px;";
   const unique_rarities = ["All Rarities", ...Array.from(new Set(raw_data.map(d => d.rarity).filter(Boolean))).sort()];
   unique_rarities.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; rarity_select.appendChild(opt); });
 
-  filter_bar.appendChild(search_input); filter_bar.appendChild(rarity_select);
+  filter_bar.appendChild(view_toggle); filter_bar.appendChild(search_input); filter_bar.appendChild(rarity_select);
   page_wrapper.appendChild(filter_bar);
 
   const container = document.createElement("div");
@@ -449,8 +435,13 @@ dd_table_and_modal = {
   const formatErr = (val) => val !== null && val !== undefined ? `<span style="color:var(--accent-blue); font-weight:600;">±${val.toFixed(1)}%</span>` : '<span style="color:var(--text-muted);">N/A</span>';
 
   function renderTable() {
+    if(current_view_mode === "indices") {
+      container.innerHTML = `<div style="padding: 50px; text-align: center; color: var(--text-muted);">Market Index aggregates (e.g. 'All Enchanteds Index') are currently in development.</div>`;
+      return;
+    }
+
     const q = search_input.value.toLowerCase(); const r = rarity_select.value;
-    let filtered_data = raw_data.filter(d => d.cardname.toLowerCase().includes(q) && (r === "All Rarities" || d.rarity === r));
+    let filtered_data = raw_data.filter(d => d.cardname.toLowerCase().includes(q) && (r === "All Rarities" || d.rarity === r) && d.is_index !== true);
     let sorted_data = filtered_data.sort((a, b) => {
       let valA = a[current_sort] !== null && a[current_sort] !== undefined ? a[current_sort] : -9999;
       let valB = b[current_sort] !== null && b[current_sort] !== undefined ? b[current_sort] : -9999;
@@ -458,13 +449,11 @@ dd_table_and_modal = {
       return is_asc ? valA - valB : valB - valA;
     });
 
-    const th = (key, label, cls="") => {
-      let arrow = current_sort === key ? (is_asc ? " ↑" : " ↓") : "";
-      return `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${arrow}</th>`;
-    };
+    const th = (key, label, cls="") => `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${current_sort === key ? (is_asc ? " ↑" : " ↓") : ""}</th>`;
 
+    // Improv 2: Added hide-on-mobile class to advanced metric columns
     container.innerHTML = `
-      <table class="hover-table" style="width: 100%; min-width: 1400px;">
+      <table class="hover-table" style="width: 100%; min-width: 800px;">
         <thead>
           <tr>
             ${th('cardname', 'Card', 'sticky-card-col')}
@@ -473,9 +462,9 @@ dd_table_and_modal = {
             ${th('g_pct_30d', 'GRU (30D)')}
             ${th('c_err_30d', 'Chronos Acc')}
             ${th('g_err_30d', 'GRU Acc')}
-            ${th('samp_ent_30d', 'Sample Entropy')}
-            ${th('hurst_30d', 'Hurst Exponent')}
-            ${th('cv_30d', 'Volatility (CV)')}
+            ${th('samp_ent_30d', 'Sample Entropy', 'hide-on-mobile')}
+            ${th('hurst_30d', 'Hurst Exponent', 'hide-on-mobile')}
+            ${th('cv_30d', 'Volatility (CV)', 'hide-on-mobile')}
           </tr>
         </thead>
         <tbody>
@@ -485,9 +474,9 @@ dd_table_and_modal = {
               <td style="color: var(--accent-yellow); font-weight: 700; font-size: 15px;">${d.current_price ? '$' + d.current_price.toFixed(2) : 'N/A'}</td>
               <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td><td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
               <td>${formatErr(d.c_err_30d)}</td><td>${formatErr(d.g_err_30d)}</td>
-              <td style="color:var(--text-muted);">${d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A'}</td>
-              <td style="color:var(--text-muted);">${d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A'}</td>
-              <td style="color:var(--text-muted);">${d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A'}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A'}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A'}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A'}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -546,6 +535,12 @@ dd_table_and_modal = {
       const trace_c = { x: live_c_conn.map(d => d.date), y: live_c_conn.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
       const trace_g = { x: live_g_conn.map(d => d.date), y: live_g_conn.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
       
+      const trace_current = last_m_pt ? {
+        x: [last_m_pt.date], y: [last_m_pt.price], mode: 'markers', name: 'Current Price',
+        marker: { color: '#f8fafc', size: 10, line: { color: '#1e293b', width: 2 } },
+        showlegend: false, hoverinfo: 'skip'
+      } : null;
+
       const shadow_traces = Array.from(new Set(shadow.map(d => d.run_id))).map(rid => {
         const run_data = shadow.filter(d => d.run_id === rid);
         if(run_data.length === 0) return null;
@@ -553,8 +548,7 @@ dd_table_and_modal = {
       }).filter(d => d !== null);
 
       const layout_graph = {
-        height: 420, // EXPLICIT HEIGHT FIXES ZERO-RENDER BUG
-        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
+        height: 420, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
         xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d, %Y' },
         yaxis: { title: 'Market Price', gridcolor: '#334155', linecolor: '#334155', tickprefix: '$', nticks: 6 },
         margin: { l: 60, r: 20, t: 20, b: 40 }, hovermode: 'x unified',
@@ -601,8 +595,7 @@ dd_table_and_modal = {
       const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Error', marker: {color: '#22d3ee'}, customdata: err_g.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
 
       const layout_err = {
-        height: 320, // EXPLICIT HEIGHT FIXES ZERO-RENDER BUG
-        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
+        height: 320, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
         xaxis: { title: 'Days into the Future (Horizon)', gridcolor: '#334155', linecolor: '#334155', tickvals: [1,5,10,15,20,25,30], hoverformat: 'Day %{x}' },
         yaxis: { title: 'Median % Error', gridcolor: '#334155', linecolor: '#334155', tickformat: '.0%', rangemode: 'tozero' },
         yaxis2: { overlaying: 'y', matches: 'y', visible: false, layer: 'below traces' },
@@ -611,18 +604,27 @@ dd_table_and_modal = {
         showlegend: true, legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }
       };
 
-      modal.style.display = "block"; // Changed from flex to block to prevent flex-centering overflow bugs
+      modal.style.display = "block"; 
       const target_graph = document.getElementById('modal-graph-target');
       const target_err = document.getElementById('modal-error-target');
       target_graph.innerHTML = ''; target_err.innerHTML = '';
 
-      Plotly.newPlot(target_graph, [...shadow_traces, trace_hist, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
-      
-      if(err_c.length === 0 && err_g.length === 0) {
-         target_err.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding-top: 50px;">Not enough historical backtesting data to calculate error yet. Model needs at least one full evaluation cycle.</div>';
-      } else {
-         Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g], layout_err, {responsive: true, displayModeBar: false});
-      }
+      // Bug Fix: trace_hist and trace_current put at the END of the array so they render visually on top
+      const all_traces = [...shadow_traces, trace_c, trace_g, trace_hist];
+      if (trace_current) all_traces.push(trace_current);
+
+      // Improv 1: setTimeout forces rendering queue after DOM calculations are finished to prevent zero-width bugs
+      setTimeout(() => {
+        Plotly.newPlot(target_graph, all_traces, layout_graph, {responsive: true, displayModeBar: false});
+        Plotly.Plots.resize(target_graph); 
+        
+        if(err_c.length === 0 && err_g.length === 0) {
+           target_err.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding-top: 50px;">Not enough historical backtesting data to calculate error yet. Model needs at least one full evaluation cycle.</div>';
+        } else {
+           Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g], layout_err, {responsive: true, displayModeBar: false});
+           Plotly.Plots.resize(target_err);
+        }
+      }, 50); 
     }
   });
 
@@ -647,8 +649,9 @@ viewof show_ci = Inputs.toggle({label: "Show Confidence Interval", value: false}
 
 ```{ojs}
 //| output: false
-my_hist = transpose(ojs_hist).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date) })).sort((a, b) => a.date - b.date)
-my_fcst = transpose(ojs_forecast).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date) })).sort((a, b) => a.date - b.date)
+// Timezone Fix applied here as well for continuity
+my_hist = transpose(ojs_hist).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
+my_fcst = transpose(ojs_forecast).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
 live_fcst = my_fcst.filter(d => d.is_shadow === false)
 my_info = transpose(ojs_info).find(d => d.cardname === selected_card) || {}
 current_price = my_hist.length > 0 ? my_hist[my_hist.length - 1].price : 0
@@ -707,7 +710,6 @@ viewof card_search = Inputs.text({label: "🔍 Search Card:", placeholder: "Type
 
 ```{ojs}
 //| output: false
-// All data manipulation is hidden from the sidebar using the chunk option above
 filtered_cards_options = {
   const query = card_search.toLowerCase();
   const matches = ojs_cards.filter(c => c.toLowerCase().includes(query));
@@ -724,13 +726,8 @@ ebay_card_info = transpose(ojs_info).find(d => d.cardname === ebay_selected_card
 ```
 
 ```{ojs}
-viewof ebay_selected_card = Inputs.select(filtered_cards_options, {
-  label: "Select Card:", 
-  value: filtered_cards_options[0]
-})
-
+viewof ebay_selected_card = Inputs.select(filtered_cards_options, { label: "Select Card:", value: filtered_cards_options[0] })
 viewof ebay_selected_company = Inputs.select(["All", "PSA", "BGS", "CGC", "SGC", "Raw"], {label: "Grading Company", value: "All"})
-
 viewof ebay_selected_grades = Inputs.checkbox(available_grades, {label: "Select Grades:", value: available_grades})
 
 html`
@@ -753,7 +750,6 @@ ${(ebay_card_info) ?
 //| title: "Interactive Listing Tracker"
 //| padding: 0px
 
-// 1. Data Preparation & Label Generation
 raw_ebay = transpose(ojs_ebay).map(d => {
   let grade = d.grade_val || "Raw";
   let comp = d.grading_company || "Raw";
@@ -766,43 +762,31 @@ raw_ebay = transpose(ojs_ebay).map(d => {
   };
 }).filter(d => !isNaN(d.clean_price) && d.clean_price > 0)
 
-// 2. Apply Filters (Including the new Grade Checkboxes)
 filtered_ebay = raw_ebay.filter(d => 
   (d.cardname === ebay_selected_card) &&
   (ebay_selected_company === "All" || d.grading_company === ebay_selected_company) &&
   (ebay_selected_grades.includes(d.grade_val || "Raw"))
 )
 
-// 3. Dynamic Color Mapping (Using a local variable loop to avoid Observable reactivity crashes)
 unique_labels = [...new Set(filtered_ebay.map(d => d.label))].sort()
 color_palette = ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa', '#f472b6', '#2dd4bf', '#a3e635']
 
 color_map = {
   let local_map = {};
-  unique_labels.forEach((lbl, i) => {
-    local_map[lbl] = color_palette[i % color_palette.length];
-  });
+  unique_labels.forEach((lbl, i) => { local_map[lbl] = color_palette[i % color_palette.length]; });
   return local_map;
 }
 
-// ==========================================
-// --- WRAPPER NODE ---
-// ==========================================
 wrapper_node = {
   const main_div = document.createElement("div");
   
-  // DIAGNOSTIC TEXT
   const diag = document.createElement("div");
   diag.innerHTML = `<i>Data Summary: Verified eBay market dataset containing ${raw_ebay.length} listings. Currently displaying ${filtered_ebay.length} for selected criteria.</i>`;
   diag.style.cssText = "text-align: right; padding: 5px 20px 0px; font-size: 11px; color: var(--text-muted);";
   main_div.appendChild(diag);
 
-  // ==========================================
-  // --- BUY IT NOW PLOT ---
-  // ==========================================
   const bin_div = document.createElement("div");
-  bin_div.style.height = "450px"; 
-  bin_div.style.marginBottom = "20px";
+  bin_div.style.height = "450px"; bin_div.style.marginBottom = "20px";
   main_div.appendChild(bin_div);
   
   const bin_data = filtered_ebay.filter(d => d.type_simple === "Buy It Now");
@@ -815,7 +799,6 @@ wrapper_node = {
       let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
       if(subset.length === 0) return;
       
-      // Individual listings as scatter points
       traces.push({
         x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price),
         mode: 'markers', name: lbl, legendgroup: lbl,
@@ -823,7 +806,6 @@ wrapper_node = {
         text: subset.map(d => d.hover_text), hoverinfo: 'text'
       });
       
-      // Mathematical median daily trend line
       let grouped = {};
       subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
       let meds = Object.keys(grouped).map(date => {
@@ -843,19 +825,13 @@ wrapper_node = {
     Plotly.newPlot(bin_div, traces, {
        title: {text: 'Buy It Now: Daily Medians & Active Inventory', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
-       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
-       yaxis: {gridcolor: '#334155', tickprefix: '$'},
-       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest',
-       legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'},
+       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest', legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
     }, {responsive: true, displayModeBar: false});
   }
 
-  // ==========================================
-  // --- AUCTION TRAJECTORY PLOT ---
-  // ==========================================
   const auc_div = document.createElement("div");
-  auc_div.style.height = "450px";
-  main_div.appendChild(auc_div);
+  auc_div.style.height = "450px"; main_div.appendChild(auc_div);
   
   const auc_data = filtered_ebay.filter(d => d.type_simple === "Auction");
   
@@ -867,15 +843,12 @@ wrapper_node = {
       let subset = auc_data.filter(d => d.label === lbl);
       if(subset.length === 0) return;
       
-      // Group auctions strictly by item_id so we draw lines connecting the SAME listing over time
       let item_ids = [...new Set(subset.map(d => d.item_id))];
-      
       item_ids.forEach((iid, idx) => {
          let item_data = subset.filter(d => d.item_id === iid).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
          traces2.push({
            x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price),
-           mode: 'lines+markers', name: lbl, legendgroup: lbl, 
-           showlegend: idx === 0, // Only render one legend toggle per unique grade
+           mode: 'lines+markers', name: lbl, legendgroup: lbl, showlegend: idx === 0, 
            line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]},
            text: item_data.map(d => d.hover_text), hoverinfo: 'text'
          });
@@ -885,13 +858,10 @@ wrapper_node = {
     Plotly.newPlot(auc_div, traces2, {
        title: {text: 'Auction Trajectories (Grouped by Listing ID)', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
-       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
-       yaxis: {gridcolor: '#334155', tickprefix: '$'},
-       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest',
-       legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'},
+       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest', legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
     }, {responsive: true, displayModeBar: false});
   }
-
   return main_div;
 }
 ```
@@ -912,7 +882,7 @@ Lorcana is both a collectible and a playable game. Lower-rarity cards fluctuate 
 Graded cards—cards certified for their condition by third-party companies—sell for massive premiums. The market for a PSA 10 is fundamentally different and much more volatile than the raw market. Consistent daily pricing data for graded Lorcana cards is currently too sparse to model accurately. 
 
 **Where does the data come from?**
-Pricing data is aggregated daily. We monitor eBay, which is the premier marketplace for high-end TCGs. We use a local LLM (Google Gemma) to actively clean and validate granular eBay listing data, helping us filter out seller typos, fake listings, or wildly unrealistic prices so the models only see real market signals.
+Pricing data is aggregated daily. We monitor eBay, which is the premier marketplace for high-end TCGs. We use a local LLM to actively clean and validate granular eBay listing data, helping us filter out seller typos, fake listings, or wildly unrealistic prices so the models only see real market signals.
 
 ### 🧠 How the AI Works
 
@@ -939,7 +909,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
 
 **Hurst Exponent (Momentum vs. Reversion)**
 * *What it means:* Tells us if a card is currently riding a consistent wave or if it's stuck in a rut.
-* *How to read it:* * **Near 0.5:** The price is wandering randomly (Geometric Brownian Motion).
+* *How to read it:* * **Near 0.5:** The price is wandering randomly.
     * **Above 0.5:** The card has *Momentum*. If it's trending up, it will likely keep going up. 
     * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up suddenly, it will likely snap back down soon.
 
@@ -971,7 +941,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+<a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
   ☕ Support Lorecaster on Ko-fi
 </a>
 </div>
