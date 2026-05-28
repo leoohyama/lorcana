@@ -261,48 +261,171 @@ bin_plot <- ggplot(bin_trend_data, aes(x = date_pulled, y = median_price, color 
 print(bin_plot)
 
 
-library(plotly)
-library(crosstalk)
-library(dplyr)
-
-# 1. Prepare the data
-# Filter out bad data and convert columns to factors for the dropdowns
-interactive_data <- master_data %>%
-  filter(card_full == selectedcard, price_val > 0) %>%
+# Prepare Comparative Median Data (Auction vs. Buy It Now)
+comparative_median_data <- master_data %>%
+  filter(card_full == selectedcard) %>%
   mutate(
-    type_simple = if_else(str_detect(listing_type, "AUCTION"), "Auction", "Buy It Now"),
-    grade_val = replace_na(grade_val, "Raw"),
-    grading_company = replace_na(grading_company, "Raw")
+    # Create clean labels for condition
+    grade_status = if_else(is_graded, "Graded", "Raw / Ungraded"),
+    # Simplify listing types for clear comparison
+    simplified_type = if_else(str_detect(listing_type, "AUCTION"), "Auction", "Buy It Now")
   ) %>%
-  select(item_id, price_val, grading_company, grade_val, type_simple, date_pulled)
+  # Group by date, condition, AND listing type
+  group_by(date_pulled, grade_status, simplified_type) %>%
+  summarize(
+    median_price = median(price_val, na.rm = TRUE),
+    total_listings = n(), # Helpful context if a median is dragged by low volume
+    .groups = "drop"
+  )
 
-# 2. Create a Crosstalk SharedData object
-shared_market <- SharedData$new(interactive_data)
+# Create the Comparative Plot
+median_comparison_plot <- ggplot(comparative_median_data, 
+                                 aes(x = date_pulled, 
+                                     y = median_price, 
+                                     color = simplified_type, 
+                                     linetype = grade_status)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2, alpha = 0.8) +
+  
+  # Formatting & Scales
+  scale_y_continuous(labels = label_dollar()) +
+  scale_x_date(date_labels = "%b %d", date_breaks = "1 week") +
+  # Distinct colors so they don't clash with your previous Graded/Raw color scheme
+  scale_color_manual(values = c("Auction" = "#984EA3", "Buy It Now" = "#E41A1C")) +
+  
+  theme_minimal() +
+  labs(
+    title = paste("Market Floor vs. Ceiling:", selectedcard),
+    subtitle = "Median Auction Bids (Liquid Value) vs. Median Buy It Now (Seller Expectation)",
+    x = "Date",
+    y = "Median Price ($)",
+    color = "Listing Format",
+    linetype = "Condition"
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical" # Stacks the two legends cleanly
+  )
 
-# 3. Create the interactive Plotly chart
-p <- plot_ly(shared_market, 
-             x = ~grading_company, 
-             y = ~price_val, 
-             color = ~grade_val,
-             type = "scatter", 
-             mode = "markers",
-             hoverinfo = "text",
-             text = ~paste("Price: $", price_val, 
-                           "<br>Grade:", grading_company, grade_val,
-                           "<br>Type:", type_simple,
-                           "<br>Date:", date_pulled),
-             marker = list(size = 8, opacity = 0.6)) %>%
-  layout(title = paste("Interactive Explorer:", selectedcard),
-         yaxis = list(title = "Price ($)"),
-         xaxis = list(title = "Grading Company"))
+# Display the plot
+print(median_comparison_plot)
 
-# 4. Wrap it in a crosstalk layout with UI filters
-bscols(
-  widths = c(3, 9), # Left column for filters, right column for plot
-  list(
-    filter_select("comp", "Grading Company", shared_market, ~grading_company),
-    filter_select("grade", "Grade", shared_market, ~grade_val),
-    filter_select("type", "Listing Type", shared_market, ~type_simple)
-  ),
-  p
-)
+
+
+# Load patchwork
+library(patchwork)
+
+# 1. Save your original Volume plot to a variable (if you haven't already)
+volume_plot <- ggplot(card_flow) +
+  geom_col(aes(x = as.Date(date), y = new_listings, fill = "New Listings")) +
+  geom_col(aes(x = as.Date(date), y = -disappeared_listings, fill = "Listings Gone")) +
+  geom_line(aes(x = as.Date(date), y = total_active, color = "Total Active"), linewidth = 1) +
+  geom_point(aes(x = as.Date(date), y = total_active, color = "Total Active"), size = 2) +
+  theme_minimal() +
+  scale_y_continuous(labels = abs) +
+  labs(
+    x = "Date",
+    y = "Volume of Listings",
+    fill = "Activity Type",
+    color = "Overall Supply"
+  ) +
+  scale_fill_manual(values = c("New Listings" = "#1b9e77", "Listings Gone" = "#d95f02")) +
+  scale_color_manual(values = c("Total Active" = "black")) +
+  theme(legend.position = "bottom")
+
+# 2. Clean up the titles on the individual plots so they don't clash when combined
+median_comparison_plot <- median_comparison_plot + 
+  labs(title = NULL, subtitle = "Median Pricing Trajectories (Floor vs Ceiling)")
+
+volume_plot <- volume_plot + 
+  labs(title = NULL, subtitle = "Inventory Flow & Active Supply")
+
+# 3. Combine them using Patchwork! 
+# The '/' operator stacks them vertically.
+combined_dashboard <- median_comparison_plot / volume_plot
+
+# 4. Add a global title and adjust layout proportions
+final_view <- combined_dashboard +
+  plot_layout(
+    heights = c(1, 1.2) # Makes the bottom volume plot slightly taller
+  ) +
+  plot_annotation(
+    title = paste("Market Overview:", selectedcard),
+    caption = "Data pulled from Neon Serverless PostgreSQL",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.caption = element_text(color = "gray50")
+    )
+  )
+
+# Render the combined plot
+print(final_view)
+
+
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(tidyr)
+
+# 1. Combine Pricing and Volume Data for the Selected Card
+daily_price_summary <- master_data %>%
+  filter(card_full == selectedcard) %>%
+  group_by(date = as.Date(date_pulled)) %>%
+  summarize(median_price = median(price_val, na.rm = TRUE), .groups = "drop")
+
+dual_axis_data <- daily_inventory_flow %>%
+  filter(card_full == selectedcard) %>%
+  mutate(date = as.Date(date)) %>%
+  # Join the daily median price
+  left_join(daily_price_summary, by = "date") %>%
+  # Fill in any single-day pricing gaps with the previous day's price
+  fill(median_price, .direction = "downup")
+
+# 2. Calculate the Scaling Coefficient
+# This ensures both metrics peak at roughly the same visual height on the chart
+max_price <- max(dual_axis_data$median_price, na.rm = TRUE)
+max_volume <- max(dual_axis_data$total_active, na.rm = TRUE)
+coeff <- max_price / max_volume
+
+# 3. Create the Dual-Axis Plot
+dual_plot <- ggplot(dual_axis_data, aes(x = date)) +
+  
+  # VOLUME: Plot as bars in the background. 
+  # We multiply by the coeff so it reaches up into the price scale visually.
+  geom_col(aes(y = total_active * coeff, fill = "Active Inventory"), alpha = 0.3) +
+  
+  # PRICE: Plot as a bold line in the foreground.
+  geom_line(aes(y = median_price, color = "Median Price"), linewidth = 1.2) +
+  geom_point(aes(y = median_price, color = "Median Price"), size = 2) +
+  
+  # AXES: Configure the left and right y-axes
+  scale_y_continuous(
+    name = "Median Price ($)",
+    labels = label_dollar(),
+    # sec.axis reverses the math we did above to show the correct volume labels!
+    sec.axis = sec_axis(~ . / coeff, name = "Active Supply Volume")
+  ) +
+  
+  # Formatting
+  scale_x_date(date_labels = "%b %d", date_breaks = "1 week") +
+  scale_fill_manual(values = c("Active Inventory" = "gray40")) +
+  scale_color_manual(values = c("Median Price" = "#E41A1C")) +
+  theme_minimal() +
+  labs(
+    title = paste("Price vs. Supply Dynamics:", selectedcard),
+    subtitle = "Tracking Median Price (Left) vs Total Active Listings (Right)",
+    x = "Date",
+    color = "Trend",
+    fill = "Volume"
+  ) +
+  theme(
+    legend.position = "bottom",
+    # Color-code the axis text so the user knows which axis matches which line/bar
+    axis.title.y = element_text(color = "#E41A1C", face = "bold"),
+    axis.title.y.right = element_text(color = "gray40", face = "bold"),
+    axis.text.y.right = element_text(color = "gray40")
+  )
+
+# Render the plot
+print(dual_plot)

@@ -728,7 +728,7 @@ ebay_card_info = transpose(ojs_info).find(d => d.cardname === ebay_selected_card
 ```{ojs}
 viewof ebay_selected_card = Inputs.select(filtered_cards_options, { label: "Select Card:", value: filtered_cards_options[0] })
 viewof ebay_selected_company = Inputs.select(["All", "PSA", "BGS", "CGC", "SGC", "Raw"], {label: "Grading Company", value: "All"})
-viewof ebay_selected_grades = Inputs.checkbox(available_grades, {label: "Select Grades:", value: available_grades})
+viewof ebay_selected_grades = Inputs.checkbox(available_grades, {label: "Select Grades:", value: ["Raw"]})
 
 html`
 ${(ebay_card_info) ? 
@@ -780,6 +780,14 @@ color_map = {
 wrapper_node = {
   const main_div = document.createElement("div");
   
+  // Create a reactive lookup set of only dates present in the current filtered eBay data
+  const valid_ebay_dates = new Set(filtered_ebay.map(d => d.date_pulled));
+  
+  // Extract and align TCGPlayer Historical Data to only match those exact active dates
+  const tcg_data = transpose(ojs_hist)
+    .filter(d => d.cardname === ebay_selected_card && valid_ebay_dates.has(d.date))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  
   const diag = document.createElement("div");
   diag.innerHTML = `<i>Data Summary: Verified eBay market dataset containing ${raw_ebay.length} listings. Currently displaying ${filtered_ebay.length} for selected criteria.</i>`;
   diag.style.cssText = "text-align: right; padding: 5px 20px 0px; font-size: 11px; color: var(--text-muted);";
@@ -795,17 +803,46 @@ wrapper_node = {
     bin_div.innerHTML = "<div style='padding:50px; text-align:center; color:#94a3b8; background:transparent; border-radius:12px;'>No Buy It Now data available for your current filters.</div>";
   } else {
     let traces = [];
+
+    // --- Background Volume Bars ---
+    unique_labels.forEach(lbl => {
+      let subset = bin_data.filter(d => d.label === lbl);
+      if(subset.length === 0) return;
+      
+      let daily_volume = {};
+      subset.forEach(d => {
+        daily_volume[d.date_pulled] = (daily_volume[d.date_pulled] || 0) + 1;
+      });
+      let vol_dates = Object.keys(daily_volume).sort((a,b) => new Date(a) - new Date(b));
+      let vol_counts = vol_dates.map(date => daily_volume[date]);
+
+      traces.push({
+        x: vol_dates, 
+        y: vol_counts,
+        type: 'bar',
+        name: lbl + ' (Volume)',
+        legendgroup: lbl,
+        showlegend: false,
+        yaxis: 'y2',
+        opacity: 0.3,
+        marker: { color: color_map[lbl], line: {width: 0} }, 
+        hovertemplate: 'Volume: %{y} Listings<extra></extra>'
+      });
+    });
+
     unique_labels.forEach(lbl => {
       let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
       if(subset.length === 0) return;
       
+      // Individual Listing Scatters
       traces.push({
         x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price),
-        mode: 'markers', name: lbl, legendgroup: lbl,
+        mode: 'markers', name: lbl + ' (Listings)', legendgroup: lbl,
         marker: {color: color_map[lbl], size: 6, opacity: 0.4, line: {width: 1, color: '#0f172a'}},
-        text: subset.map(d => d.hover_text), hoverinfo: 'text'
+        text: subset.map(d => d.hover_text), hoverinfo: 'text', showlegend: false
       });
       
+      // Calculate & Plot Medians
       let grouped = {};
       subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
       let meds = Object.keys(grouped).map(date => {
@@ -817,19 +854,51 @@ wrapper_node = {
       
       traces.push({
         x: meds.map(d => d.date), y: meds.map(d => d.med),
-        mode: 'lines', name: lbl + ' Median', legendgroup: lbl, showlegend: false,
-        line: {color: color_map[lbl], width: 4}, hoverinfo: 'skip'
+        mode: 'lines', name: lbl, legendgroup: lbl,
+        line: {color: color_map[lbl], width: 4},
+        hovertemplate: lbl + ' Median: $%{y:.2f}<extra></extra>'
       });
     });
+
+    // Date-restricted TCGPlayer Baseline (BIN Chart)
+    if (ebay_selected_grades.includes("Raw") && tcg_data.length > 0) {
+      traces.push({
+        x: tcg_data.map(d => d.date),
+        y: tcg_data.map(d => d.price),
+        mode: 'lines',
+        name: 'TCGPlayer Market Baseline',
+        line: {color: '#f8fafc', width: 2, dash: 'dot'},
+        hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>'
+      });
+    }
     
     Plotly.newPlot(bin_div, traces, {
-       title: {text: 'Buy It Now: Daily Medians & Active Inventory', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
+       title: {text: 'Buy It Now: Price vs. Supply Dynamics', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
-       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'},
-       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest', legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+       hovermode: 'x unified',
+       hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
+       barmode: 'stack',
+       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
+       yaxis: {
+         title: 'Median Price ($)', 
+         gridcolor: '#334155', 
+         tickprefix: '$', 
+         titlefont: {color: '#f8fafc'}, tickfont: {color: '#f8fafc'},
+         rangemode: 'tozero'
+       },
+       yaxis2: { 
+         title: 'Active Supply Volume',
+         overlaying: 'y',
+         side: 'right',
+         showgrid: false,
+         titlefont: {color: '#94a3b8'}, tickfont: {color: '#94a3b8'}
+       },
+       margin: {l:60, r:60, t:50, b:40}, 
+       legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
     }, {responsive: true, displayModeBar: false});
   }
 
+  // --- Auctions Plot ---
   const auc_div = document.createElement("div");
   auc_div.style.height = "450px"; main_div.appendChild(auc_div);
   
@@ -854,12 +923,26 @@ wrapper_node = {
          });
       });
     });
+
+    // Date-restricted TCGPlayer Baseline (Auction Chart)
+    if (ebay_selected_grades.includes("Raw") && tcg_data.length > 0) {
+      traces2.push({
+        x: tcg_data.map(d => d.date),
+        y: tcg_data.map(d => d.price),
+        mode: 'lines',
+        name: 'TCGPlayer Market Baseline',
+        line: {color: '#f8fafc', width: 2, dash: 'dot'},
+        hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>'
+      });
+    }
     
     Plotly.newPlot(auc_div, traces2, {
        title: {text: 'Auction Trajectories (Grouped by Listing ID)', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
+       hovermode: 'x unified',
+       hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
        xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'},
-       margin: {l:60, r:20, t:50, b:40}, hovermode: 'closest', legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
+       margin: {l:60, r:20, t:50, b:40}, legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
     }, {responsive: true, displayModeBar: false});
   }
   return main_div;
