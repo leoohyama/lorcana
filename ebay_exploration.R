@@ -71,8 +71,6 @@ master_data <- active_listings %>%
   inner_join(llm_listing_metadata, by = c("item_id", "id")) %>%
   left_join(metacard, by = "id")
 
-wtf=master_data  %>%
-  filter(set_name == "Wilds Unknown")
 
 # 2. Find the entry and exit dates for EVERY unique eBay listing
 listing_lifespans <- master_data %>%
