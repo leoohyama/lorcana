@@ -8,7 +8,6 @@ format:
 execute:
   echo: false
   warning: false
-  message: false
 resources:
   - "data/enchanteds/images/"
 ---
@@ -16,8 +15,9 @@ resources:
 ```{r}
 #| context: setup
 #| include: false
+#| message: false
 # ==========================================
-# 1. THE CHEF: R Data Processing (Runs Once)
+# R Data Processing (Runs Once at Build)
 # ==========================================
 library(tidyverse)
 library(DBI)
@@ -35,7 +35,7 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
   distinct(id, .keep_all = TRUE)
 
 # Connect to Neon
-con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9.c-5.us-east-1.aws.neon.tech", dbname = "neondb", user = "neondb_owner", password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
+con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech", dbname = "neondb", user = "neondb_owner", password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
 
 # Fetch Core Data
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
@@ -45,14 +45,14 @@ chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pr
 gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions")
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 
-# Fetch eBay Data
+# Fetch eBay Data (Strict Boolean Verification)
 ebay_query <- "
   SELECT 
     a.item_id, a.price_val, a.listing_type, a.date_pulled,
-    l.id, l.grading_company, l.grade_val
+    l.id, l.grading_company, l.grade_val, l.card_language
   FROM lorcana_active_listings a
   INNER JOIN llm_listing_metadata l ON a.item_id = l.item_id
-  WHERE (l.is_valid = 'TRUE' OR l.is_valid = true)
+  WHERE l.is_valid IS TRUE
     AND a.price_val IS NOT NULL 
     AND a.price_val > 0
 "
@@ -92,7 +92,7 @@ if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgpla
 unified <- master_dict %>% 
   left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>%
   left_join(metrics_df, by="tcgplayer_id") %>%
-  mutate(is_index = FALSE) # Prep for Future Index functionality
+  mutate(is_index = FALSE)
 
 # --- Process eBay Listings ---
 if(nrow(raw_ebay_sql) > 0) {
@@ -101,14 +101,15 @@ if(nrow(raw_ebay_sql) > 0) {
     left_join(master_dict, by = "id") %>%
     mutate(
       type_simple = if_else(str_detect(listing_type, regex("AUCTION", ignore_case = TRUE)), "Auction", "Buy It Now"),
-      grade_val = replace_na(as.character(grade_val), "Raw"),
-      grading_company = replace_na(as.character(grading_company), "Raw"),
-      date_pulled = as.character(date_pulled) 
+      grade_val = replace_na(as.character(grade_val), "Ungraded"),
+      grading_company = replace_na(as.character(grading_company), "Ungraded"),
+      date_pulled = as.character(date_pulled),
+      card_language = replace_na(as.character(card_language), "English") 
     ) %>%
-    select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, type_simple) %>%
+    select(item_id, cardname, rarity, set_name, date_pulled, price_val, grading_company, grade_val, type_simple, card_language) %>%
     drop_na(cardname)
 } else {
-  ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character())
+  ebay_master <- data.frame(item_id=character(), cardname=character(), rarity=character(), set_name=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character(), card_language=character())
 }
 
 # --- Find Default Card ---
@@ -122,6 +123,50 @@ ojs_define(
   ojs_cards = sort(unique(master_dict$cardname)), ojs_default_card = top_card
 )
 ```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Initialize globally so all tabs can leverage eBay aggregations
+clean_ebay_master = transpose(ojs_ebay).map(d => {
+  // Strip out stray quotes from the DB that break string matching (e.g. "'PSA'" -> "PSA")
+  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "Ungraded";
+  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "Ungraded";
+  
+  if (/^(NA|N\/A|NONE|NULL|UNG)$/i.test(rawComp)) rawComp = "Ungraded";
+  if (/^(NA|N\/A|NONE|NULL|UNG)$/i.test(rawGrade)) rawGrade = "Ungraded";
+
+  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
+  let cleanGrade = "Ungraded";
+  
+  if (numMatch && rawGrade !== "Ungraded") {
+    let parsed = parseFloat(numMatch[0]);
+    if (parsed > 0 && parsed <= 10) {
+      cleanGrade = parsed.toString();
+    }
+  }
+  
+  let cleanCompany = (cleanGrade === "Ungraded" || rawComp === "Ungraded") ? "Ungraded" : rawComp;
+  if (cleanCompany === "Ungraded") cleanGrade = "Ungraded";
+
+  let label = cleanCompany === 'Ungraded' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
+  
+  return {
+    ...d,
+    grade_val: cleanGrade,
+    grading_company: cleanCompany,
+    clean_price: +d.price_val,
+    label: label,
+    hover_text: `<b>${d.cardname}</b><br>${label} (${d.card_language || 'English'})<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+  };
+}).filter(d => {
+   if (isNaN(d.clean_price) || d.clean_price <= 0) return false;
+   // Explicitly remove fake/messy decimal grades for PSA (PSA doesn't use .5)
+   if (d.grading_company === "PSA" && String(d.grade_val).includes(".")) return false;
+   return true;
+})
+```
+
 
 ```{=html}
 <style>
@@ -155,26 +200,33 @@ ojs_define(
   .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; }
   .flip-card-back { transform: rotateY(180deg); background-color: var(--bg-base); border: 2px solid var(--accent-blue); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
 
-  /* Plotly tooltips */
-  g[aria-label="tip"] path { fill: var(--bg-card) !important; stroke: var(--accent-blue) !important; stroke-width: 2px !important; fill-opacity: 0.95 !important; }
-  g[aria-label="tip"] text { fill: var(--text-main) !important; font-size: 14px !important; font-weight: 600 !important; stroke: none !important; }
+  /* Observable Plot tooltips (Dark Mode text contrast fix) */
+  g[aria-label="tip"] path { fill: #0f172a !important; stroke: var(--accent-blue) !important; stroke-width: 2px !important; fill-opacity: 0.95 !important; }
+  g[aria-label="tip"] text { fill: #f8fafc !important; font-size: 14px !important; font-weight: 600 !important; stroke: none !important; }
 
-  /* Table styling */
+  /* Main Info Table styling */
   .hover-table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 14px; text-align: left; }
   .hover-table th { background-color: var(--bg-card); padding: 14px 12px; border-bottom: 2px solid var(--accent-blue); position: sticky; top: 0; z-index: 10; transition: background 0.2s; user-select: none; white-space: nowrap; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 12px;}
   .hover-table th:hover { background-color: var(--bg-hover); }
   .hover-table td { padding: 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; white-space: nowrap; }
   .hover-table tbody tr { transition: background-color 0.2s; cursor: pointer; background-color: var(--bg-base); }
   .hover-table tbody tr:hover { background-color: var(--bg-hover); }
-  
   .hover-table th.sticky-card-col, .hover-table td.sticky-card-col { position: sticky; left: 0; z-index: 5; background-color: inherit; border-right: 1px solid var(--border-subtle); box-shadow: 4px 0 8px rgba(0,0,0,0.2); }
   .hover-table thead th.sticky-card-col { z-index: 15; background-color: var(--bg-card); }
-  
+
   /* Modal Overlay */
   .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); overflow-y: auto; padding: 4vh 20px; box-sizing: border-box; }
   .modal-content { background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; width: 100%; max-width: 1200px; padding: 24px; position: relative; margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
   .close-btn { color: var(--text-muted); position: absolute; top: 12px; right: 24px; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99; }
   .close-btn:hover { color: var(--accent-red); }
+
+  /* In-Modal Inline Controls UI */
+  .modal-controls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; background: var(--bg-base); padding: 15px; border-radius: 10px; border: 1px solid var(--border-subtle); margin-bottom: 20px; }
+  .modal-filter-box { display: flex; flex-direction: column; gap: 5px; }
+  .modal-filter-box label { font-size: 11px; font-weight: 700; color: var(--accent-blue); text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal-filter-box select { padding: 8px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: 'Inter', sans-serif; cursor: pointer; }
+  .modal-checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; max-height: 85px; overflow-y: auto; padding: 5px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 6px; }
+  .modal-checkbox-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-main); cursor: pointer; padding: 2px 6px; background: var(--bg-base); border-radius: 4px; }
 
   /* 📱 RESPONSIVENESS TWEAKS 📱 */
   @media (max-width: 768px) {
@@ -185,6 +237,9 @@ ojs_define(
     #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
     #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
     #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
+    
+    #ebay-modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
+    #ebay-modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
   }
 </style>
 ```
@@ -199,17 +254,19 @@ ojs_define(
 ## Row {.flow}
 
 ```{ojs}
+//| echo: false
 //| output: false
 movers_data = transpose(ojs_movers)
 ```
 
 ```{ojs}
-market_overview_node = {
+//| echo: false
+{
   if (movers_data.length === 0) {
     return html`<div style='color:var(--text-muted); text-align:center; width:100%;'>Not enough recent market movement to calculate momentum.</div>`;
   } 
 
-  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })); // Timezone Fix
+  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   
   const container = html`
     <div style="width: 100%; max-width: 1200px; margin: 0 auto;">
@@ -272,7 +329,7 @@ market_overview_node = {
 ## Row {.flow}
 ::: {.callout-note appearance="minimal" icon="false"}
 ## FUTURE PLANS 
-* I am currently collecting ebay data on Lorcana listings (for both graded and ungraded). I plan to take a deep dive into these data and use them to feed the forecasting models AND to utilize them to assess proxies of demand, supply etc. 
+* I am currently collecting eBay data on Lorcana listings (for both graded and ungraded). I plan to take a deep dive into these data and use them to feed the forecasting models AND to utilize them to assess proxies of demand, supply etc. 
 :::
 
 # Price Forecasts {orientation="rows"}
@@ -280,13 +337,14 @@ market_overview_node = {
 ## Row {.flow}
 
 ```{ojs}
+//| echo: false
 //| output: false
 Plotly = require("plotly.js-dist-min@2.30.0")
 ```
 
 ```{ojs}
-dd_table_and_modal = {
-  // Bug Fix: "T12:00:00" locks parser to local noon, avoiding standard JS Date offset bugs
+//| echo: false
+{
   const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -376,7 +434,6 @@ dd_table_and_modal = {
   filter_bar.style.border = "1px solid var(--border-subtle)"; filter_bar.style.alignItems = "center";
   filter_bar.style.flexWrap = "wrap";
 
-  // Improv 4: UI Toggle for Future Index Implementation
   const view_toggle = document.createElement("div");
   view_toggle.style.display = "flex"; view_toggle.style.alignItems = "center"; view_toggle.style.marginRight = "15px";
   view_toggle.innerHTML = `
@@ -390,7 +447,6 @@ dd_table_and_modal = {
     </div>
   `;
 
-  // UI Toggle Logic
   let current_view_mode = "cards";
   view_toggle.querySelectorAll('input').forEach(input => {
     input.addEventListener('change', (e) => {
@@ -451,13 +507,12 @@ dd_table_and_modal = {
 
     const th = (key, label, cls="") => `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${current_sort === key ? (is_asc ? " ↑" : " ↓") : ""}</th>`;
 
-    // Improv 2: Added hide-on-mobile class to advanced metric columns
     container.innerHTML = `
       <table class="hover-table" style="width: 100%; min-width: 800px;">
         <thead>
           <tr>
             ${th('cardname', 'Card', 'sticky-card-col')}
-            ${th('current_price', 'Current Price')}
+            ${th('current_price', 'TCG Price')}
             ${th('c_pct_30d', 'Chronos (30D)')}
             ${th('g_pct_30d', 'GRU (30D)')}
             ${th('c_err_30d', 'Chronos Acc')}
@@ -546,13 +601,16 @@ dd_table_and_modal = {
         if(run_data.length === 0) return null;
         return { x: run_data.map(d => d.date), y: run_data.map(d => d.price), mode: 'lines', line: {color: run_data[0].model === 'Chronos' ? '#fbbf24' : '#22d3ee', width: 1}, opacity: 0.15, showlegend: false, hoverinfo: 'skip' };
       }).filter(d => d !== null);
+      
+      const all_traces = [...shadow_traces, trace_hist, trace_c, trace_g];
+      if(trace_current) all_traces.push(trace_current);
 
       const layout_graph = {
         height: 420, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
         xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d, %Y' },
         yaxis: { title: 'Market Price', gridcolor: '#334155', linecolor: '#334155', tickprefix: '$', nticks: 6 },
         margin: { l: 60, r: 20, t: 20, b: 40 }, hovermode: 'x unified',
-        hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
+        hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
         showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }
       };
 
@@ -600,7 +658,7 @@ dd_table_and_modal = {
         yaxis: { title: 'Median % Error', gridcolor: '#334155', linecolor: '#334155', tickformat: '.0%', rangemode: 'tozero' },
         yaxis2: { overlaying: 'y', matches: 'y', visible: false, layer: 'below traces' },
         margin: { l: 60, r: 20, t: 10, b: 50 }, barmode: 'group', hovermode: 'x unified',
-        hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 13, family:'Inter' } },
+        hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 13, family:'Inter' } },
         showlegend: true, legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }
       };
 
@@ -609,11 +667,6 @@ dd_table_and_modal = {
       const target_err = document.getElementById('modal-error-target');
       target_graph.innerHTML = ''; target_err.innerHTML = '';
 
-      // Bug Fix: trace_hist and trace_current put at the END of the array so they render visually on top
-      const all_traces = [...shadow_traces, trace_c, trace_g, trace_hist];
-      if (trace_current) all_traces.push(trace_current);
-
-      // Improv 1: setTimeout forces rendering queue after DOM calculations are finished to prevent zero-width bugs
       setTimeout(() => {
         Plotly.newPlot(target_graph, all_traces, layout_graph, {responsive: true, displayModeBar: false});
         Plotly.Plots.resize(target_graph); 
@@ -638,18 +691,20 @@ dd_table_and_modal = {
 ## Sidebar {.sidebar}
 
 ```{ojs}
+//| echo: false
 //| output: false
 safe_default_card = Array.isArray(ojs_default_card) ? ojs_default_card[0] : ojs_default_card;
 ```
 
 ```{ojs}
+//| echo: false
 viewof selected_card = Inputs.select(ojs_cards, { value: safe_default_card, label: "Select a Card:" })
 viewof show_ci = Inputs.toggle({label: "Show Confidence Interval", value: false})
 ```
 
 ```{ojs}
+//| echo: false
 //| output: false
-// Timezone Fix applied here as well for continuity
 my_hist = transpose(ojs_hist).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
 my_fcst = transpose(ojs_forecast).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
 live_fcst = my_fcst.filter(d => d.is_shadow === false)
@@ -663,6 +718,7 @@ live_fcst_conn = [...(link_c ? [link_c] : []), ...(link_g ? [link_g] : []), ...l
 ```
 
 ```{ojs}
+//| echo: false
 html`
 <div style="background: var(--bg-card); border-radius: 12px; padding: 18px; border: 1px solid var(--border-subtle); text-align: center; margin-top: 15px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);">
   <img src="${my_info.image_path}" style="width:100%; max-width: 250px; border-radius:8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); margin-bottom: 15px;">
@@ -683,6 +739,7 @@ html`
 ## Column
 
 ```{ojs}
+//| echo: false
 //| title: "Macro View: All-Time History & Long Term Forecast"
 Plot.plot({
   height: 450,
@@ -700,252 +757,379 @@ Plot.plot({
 })
 ```
 
-# eBay Listings
+# eBay Listings {orientation="rows"}
 
-## Sidebar {.sidebar}
-
-```{ojs}
-viewof card_search = Inputs.text({label: "🔍 Search Card:", placeholder: "Type to find..."})
-```
+## Row {.flow}
 
 ```{ojs}
+//| echo: false
 //| output: false
-filtered_cards_options = {
-  const query = card_search.toLowerCase();
-  const matches = ojs_cards.filter(c => c.toLowerCase().includes(query));
-  return matches.length > 0 ? matches : [ojs_cards[0]];
-}
-
-available_grades = {
-  let subset = transpose(ojs_ebay).filter(d => d.cardname === ebay_selected_card);
-  if (ebay_selected_company !== "All") subset = subset.filter(d => d.grading_company === ebay_selected_company);
-  return [...new Set(subset.map(d => d.grade_val ? d.grade_val.toString() : "Raw"))].sort();
-}
-
-ebay_card_info = transpose(ojs_info).find(d => d.cardname === ebay_selected_card) || null
+// Extract distinct drop-down indices for table filters
+unique_sets_list = ["All Sets", ...new Set(transpose(ojs_info).map(d => d.set_name).filter(Boolean))].sort()
+unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => d.rarity).filter(Boolean))].sort()
 ```
 
 ```{ojs}
-viewof ebay_selected_card = Inputs.select(filtered_cards_options, { label: "Select Card:", value: filtered_cards_options[0] })
-viewof ebay_selected_company = Inputs.select(["All", "PSA", "BGS", "CGC", "SGC", "Raw"], {label: "Grading Company", value: "All"})
-viewof ebay_selected_grades = Inputs.checkbox(available_grades, {label: "Select Grades:", value: ["Raw"]})
+//| echo: false
+// Combined Table Filter Deck (Matching Price Forecast Structure)
+{
+  let existingModal = document.getElementById('ebay-interactive-modal');
+  if(existingModal) existingModal.remove();
 
-html`
-${(ebay_card_info) ? 
-  `<div style="text-align: center; margin-top: 25px; padding-top: 15px; border-top: 1px solid var(--border-subtle);">
-    <img src="${ebay_card_info.image_path}" style="width: 100%; max-width: 200px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-   </div>` 
-  : ''
-}
-`
-```
+  const eb_modal = document.createElement("div");
+  eb_modal.id = "ebay-interactive-modal";
+  eb_modal.className = "modal-overlay";
+  eb_modal.innerHTML = `
+    <div class="modal-content" style="max-width:1250px;">
+      <span class="close-btn" onclick="document.getElementById('ebay-interactive-modal').style.display='none'">&times;</span>
+      <div id="ebay-modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
+      <div class="modal-controls-grid" id="modal-filter-anchor"></div>
+      <div id="ebay-modal-bin-target" style="width: 100%; height: 400px; overflow: hidden; margin-bottom: 25px;"></div>
+      <div id="ebay-modal-auc-target" style="width: 100%; height: 400px; overflow: hidden;"></div>
+    </div>
+  `;
+  document.body.appendChild(eb_modal);
+  eb_modal.addEventListener("click", (e) => { if (e.target === eb_modal) eb_modal.style.display = "none"; });
 
-## Column
-::: {.callout-note appearance="minimal" icon="false"}
-## 🔍 eBay Market Explorer
-**Buy It Now** listings represent fixed-price market inventory (with daily medians), while **Auctions** are grouped by `item_id` to show exactly how bidding wars evolve over time. Use the interactive legend below the charts to toggle specific grades on or off!
-:::
+  const UI_wrapper = html`<div style="width: 100%; display: flex; flex-direction: column;"></div>`;
 
-```{ojs}
-//| title: "Interactive Listing Tracker"
-//| padding: 0px
+  const controls = html`
+    <div style="display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap; margin-top:20px;">
+      <input type="text" id="eb-search" placeholder="🔍 Search card inventory..." style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; font-family: Inter;">
+      <select id="eb-set-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
+      <select id="eb-rarity-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
+    </div>
+  `;
 
-raw_ebay = transpose(ojs_ebay).map(d => {
-  let grade = d.grade_val || "Raw";
-  let comp = d.grading_company || "Raw";
-  let label = comp === 'Raw' ? 'Raw' : `${comp} ${grade}`;
-  return {
-    ...d,
-    clean_price: +d.price_val,
-    label: label,
-    hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+  const setSel = controls.querySelector('#eb-set-select');
+  unique_sets_list.forEach(s => { let opt = document.createElement("option"); opt.value = s; opt.text = s; setSel.appendChild(opt); });
+
+  const rarSel = controls.querySelector('#eb-rarity-select');
+  unique_rarities_list.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; rarSel.appendChild(opt); });
+
+  const table_container = html`<div style="max-height: 700px; overflow-y: auto; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); width: 100%;"></div>`;
+
+  UI_wrapper.appendChild(controls);
+  UI_wrapper.appendChild(table_container);
+  
+  let eb_current_sort = "totalCount"; 
+  let eb_is_asc = false;
+  
+  const eb_th = (key, label, cls="") => {
+    let arrow = eb_current_sort === key ? (eb_is_asc ? " ↑" : " ↓") : "";
+    return `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('eb_sort', {detail:'${key}', bubbles:true}))">${label}${arrow}</th>`;
   };
-}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0)
 
-filtered_ebay = raw_ebay.filter(d => 
-  (d.cardname === ebay_selected_card) &&
-  (ebay_selected_company === "All" || d.grading_company === ebay_selected_company) &&
-  (ebay_selected_grades.includes(d.grade_val || "Raw"))
-)
+  function executeRender() {
+    const searchVal = controls.querySelector('#eb-search').value.toLowerCase();
+    const setVal = setSel.value;
+    const rarityVal = rarSel.value;
 
-unique_labels = [...new Set(filtered_ebay.map(d => d.label))].sort()
-color_palette = ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa', '#f472b6', '#2dd4bf', '#a3e635']
-
-color_map = {
-  let local_map = {};
-  unique_labels.forEach((lbl, i) => { local_map[lbl] = color_palette[i % color_palette.length]; });
-  return local_map;
-}
-
-wrapper_node = {
-  const main_div = document.createElement("div");
-  
-  // Create a reactive lookup set of only dates present in the current filtered eBay data
-  const valid_ebay_dates = new Set(filtered_ebay.map(d => d.date_pulled));
-  
-  // Extract and align TCGPlayer Historical Data to only match those exact active dates
-  const tcg_data = transpose(ojs_hist)
-    .filter(d => d.cardname === ebay_selected_card && valid_ebay_dates.has(d.date))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-  
-  const diag = document.createElement("div");
-  diag.innerHTML = `<i>Data Summary: Verified eBay market dataset containing ${raw_ebay.length} listings. Currently displaying ${filtered_ebay.length} for selected criteria.</i>`;
-  diag.style.cssText = "text-align: right; padding: 5px 20px 0px; font-size: 11px; color: var(--text-muted);";
-  main_div.appendChild(diag);
-
-  const bin_div = document.createElement("div");
-  bin_div.style.height = "450px"; bin_div.style.marginBottom = "20px";
-  main_div.appendChild(bin_div);
-  
-  const bin_data = filtered_ebay.filter(d => d.type_simple === "Buy It Now");
-  
-  if(bin_data.length === 0) {
-    bin_div.innerHTML = "<div style='padding:50px; text-align:center; color:#94a3b8; background:transparent; border-radius:12px;'>No Buy It Now data available for your current filters.</div>";
-  } else {
-    let traces = [];
-
-    // --- Background Volume Bars ---
-    unique_labels.forEach(lbl => {
-      let subset = bin_data.filter(d => d.label === lbl);
-      if(subset.length === 0) return;
-      
-      let daily_volume = {};
-      subset.forEach(d => {
-        daily_volume[d.date_pulled] = (daily_volume[d.date_pulled] || 0) + 1;
-      });
-      let vol_dates = Object.keys(daily_volume).sort((a,b) => new Date(a) - new Date(b));
-      let vol_counts = vol_dates.map(date => daily_volume[date]);
-
-      traces.push({
-        x: vol_dates, 
-        y: vol_counts,
-        type: 'bar',
-        name: lbl + ' (Volume)',
-        legendgroup: lbl,
-        showlegend: false,
-        yaxis: 'y2',
-        opacity: 0.3,
-        marker: { color: color_map[lbl], line: {width: 0} }, 
-        hovertemplate: 'Volume: %{y} Listings<extra></extra>'
-      });
-    });
-
-    unique_labels.forEach(lbl => {
-      let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
-      if(subset.length === 0) return;
-      
-      // Individual Listing Scatters
-      traces.push({
-        x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price),
-        mode: 'markers', name: lbl + ' (Listings)', legendgroup: lbl,
-        marker: {color: color_map[lbl], size: 6, opacity: 0.4, line: {width: 1, color: '#0f172a'}},
-        text: subset.map(d => d.hover_text), hoverinfo: 'text', showlegend: false
-      });
-      
-      // Calculate & Plot Medians
-      let grouped = {};
-      subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
-      let meds = Object.keys(grouped).map(date => {
-        let prices = grouped[date].sort((a,b)=>a-b);
-        let mid = Math.floor(prices.length/2);
-        let med = prices.length%2!==0 ? prices[mid] : (prices[mid-1]+prices[mid])/2;
-        return {date: date, med: med};
-      }).sort((a,b) => new Date(a.date) - new Date(b.date));
-      
-      traces.push({
-        x: meds.map(d => d.date), y: meds.map(d => d.med),
-        mode: 'lines', name: lbl, legendgroup: lbl,
-        line: {color: color_map[lbl], width: 4},
-        hovertemplate: lbl + ' Median: $%{y:.2f}<extra></extra>'
-      });
-    });
-
-    // Date-restricted TCGPlayer Baseline (BIN Chart)
-    if (ebay_selected_grades.includes("Raw") && tcg_data.length > 0) {
-      traces.push({
-        x: tcg_data.map(d => d.date),
-        y: tcg_data.map(d => d.price),
-        mode: 'lines',
-        name: 'TCGPlayer Market Baseline',
-        line: {color: '#f8fafc', width: 2, dash: 'dot'},
-        hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>'
-      });
+    function getFilteredMedianForCard(listings) {
+        if(listings.length === 0) return null;
+        let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
+        let max_date_ms = new Date(max_date_str).getTime();
+        let recent_prices = listings.filter(e => {
+            return (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000);
+        }).map(e => e.clean_price).sort((a,b) => a - b);
+        
+        if (recent_prices.length === 0) return null;
+        if (recent_prices.length < 4) {
+           let mid = Math.floor(recent_prices.length/2);
+           return recent_prices.length % 2 !== 0 ? recent_prices[mid] : (recent_prices[mid-1] + recent_prices[mid])/2;
+        }
+        let q1 = recent_prices[Math.floor(recent_prices.length * 0.25)];
+        let q3 = recent_prices[Math.floor(recent_prices.length * 0.75)];
+        let filtered = recent_prices.filter(p => p >= q1 && p <= q3);
+        if(filtered.length === 0) return null;
+        let mid = Math.floor(filtered.length/2);
+        return filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2;
     }
-    
-    Plotly.newPlot(bin_div, traces, {
-       title: {text: 'Buy It Now: Price vs. Supply Dynamics', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
-       paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
-       hovermode: 'x unified',
-       hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
-       barmode: 'stack',
-       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, 
-       yaxis: {
-         title: 'Median Price ($)', 
-         gridcolor: '#334155', 
-         tickprefix: '$', 
-         titlefont: {color: '#f8fafc'}, tickfont: {color: '#f8fafc'},
-         rangemode: 'tozero'
-       },
-       yaxis2: { 
-         title: 'Active Supply Volume',
-         overlaying: 'y',
-         side: 'right',
-         showgrid: false,
-         titlefont: {color: '#94a3b8'}, tickfont: {color: '#94a3b8'}
-       },
-       margin: {l:60, r:60, t:50, b:40}, 
-       legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
-    }, {responsive: true, displayModeBar: false});
+
+    let records = transpose(ojs_info).filter(d => {
+      const matchQ = d.cardname.toLowerCase().includes(searchVal);
+      const matchSet = (setVal === "All Sets" || d.set_name === setVal);
+      const matchRar = (rarityVal === "All Rarities" || d.rarity === rarityVal);
+      return matchQ && matchSet && matchRar;
+    }).map(d => {
+      let totalCount = clean_ebay_master.filter(e => e.cardname === d.cardname).length;
+      
+      let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grade_val === "Ungraded" && e.card_language === "English");
+      let recent_ebay_med = getFilteredMedianForCard(card_ebay_raw);
+
+      let card_ebay_psa = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grading_company === "PSA" && e.grade_val === "10" && e.card_language === "English");
+      let psa_10_med = getFilteredMedianForCard(card_ebay_psa);
+
+      let delta = (recent_ebay_med !== null && d.current_price !== null && d.current_price !== undefined) ? Math.abs(recent_ebay_med - d.current_price) : null;
+      let higher_market = null;
+      if (delta !== null) {
+          higher_market = recent_ebay_med > d.current_price ? "eBay" : (d.current_price > recent_ebay_med ? "TCG" : "Equal");
+      }
+
+      return { ...d, totalCount, recent_ebay_med, psa_10_med, delta, higher_market };
+    });
+
+    records.sort((a, b) => {
+      let valA = a[eb_current_sort] !== null && a[eb_current_sort] !== undefined ? a[eb_current_sort] : -9999;
+      let valB = b[eb_current_sort] !== null && b[eb_current_sort] !== undefined ? b[eb_current_sort] : -9999;
+      if (typeof valA === "string") return eb_is_asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      return eb_is_asc ? valA - valB : valB - valA;
+    });
+
+    let trs = records.map(d => {
+      let tcg_color = "var(--text-muted)";
+      let ebay_color = "var(--text-muted)";
+      let delta_color = "var(--text-muted)";
+      let delta_text = "N/A";
+      
+      if (d.current_price !== null && d.recent_ebay_med !== null) {
+        if (d.higher_market === "TCG") {
+          tcg_color = "var(--accent-yellow)";
+          ebay_color = "var(--text-main)";
+          delta_color = "var(--accent-yellow)";
+        } else if (d.higher_market === "eBay") {
+          tcg_color = "var(--text-main)";
+          ebay_color = "var(--accent-blue)";
+          delta_color = "var(--accent-blue)";
+        } else {
+          tcg_color = "var(--text-main)";
+          ebay_color = "var(--text-main)";
+          delta_color = "var(--text-main)";
+        }
+        delta_text = `<span style="color: ${delta_color}; font-weight: 700;">$${d.delta.toFixed(2)}</span>`;
+      } else {
+        if (d.current_price !== null) tcg_color = "var(--accent-yellow)";
+        if (d.recent_ebay_med !== null) ebay_color = "var(--accent-blue)";
+      }
+
+      let tcg_text = d.current_price ? `<span style="color: ${tcg_color}; font-weight: 700;">$${d.current_price.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
+      let ebay_text = d.recent_ebay_med ? `<span style="color: ${ebay_color}; font-weight: 700;">$${d.recent_ebay_med.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
+      let psa_text = d.psa_10_med ? `<span style="color: var(--text-main); font-weight: 700;">$${d.psa_10_med.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
+
+      return `
+        <tr class="eb-interactive-row" data-cardname="${d.cardname.replace(/"/g, '&quot;')}">
+          <td class="sticky-card-col">
+            <div style="display: flex; align-items: center; gap: 15px;">
+              <img src="${d.image_path}" style="width: 45px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4);">
+              <span style="font-weight: 600; white-space: normal;">${d.cardname}</span>
+            </div>
+          </td>
+          <td style="color: var(--text-muted); font-weight:500;">${d.set_name}</td>
+          <td><span style="font-size:11px; font-weight:700; color:var(--accent-blue); background:var(--bg-base); padding:3px 8px; border-radius:4px; border:1px solid var(--border-subtle);">${d.rarity}</span></td>
+          <td>${tcg_text}</td>
+          <td>${ebay_text}</td>
+          <td>${psa_text}</td>
+          <td>${delta_text}</td>
+          <td><span style="background: var(--bg-base); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); color: var(--accent-cyan); font-weight: 700;">${d.totalCount} listings</span></td>
+        </tr>
+      `;
+    }).join('');
+
+    table_container.innerHTML = `
+      <table class="hover-table" style="width: 100%;">
+        <thead>
+          <tr>
+            ${eb_th('cardname', 'Card Description', 'sticky-card-col')}
+            ${eb_th('set_name', 'Set Classification')}
+            ${eb_th('rarity', 'Rarity Tier')}
+            ${eb_th('current_price', 'TCG Market Price')}
+            ${eb_th('recent_ebay_med', 'eBay Median (Ungraded)')}
+            ${eb_th('psa_10_med', 'PSA 10 Median')}
+            ${eb_th('delta', 'Price Diff (Absolute)')}
+            ${eb_th('totalCount', 'Total Listings')}
+          </tr>
+        </thead>
+        <tbody>
+          ${trs}
+        </tbody>
+      </table>
+    `;
   }
 
-  // --- Auctions Plot ---
-  const auc_div = document.createElement("div");
-  auc_div.style.height = "450px"; main_div.appendChild(auc_div);
-  
-  const auc_data = filtered_ebay.filter(d => d.type_simple === "Auction");
-  
-  if(auc_data.length === 0) {
-    auc_div.innerHTML = "<div style='padding:50px; text-align:center; color:#94a3b8; background:transparent; border-radius:12px;'>No active Auctions available for your current filters.</div>";
-  } else {
-    let traces2 = [];
-    unique_labels.forEach(lbl => {
-      let subset = auc_data.filter(d => d.label === lbl);
-      if(subset.length === 0) return;
-      
-      let item_ids = [...new Set(subset.map(d => d.item_id))];
-      item_ids.forEach((iid, idx) => {
-         let item_data = subset.filter(d => d.item_id === iid).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
-         traces2.push({
-           x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price),
-           mode: 'lines+markers', name: lbl, legendgroup: lbl, showlegend: idx === 0, 
-           line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]},
-           text: item_data.map(d => d.hover_text), hoverinfo: 'text'
-         });
-      });
+  controls.querySelector('#eb-search').addEventListener("input", executeRender);
+  setSel.addEventListener("change", executeRender);
+  rarSel.addEventListener("change", executeRender);
+
+  table_container.addEventListener("eb_sort", (e) => {
+    if(eb_current_sort === e.detail) { eb_is_asc = !eb_is_asc; } 
+    else { eb_current_sort = e.detail; eb_is_asc = eb_current_sort === 'cardname' ? true : false; }
+    executeRender();
+  });
+
+  // --- Dynamic plotting and filtering engine inside modal window ---
+  table_container.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.eb-interactive-row");
+    if(!tr) return;
+    
+    const cardname = tr.dataset.cardname;
+    const card_info = transpose(ojs_info).find(d => d.cardname === cardname);
+    let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
+
+    document.getElementById('ebay-modal-header').innerHTML = `
+      <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+        <img src="${card_info.image_path}" style="height: 160px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div>
+          <div style="font-size: 24px; font-weight: 800; color: var(--text-main); margin-bottom: 5px;">${cardname}</div>
+          <div style="font-size: 14px; color: var(--text-muted);">Set: <span style="color:var(--text-main);">${card_info.set_name}</span> | Rarity: <span style="color:var(--accent-cyan);">${card_info.rarity}</span></div>
+        </div>
+      </div>
+    `;
+
+    let modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
+    let modalCompanies = ["All", ...new Set(masterCardListings.map(d => d.grading_company))].sort();
+    let modalGrades = [...new Set(masterCardListings.map(d => d.grade_val))].sort((a,b) => {
+       if(a === "Ungraded") return -1; if(b === "Ungraded") return 1; return parseFloat(a) - parseFloat(b);
     });
 
-    // Date-restricted TCGPlayer Baseline (Auction Chart)
-    if (ebay_selected_grades.includes("Raw") && tcg_data.length > 0) {
-      traces2.push({
-        x: tcg_data.map(d => d.date),
-        y: tcg_data.map(d => d.price),
-        mode: 'lines',
-        name: 'TCGPlayer Market Baseline',
-        line: {color: '#f8fafc', width: 2, dash: 'dot'},
-        hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>'
+    const filterAnchor = document.getElementById('modal-filter-anchor');
+    filterAnchor.innerHTML = `
+      <div class="modal-filter-box">
+        <label>Language Filter</label>
+        <select id="m-lang">${modalLanguages.map(l => '<option value="' + l + '" ' + (l === 'English' ? 'selected' : '') + '>' + l + '</option>').join('')}</select>
+      </div>
+      <div class="modal-filter-box">
+        <label>Grading Service</label>
+        <select id="m-comp">${modalCompanies.map(c => '<option value="' + c + '" ' + (c === 'Ungraded' ? 'selected' : '') + '>' + c + '</option>').join('')}</select>
+      </div>
+      <div class="modal-filter-box" style="grid-column: span 2;">
+        <label>Condition / Grade Value Selection</label>
+        <div class="modal-checkbox-group" id="m-grade-box">
+          ${modalGrades.map(g => `
+            <label class="modal-checkbox-label">
+              <input type="checkbox" value="${g}" checked> ${g}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    function renderModalCharts() {
+      const selLang = filterAnchor.querySelector('#m-lang').value;
+      const selComp = filterAnchor.querySelector('#m-comp').value;
+      const checkedGrades = Array.from(filterAnchor.querySelectorAll('#m-grade-box input:checked')).map(i => i.value);
+
+      let scopedListings = masterCardListings.filter(d => 
+        (selLang === "All" || d.card_language === selLang) &&
+        (selComp === "All" || d.grading_company === selComp) &&
+        (checkedGrades.includes(d.grade_val))
+      );
+
+      const bin_target = document.getElementById('ebay-modal-bin-target');
+      const auc_target = document.getElementById('ebay-modal-auc-target');
+
+      const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+      const valid_dates = new Set(scopedListings.map(d => d.date_pulled));
+      const tcg_data = all_hist
+        .filter(d => d.cardname === cardname && valid_dates.has(d.date.toISOString().split('T')[0]))
+        .sort((a, b) => a.date - b.date);
+
+      const active_labels = [...new Set(scopedListings.map(d => d.label))].sort();
+      const color_palette = ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa', '#f472b6'];
+      const color_map = {};
+      active_labels.forEach((lbl, i) => { color_map[lbl] = color_palette[i % color_palette.length]; });
+
+      // Build Buy It Now Plots with Plot-Specific 1.5x IQR Filter
+      let bin_data = scopedListings.filter(d => d.type_simple === "Buy It Now");
+      let clean_bin_data = [];
+      
+      active_labels.forEach(lbl => {
+        let subset = bin_data.filter(d => d.label === lbl);
+        if(subset.length < 4) { 
+           clean_bin_data.push(...subset); 
+           return; 
+        }
+        let prices = subset.map(d => d.clean_price).sort((a,b) => a - b);
+        let q1 = prices[Math.floor(prices.length * 0.25)];
+        let q3 = prices[Math.floor(prices.length * 0.75)];
+        let iqr = q3 - q1;
+        let lower = q1 - 1.5 * iqr;
+        let upper = q3 + 1.5 * iqr;
+        clean_bin_data.push(...subset.filter(d => d.clean_price >= Math.max(0, lower) && d.clean_price <= upper));
       });
+      bin_data = clean_bin_data;
+
+      if(bin_data.length === 0) {
+        bin_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted);'>No Fixed-Price supply matches selected modal scopes.</div>";
+      } else {
+        bin_target.innerHTML = "";
+        let traces = [];
+        active_labels.forEach(lbl => {
+          let subset = bin_data.filter(d => d.label === lbl);
+          if(subset.length === 0) return;
+          let daily_volume = {};
+          subset.forEach(d => { daily_volume[d.date_pulled] = (daily_volume[d.date_pulled] || 0) + 1; });
+          let vol_dates = Object.keys(daily_volume).sort((a,b) => new Date(a) - new Date(b));
+          traces.push({ x: vol_dates, y: vol_dates.map(dt => daily_volume[dt]), type: 'bar', name: lbl + ' (Vol)', legendgroup: lbl, showlegend: false, yaxis: 'y2', opacity: 0.25, marker: { color: color_map[lbl] }, hovertemplate: 'Volume: %{y}<extra></extra>' });
+        });
+
+        active_labels.forEach(lbl => {
+          let subset = bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
+          if(subset.length === 0) return;
+          traces.push({ x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price), mode: 'markers', name: lbl + ' (Raw Sales)', legendgroup: lbl, marker: {color: color_map[lbl], size: 6, opacity: 0.4}, text: subset.map(d => d.hover_text), hoverinfo: 'text', showlegend: false });
+          
+          let grouped = {};
+          subset.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
+          let meds = Object.keys(grouped).map(date => {
+            let prices = grouped[date].sort((a,b)=>a-b);
+            return {date: date, med: prices.length % 2 !== 0 ? prices[Math.floor(prices.length/2)] : (prices[prices.length/2 - 1] + prices[prices.length/2])/2};
+          }).sort((a,b) => new Date(a.date) - new Date(b.date));
+          
+          traces.push({ x: meds.map(d => d.date), y: meds.map(d => d.med), mode: 'lines', name: lbl, legendgroup: lbl, line: {color: color_map[lbl], width: 3.5}, hovertemplate: '%{x}<br>Median: $%{y:.2f}<extra></extra>' });
+        });
+
+        if (checkedGrades.includes("Ungraded") && tcg_data.length > 0) {
+          traces.push({ x: tcg_data.map(d => d.date), y: tcg_data.map(d => d.price), mode: 'lines', name: 'TCGPlayer Market Baseline', line: {color: '#f8fafc', width: 2, dash: 'dot'}, hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>' });
+        }
+        Plotly.newPlot(bin_target, traces, { title: {text: 'Fixed Price Metrics', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, barmode: 'stack', xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: { title: 'Price ($)', gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero' }, yaxis2: { title: 'Supply Vol', overlaying: 'y', side: 'right', showgrid: false }, margin: {l:60, r:60, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
+      }
+
+      // Build Auction Plots with identical plot-level 1.5x IQR Filter
+      let auc_data = scopedListings.filter(d => d.type_simple === "Auction");
+      let clean_auc_data = [];
+      active_labels.forEach(lbl => {
+        let subset = auc_data.filter(d => d.label === lbl);
+        if(subset.length < 4) { 
+           clean_auc_data.push(...subset); 
+           return; 
+        }
+        let prices = subset.map(d => d.clean_price).sort((a,b) => a - b);
+        let q1 = prices[Math.floor(prices.length * 0.25)];
+        let q3 = prices[Math.floor(prices.length * 0.75)];
+        let iqr = q3 - q1;
+        let lower = q1 - 1.5 * iqr;
+        let upper = q3 + 1.5 * iqr;
+        clean_auc_data.push(...subset.filter(d => d.clean_price >= Math.max(0, lower) && d.clean_price <= upper));
+      });
+      auc_data = clean_auc_data;
+
+      if(auc_data.length === 0) {
+        auc_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted);'>No live bidding matrices match selected modal scopes.</div>";
+      } else {
+        auc_target.innerHTML = "";
+        let traces2 = [];
+        active_labels.forEach(lbl => {
+          let subset = auc_data.filter(d => d.label === lbl);
+          if(subset.length === 0) return;
+          let item_ids = [...new Set(subset.map(d => d.item_id))];
+          item_ids.forEach((iid, idx) => {
+             let item_data = subset.filter(d => d.item_id === iid).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
+             traces2.push({ x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price), mode: 'lines+markers', name: lbl, legendgroup: lbl, showlegend: idx === 0, line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]}, text: item_data.map(d => d.hover_text), hoverinfo: 'text' });
+          });
+        });
+        Plotly.newPlot(auc_target, traces2, { title: {text: 'Auction Price Realization Trajectories', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'}, margin: {l:60, r:20, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
+      }
     }
-    
-    Plotly.newPlot(auc_div, traces2, {
-       title: {text: 'Auction Trajectories (Grouped by Listing ID)', font: {color: '#f8fafc', family: 'Inter'}, x: 0.05},
-       paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'},
-       hovermode: 'x unified',
-       hoverlabel: { bgcolor: '#1e293b', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } },
-       xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'},
-       margin: {l:60, r:20, t:50, b:40}, legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' }
-    }, {responsive: true, displayModeBar: false});
-  }
-  return main_div;
+
+    filterAnchor.querySelector('#m-lang').addEventListener("change", renderModalCharts);
+    filterAnchor.querySelector('#m-comp').addEventListener("change", renderModalCharts);
+    filterAnchor.querySelectorAll('#m-grade-box input').forEach(i => i.addEventListener("change", renderModalCharts));
+
+    eb_modal.style.display = "block";
+    renderModalCharts();
+  });
+
+  executeRender();
+  return UI_wrapper;
 }
 ```
 
@@ -1024,7 +1208,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+<a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
   <span style="font-size: 18px;">☕ Support on Ko-fi</span>
 </a>
 </div>
