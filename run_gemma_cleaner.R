@@ -97,7 +97,8 @@ create_table_query <- "
     is_valid BOOLEAN,
     is_graded BOOLEAN,
     grading_company VARCHAR,
-    grade_val VARCHAR
+    grade_val VARCHAR,
+    card_language VARCHAR
   );
 "
 dbExecute(con, create_table_query)
@@ -149,6 +150,17 @@ for (i in 1:nrow(processing_queue)) {
   curr_target <- processing_queue$cardname[i]
   
   cat(sprintf("\rProcessing %d of %d...", i, nrow(processing_queue)))
+
+  #check language hints in title 
+  title_lower <- str_to_lower(curr_title)
+  lang_val <- case_when(
+    str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
+    str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
+    str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
+    str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
+    str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
+    TRUE ~ "English"
+  )
   
   result_list <- ask_gemma_json(curr_target, curr_title)
   
@@ -176,9 +188,9 @@ for (i in 1:nrow(processing_queue)) {
   company_sql <- ifelse(is.na(company_val), DBI::SQL("NULL"), glue_sql("{company_val}", .con = con))
   grade_sql <- ifelse(is.na(grade_val), DBI::SQL("NULL"), glue_sql("{grade_val}", .con = con))
   
-  insert_query <- glue_sql("
-    INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val)
-    VALUES ({curr_item_id}, {curr_id}, {is_valid_flag}, {is_graded_flag}, {company_sql}, {grade_sql})
+  insert_query <- glue::glue_sql("
+    INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
+    VALUES ({curr_item_id}, {curr_id}, {is_valid_flag}, {is_graded_flag}, {company_sql}, {grade_sql}, {lang_val})
     ON CONFLICT (item_id) DO NOTHING;
   ", .con = con)
   
