@@ -1,4 +1,8 @@
-# Lorecaster: Lorcana Market Data Analysis & Forecasting
+<div align="center">
+<img width="405" height="260" alt="image" src="https://github.com/user-attachments/assets/c24a2f57-abf3-48d8-aebb-1e62bce11d41" />
+</div>
+
+# Lorecaster: Lorcana Market Data Analysis & Forecasting 
 
 <p align="center">
   <img src="https://img.shields.io/badge/R-276DC3?style=for-the-badge&logo=r&logoColor=white" alt="R" />
