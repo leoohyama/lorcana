@@ -11,7 +11,7 @@
 
 > **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested. 
 
-🚀 **UPDATE: Lorecaster is back up!**
+🚀 **UPDATE: Lorecaster is up!**
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/5890e5b9-3c4a-43de-b9ef-a480722ce660)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
@@ -29,14 +29,18 @@
 
 ---
 
-## Project Overview
+## Brief Overview
 This repository houses my personal data pipeline and forecasting experiments for the Disney Lorcana TCG. I've set up a **Hybrid Local-Cloud Architecture** that combines cloud scraping with local **Large Language Model (LLM)** inference. 
 
 Trading card games (TCGs) have incredibly speculative and volatile secondary markets. The main goal of this project is to clean up inherently messy secondary market data as much as possible before feeding it into predictive models, ultimately providing stable forecasts and market health metrics.
 
 ---
 
-## Context & Market Dynamics
+## Context
+Trading cards are mostly viewed as collectibles with a very niche secondary market. However, nowadays they are now being adapted and viewed as an asset class by many people around the world. This theme/concept is often highlighted by publicly documented purchases of trading cards that go into the millions of USD along with other events/newsreels etc. Perhaps one of the most difficult things to apply to the card secondary market has been a accurate predicitve framework that can be leveraged to forecast the likelihood of future price trends. Like the stock market, predicting prices of trading cards is not easy and there is doubt on whether it is possible. This doubt and difficulty is best illustrated by the fact that to my knowledge there exists no predictive forecasting platform of card pricing that is available to the general public that goes beyond moving averages. Here I attempt to make an initial foray into the development of a predictive analytical pipeline for trading cards based on several machine learning approaches that are entwined with automated MLOps.  
+
+## Lorcana
+
 Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. The pricing of cards is a combination of multiple factors, and to accurately forecast prices, we have to understand the specific dynamics driving this secondary market.
 
 ### 1. The Collectible vs. Playable Divide (Rarity)
