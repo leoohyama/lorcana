@@ -167,10 +167,9 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 })
 ```
 
-
 ```{=html}
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap)');
 
   :root {
     --bg-base: #0f172a;       
@@ -486,9 +485,9 @@ Plotly = require("plotly.js-dist-min@2.30.0")
     if (val === null || val === undefined) return '<span style="color:var(--text-muted);">N/A</span>';
     const color = val >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
     const sign = val >= 0 ? '+' : '';
-    return `<span style="color:${color}; font-weight:700;">${sign}${val.toFixed(1)}%</span> <span style="color:var(--text-muted); font-size:12px; font-weight:400; margin-left:4px;">($${price.toFixed(2)})</span>`;
+    return '<span style="color:' + color + '; font-weight:700;">' + sign + val.toFixed(1) + '%</span> <span style="color:var(--text-muted); font-size:12px; font-weight:400; margin-left:4px;">($' + price.toFixed(2) + ')</span>';
   };
-  const formatErr = (val) => val !== null && val !== undefined ? `<span style="color:var(--accent-blue); font-weight:600;">±${val.toFixed(1)}%</span>` : '<span style="color:var(--text-muted);">N/A</span>';
+  const formatErr = (val) => val !== null && val !== undefined ? '<span style="color:var(--accent-blue); font-weight:600;">±' + val.toFixed(1) + '%</span>' : '<span style="color:var(--text-muted);">N/A</span>';
 
   function renderTable() {
     if(current_view_mode === "indices") {
@@ -505,7 +504,10 @@ Plotly = require("plotly.js-dist-min@2.30.0")
       return is_asc ? valA - valB : valB - valA;
     });
 
-    const th = (key, label, cls="") => `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('do_sort', {detail:'${key}', bubbles:true}))">${label}${current_sort === key ? (is_asc ? " ↑" : " ↓") : ""}</th>`;
+    const th = (key, label, cls="") => {
+      let arrow = current_sort === key ? (is_asc ? " ↑" : " ↓") : "";
+      return '<th class="' + cls + '" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent(\'do_sort\', {detail:\'' + key + '\', bubbles:true}))">' + label + arrow + '</th>';
+    };
 
     container.innerHTML = `
       <table class="hover-table" style="width: 100%; min-width: 800px;">
@@ -523,17 +525,25 @@ Plotly = require("plotly.js-dist-min@2.30.0")
           </tr>
         </thead>
         <tbody>
-          ${sorted_data.map(d => `
-            <tr class="card-row" data-cardname="${d.cardname.replace(/"/g, '&quot;')}" data-price="${d.current_price || 0}">
+          ${sorted_data.map(d => {
+            let escaped_name = d.cardname.replace(/"/g, '&quot;');
+            let price_str = d.current_price ? '$' + d.current_price.toFixed(2) : 'N/A';
+            let ent_str = d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A';
+            let hurst_str = d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A';
+            let cv_str = d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A';
+            
+            return `
+            <tr class="card-row" data-cardname="${escaped_name}" data-price="${d.current_price || 0}">
               <td class="sticky-card-col"><div style="display: flex; align-items: center; gap: 15px; min-width: 250px;"><img src="${d.image_path}" style="width: 70px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);"><span style="font-weight: 600; white-space: normal;">${d.cardname}</span></div></td>
-              <td style="color: var(--accent-yellow); font-weight: 700; font-size: 15px;">${d.current_price ? '$' + d.current_price.toFixed(2) : 'N/A'}</td>
+              <td style="color: var(--accent-yellow); font-weight: 700; font-size: 15px;">${price_str}</td>
               <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td><td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
               <td>${formatErr(d.c_err_30d)}</td><td>${formatErr(d.g_err_30d)}</td>
-              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.samp_ent_30d ? d.samp_ent_30d.toFixed(3) : 'N/A'}</td>
-              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.hurst_30d ? d.hurst_30d.toFixed(3) : 'N/A'}</td>
-              <td class="hide-on-mobile" style="color:var(--text-muted);">${d.cv_30d ? d.cv_30d.toFixed(3) : 'N/A'}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${ent_str}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${hurst_str}</td>
+              <td class="hide-on-mobile" style="color:var(--text-muted);">${cv_str}</td>
             </tr>
-          `).join('')}
+            `;
+          }).join('')}
         </tbody>
       </table>
     `;
@@ -793,8 +803,14 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
 
   const UI_wrapper = html`<div style="width: 100%; display: flex; flex-direction: column;"></div>`;
 
+  const banner = document.createElement("div");
+  banner.className = "momentum-box";
+  banner.style.marginTop = "20px";
+  banner.innerHTML = "<strong>🔍 eBay Market Explorer</strong><p style='font-size: 13px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Use the table below to browse inventory. TCG and eBay median metrics reflect the last <strong>7 days</strong> of data. eBay medians are calculated exclusively using English, Fixed-Price listings with statistical outliers removed. <strong>7-Day Unique Listings</strong> indicates the exact volume of individual items used to calculate the Ungraded Median.</p>";
+  UI_wrapper.appendChild(banner);
+
   const controls = html`
-    <div style="display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap; margin-top:20px;">
+    <div style="display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap;">
       <input type="text" id="eb-search" placeholder="🔍 Search card inventory..." style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; font-family: Inter;">
       <select id="eb-set-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
       <select id="eb-rarity-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
@@ -817,7 +833,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
   
   const eb_th = (key, label, cls="") => {
     let arrow = eb_current_sort === key ? (eb_is_asc ? " ↑" : " ↓") : "";
-    return `<th class="${cls}" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent('eb_sort', {detail:'${key}', bubbles:true}))">${label}${arrow}</th>`;
+    return '<th class="' + cls + '" style="cursor:pointer;" onclick="this.dispatchEvent(new CustomEvent(\'eb_sort\', {detail:\'' + key + '\', bubbles:true}))">' + label + arrow + '</th>';
   };
 
   function executeRender() {
@@ -825,25 +841,39 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
     const setVal = setSel.value;
     const rarityVal = rarSel.value;
 
-    function getFilteredMedianForCard(listings) {
-        if(listings.length === 0) return null;
+    function getMedianAndCount(listings) {
+        if(listings.length === 0) return { median: null, count: 0 };
         let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
         let max_date_ms = new Date(max_date_str).getTime();
-        let recent_prices = listings.filter(e => {
-            return (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000);
-        }).map(e => e.clean_price).sort((a,b) => a - b);
         
-        if (recent_prices.length === 0) return null;
+        let recent_listings = listings.filter(e => {
+            return (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000);
+        });
+        
+        // Grab accurate count of UNIQUE listing IDs in the 7-day window
+        let unique_ids = new Set(recent_listings.map(e => e.item_id));
+        let count = unique_ids.size;
+
+        let recent_prices = recent_listings.map(e => e.clean_price).sort((a,b) => a - b);
+        
+        if (recent_prices.length === 0) return { median: null, count: 0 };
+        // If dataset is too small for meaningful IQR, fall back to true median
         if (recent_prices.length < 4) {
            let mid = Math.floor(recent_prices.length/2);
-           return recent_prices.length % 2 !== 0 ? recent_prices[mid] : (recent_prices[mid-1] + recent_prices[mid])/2;
+           let med = recent_prices.length % 2 !== 0 ? recent_prices[mid] : (recent_prices[mid-1] + recent_prices[mid])/2;
+           return { median: med, count: count };
         }
+        
+        // Calculate IQR to remove extreme outliers
         let q1 = recent_prices[Math.floor(recent_prices.length * 0.25)];
         let q3 = recent_prices[Math.floor(recent_prices.length * 0.75)];
         let filtered = recent_prices.filter(p => p >= q1 && p <= q3);
-        if(filtered.length === 0) return null;
+        
+        if(filtered.length === 0) return { median: null, count: count };
+        
         let mid = Math.floor(filtered.length/2);
-        return filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2;
+        let med = filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2;
+        return { median: med, count: count };
     }
 
     let records = transpose(ojs_info).filter(d => {
@@ -852,13 +882,14 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
       const matchRar = (rarityVal === "All Rarities" || d.rarity === rarityVal);
       return matchQ && matchSet && matchRar;
     }).map(d => {
-      let totalCount = clean_ebay_master.filter(e => e.cardname === d.cardname).length;
-      
       let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grade_val === "Ungraded" && e.card_language === "English");
-      let recent_ebay_med = getFilteredMedianForCard(card_ebay_raw);
+      let raw_stats = getMedianAndCount(card_ebay_raw);
+      let recent_ebay_med = raw_stats.median;
+      let totalCount = raw_stats.count;
 
       let card_ebay_psa = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grading_company === "PSA" && e.grade_val === "10" && e.card_language === "English");
-      let psa_10_med = getFilteredMedianForCard(card_ebay_psa);
+      let psa_stats = getMedianAndCount(card_ebay_psa);
+      let psa_10_med = psa_stats.median;
 
       let delta = (recent_ebay_med !== null && d.current_price !== null && d.current_price !== undefined) ? Math.abs(recent_ebay_med - d.current_price) : null;
       let higher_market = null;
@@ -896,15 +927,15 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
           ebay_color = "var(--text-main)";
           delta_color = "var(--text-main)";
         }
-        delta_text = `<span style="color: ${delta_color}; font-weight: 700;">$${d.delta.toFixed(2)}</span>`;
+        delta_text = '<span style="color: ' + delta_color + '; font-weight: 700;">$' + d.delta.toFixed(2) + '</span>';
       } else {
         if (d.current_price !== null) tcg_color = "var(--accent-yellow)";
         if (d.recent_ebay_med !== null) ebay_color = "var(--accent-blue)";
       }
 
-      let tcg_text = d.current_price ? `<span style="color: ${tcg_color}; font-weight: 700;">$${d.current_price.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
-      let ebay_text = d.recent_ebay_med ? `<span style="color: ${ebay_color}; font-weight: 700;">$${d.recent_ebay_med.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
-      let psa_text = d.psa_10_med ? `<span style="color: var(--text-main); font-weight: 700;">$${d.psa_10_med.toFixed(2)}</span>` : '<span style="color: var(--text-muted);">N/A</span>';
+      let tcg_text = d.current_price ? '<span style="color: ' + tcg_color + '; font-weight: 700;">$' + d.current_price.toFixed(2) + '</span>' : '<span style="color: var(--text-muted);">N/A</span>';
+      let ebay_text = d.recent_ebay_med ? '<span style="color: ' + ebay_color + '; font-weight: 700;">$' + d.recent_ebay_med.toFixed(2) + '</span>' : '<span style="color: var(--text-muted);">N/A</span>';
+      let psa_text = d.psa_10_med ? '<span style="color: var(--text-main); font-weight: 700;">$' + d.psa_10_med.toFixed(2) + '</span>' : '<span style="color: var(--text-muted);">N/A</span>';
 
       return `
         <tr class="eb-interactive-row" data-cardname="${d.cardname.replace(/"/g, '&quot;')}">
@@ -915,12 +946,11 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
             </div>
           </td>
           <td style="color: var(--text-muted); font-weight:500;">${d.set_name}</td>
-          <td><span style="font-size:11px; font-weight:700; color:var(--accent-blue); background:var(--bg-base); padding:3px 8px; border-radius:4px; border:1px solid var(--border-subtle);">${d.rarity}</span></td>
           <td>${tcg_text}</td>
           <td>${ebay_text}</td>
           <td>${psa_text}</td>
           <td>${delta_text}</td>
-          <td><span style="background: var(--bg-base); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); color: var(--accent-cyan); font-weight: 700;">${d.totalCount} listings</span></td>
+          <td><span style="background: var(--bg-base); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); color: var(--accent-cyan); font-weight: 700;">${d.totalCount}</span></td>
         </tr>
       `;
     }).join('');
@@ -931,12 +961,11 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
           <tr>
             ${eb_th('cardname', 'Card Description', 'sticky-card-col')}
             ${eb_th('set_name', 'Set Classification')}
-            ${eb_th('rarity', 'Rarity Tier')}
-            ${eb_th('current_price', 'TCG Market Price')}
-            ${eb_th('recent_ebay_med', 'eBay Median (Ungraded)')}
-            ${eb_th('psa_10_med', 'PSA 10 Median')}
-            ${eb_th('delta', 'Price Diff (Absolute)')}
-            ${eb_th('totalCount', 'Total Listings')}
+            ${eb_th('current_price', 'TCG 7-Day Market')}
+            ${eb_th('recent_ebay_med', 'eBay 7-Day Median (Ungraded)')}
+            ${eb_th('psa_10_med', 'PSA 10 7-Day Median')}
+            ${eb_th('delta', '7-Day Price Diff')}
+            ${eb_th('totalCount', '7-Day Unique Listings')}
           </tr>
         </thead>
         <tbody>
@@ -975,6 +1004,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
       </div>
     `;
 
+    // Extract scoped unique constraints for selectors inside modal window
     let modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
     let modalCompanies = ["All", ...new Set(masterCardListings.map(d => d.grading_company))].sort();
     let modalGrades = [...new Set(masterCardListings.map(d => d.grade_val))].sort((a,b) => {
@@ -1208,7 +1238,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-<a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
   <span style="font-size: 18px;">☕ Support on Ko-fi</span>
 </a>
 </div>
