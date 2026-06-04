@@ -98,7 +98,7 @@ ebay_ts_query <- "
   WHERE l.is_valid IS TRUE
     AND a.price_val IS NOT NULL 
     AND a.price_val > 0
-    AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
+    AND a.date_pulled >= CURRENT_DATE - INTERVAL '30 days'
     AND (l.card_language IS NULL OR l.card_language = 'English')
 "
 raw_ebay_sql <- tryCatch(
