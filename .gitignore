@@ -1,4 +1,3 @@
 .env
 /.quarto/
 **/*.quarto_ipynb
-google-analytics.html
