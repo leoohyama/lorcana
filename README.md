@@ -41,11 +41,14 @@ Trading card games (TCGs) have incredibly speculative and volatile secondary mar
 ---
 
 ## Context
-Trading cards are mostly viewed as collectibles with a very niche secondary market. However, nowadays they are now being adapted and viewed as an asset class by many people around the world. This theme/concept is often highlighted by publicly documented purchases of trading cards that go into the millions of USD along with other events/newsreels etc. Perhaps one of the most difficult things to apply to the card secondary market has been a accurate predicitve framework that can be leveraged to forecast the likelihood of future price trends. Like the stock market, predicting prices of trading cards is not easy and there is doubt on whether it is possible. This doubt and difficulty is best illustrated by the fact that to my knowledge there exists no predictive forecasting platform of card pricing that is available to the general public that goes beyond moving averages. Here I attempt to make an initial foray into the development of a predictive analytical pipeline for trading cards based on several machine learning approaches that are entwined with automated MLOps.  
+Trading cards have evolved from niche collectibles into a global asset class, yet the secondary market remains largely unmapped by advanced predictive analytics. While current public platforms rely on basic moving averages, accurately forecasting card prices presents complex challenges similar to those found in traditional stock markets. This project aims to solve that problem by developing a robust predictive analytical pipeline for trading card valuations, powered by machine learning and automated MLOps.
 
 ## Lorcana
 
 Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. The pricing of cards is a combination of multiple factors, and to accurately forecast prices, we have to understand the specific dynamics driving this secondary market.
+
+<details>
+<summary><strong>Click to read more about Lorcana Market Dynamics & Project Context</strong></summary>
 
 ### 1. The Collectible vs. Playable Divide (Rarity)
 Different rarities delineate whether a card is viewed primarily as a collectible or as a useful game piece. While both views exist, this project assumes that cards of higher rarities play more into the collectible aspect of demand. They are harder to "pull" from a pack and feature unique artworks. Because of this, Lorecaster focuses on the higher-end card rarities: **Epic, Enchanted, and Iconic**. Combining all rarities (including common/uncommon) would make modeling much more difficult, as lower-tier card prices fluctuate wildly based on the game's current competitive meta.
@@ -87,6 +90,8 @@ Listing prices on eBay can act as a strong indicator of future market prices whe
   </table>
 </div>
 
+
+</details>
 ---
 
 ## Data Pipeline & Ecosystem
