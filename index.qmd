@@ -40,27 +40,93 @@ con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9-pooler.c
 # Fetch Core Data
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
 past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
-hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '365 days'")
-chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions")
-gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions")
+
+# Pull 90-day history (Unchanged, but ensure pull_date is indexed in Neon)
+hist_data <- dbGetQuery(con, "
+  SELECT tcgplayer_id, pull_date, market_price 
+  FROM justtcg_prices 
+  WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'
+")
+
+# Optimized Chronos pull: Only fetch the 5 most recent inference runs
+chronos_pred <- dbGetQuery(con, "
+  WITH recent_runs AS (
+    SELECT DISTINCT run_id 
+    FROM chronos_predictions 
+    ORDER BY run_id DESC 
+    LIMIT 30
+  )
+  SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id 
+  FROM chronos_predictions 
+  WHERE run_id IN (SELECT run_id FROM recent_runs)
+")
+
+# Optimized GRU pull: Only fetch the 5 most recent inference runs
+gru_pred <- dbGetQuery(con, "
+  WITH recent_runs AS (
+    SELECT DISTINCT run_id 
+    FROM gru_predictions 
+    ORDER BY run_id DESC 
+    LIMIT 30
+  )
+  SELECT card_id as tcgplayer_id, target_date, pred_price, run_id 
+  FROM gru_predictions
+  WHERE run_id IN (SELECT run_id FROM recent_runs)
+")
+
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 
-# Fetch eBay Data (Strict Boolean Verification)
-ebay_query <- "
+# Fetch our pre-calculated lightweight error metrics!
+backtest_metrics <- tryCatch(
+  dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"),
+  error = function(e) data.frame()
+)
+
+# ==========================================
+# Fetch eBay Data (Memory Optimized)
+# ==========================================
+
+# 1. Fetch lightweight time-series data (7 days, English only, NO TITLES)
+# 1. Fetch lightweight time-series data (7 days, English only, NO TITLES)
+ebay_ts_query <- "
   SELECT 
-    a.item_id, a.price_val, a.listing_type, a.date_pulled,
-    l.id, l.grading_company, l.grade_val, l.card_language
+    a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled,
+    l.id, l.grading_company, l.grade_val
   FROM lorcana_active_listings a
-  INNER JOIN llm_listing_metadata l ON a.item_id = l.item_id
+  INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id
   WHERE l.is_valid IS TRUE
     AND a.price_val IS NOT NULL 
     AND a.price_val > 0
+    AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
+    AND (l.card_language IS NULL OR l.card_language = 'English')
 "
-raw_ebay_sql <- tryCatch(dbGetQuery(con, ebay_query), error = function(e) data.frame())
+raw_ebay_sql <- tryCatch(
+  dbGetQuery(con, ebay_ts_query), 
+  error = function(e) { print(e); data.frame() }
+)
 
+# 2. Fetch TARGETED dictionary of titles 
+# FIX: Use exact same WHERE conditions to guarantee 100% ID overlap with master payload
+ebay_titles_query <- "
+  SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title
+  FROM lorcana_active_listings a
+  INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id
+  WHERE l.is_valid IS TRUE
+    AND a.price_val IS NOT NULL 
+    AND a.price_val > 0
+    AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
+    AND a.listing_title IS NOT NULL
+    AND (l.card_language IS NULL OR l.card_language = 'English')
+"
+
+raw_ebay_titles <- tryCatch(
+  dbGetQuery(con, ebay_titles_query), 
+  error = function(e) { print(e); data.frame(item_id = character(), listing_title = character()) }
+)
 dbDisconnect(con)
 
 # --- Process Momentum ---
+
 momentum <- latest_prices %>% 
   inner_join(past_prices, by = "tcgplayer_id", suffix = c("_cur", "_past")) %>% 
   mutate(pct = (market_price_cur - market_price_past)/market_price_past * 100, abs = market_price_cur - market_price_past) %>% 
@@ -81,7 +147,8 @@ max_c_run <- if(nrow(chronos_pred) > 0) max(chronos_pred$run_id, na.rm=TRUE) els
 max_g_run <- if(nrow(gru_pred) > 0) max(gru_pred$run_id, na.rm=TRUE) else 0
 
 forecast_flat <- bind_rows(
-  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos", is_shadow = ifelse(run_id == max_c_run, FALSE, TRUE)) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id),
+  chronos_pred %>% 
+    mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos", is_shadow = ifelse(run_id == max_c_run, FALSE, TRUE)) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id),
   gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", is_shadow = ifelse(run_id == max_g_run, FALSE, TRUE), conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id)
 ) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 
@@ -94,62 +161,117 @@ unified <- master_dict %>%
   left_join(metrics_df, by="tcgplayer_id") %>%
   mutate(is_index = FALSE)
 
-# --- Process eBay Listings ---
+# --- Process eBay Listings (String Compression) ---
 if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- raw_ebay_sql %>%
     mutate(id = as.character(id)) %>%
-    left_join(master_dict, by = "id") %>%
+    inner_join(master_dict %>% select(id, cardname), by = "id") %>%
     mutate(
-      type_simple = if_else(str_detect(listing_type, regex("AUCTION", ignore_case = TRUE)), "Auction", "Buy It Now"),
-      grade_val = replace_na(as.character(grade_val), "Ungraded"),
-      grading_company = replace_na(as.character(grading_company), "Ungraded"),
+      type_simple = if_else(str_detect(listing_type, regex("AUCTION", ignore_case = TRUE)), "Auction", "BIN"),
+      grade_val = replace_na(as.character(grade_val), "UNG"),
+      grading_company = replace_na(as.character(grading_company), "UNG"),
       date_pulled = as.character(date_pulled),
-      card_language = replace_na(as.character(card_language), "English") 
+      price_val = round(as.numeric(price_val), 2),
+      item_id = as.character(item_id) # Force character to prevent JS scientific notation
     ) %>%
-    select(item_id, cardname, rarity, set_name, date_pulled, price_val, grading_company, grade_val, type_simple, card_language) %>%
-    drop_na(cardname)
+    select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, type_simple)
 } else {
-  ebay_master <- data.frame(item_id=character(), cardname=character(), rarity=character(), set_name=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character(), card_language=character())
+  ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character())
 }
+
+
+# --- Process Titles Dictionary ---
+if(nrow(raw_ebay_titles) > 0) {
+  ebay_title_dict <- raw_ebay_titles %>%
+    mutate(
+      item_id = as.character(item_id),
+      listing_title = replace_na(as.character(listing_title), "Unknown Title")
+    )
+} else {
+  ebay_title_dict <- data.frame(item_id=character(), listing_title=character())
+}
+
 
 # --- Find Default Card ---
 top_card <- unified %>% drop_na(current_price) %>% arrange(desc(current_price)) %>% slice(1) %>% pull(cardname)
 if(length(top_card) == 0) top_card <- "Stitch - Carefree Surfer - Enchanted"
 
+
+
 # Transfer to JavaScript
 ojs_define(
   ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, 
-  ojs_info = unified, ojs_ebay = ebay_master,
-  ojs_cards = sort(unique(master_dict$cardname)), ojs_default_card = top_card
+  ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict,
+  ojs_cards = sort(unique(master_dict$cardname)), ojs_default_card = top_card,
+  ojs_metrics = backtest_metrics
 )
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
+
+// BROWSER DIAGNOSTICS: Check browser console (F12)
+{
+  console.log("--- OJS DIAGNOSTICS ---");
+  console.log("Raw object from R (ojs_ebay_titles):", ojs_ebay_titles);
+  
+  const debug_titles = ojs_ebay_titles ? transpose(ojs_ebay_titles) : [];
+  console.log("Transposed array length:", debug_titles.length);
+  
+  if (debug_titles.length > 0) {
+    console.log("Sample row 1:", debug_titles[0]);
+  }
+  console.log("-----------------------");
+}
+```
+
+
+```{ojs}
+//| echo: false
+//| output: false
+
+// Create a fast, memory-efficient lookup Map for titles
+ebay_title_map = {
+  const map = new Map();
+  
+  // Bulletproof mapping: Bypass transpose() entirely and extract columns directly
+  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
+    const ids = Array.from(ojs_ebay_titles.item_id);
+    const titles = Array.from(ojs_ebay_titles.listing_title);
+    
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] && titles[i]) {
+        map.set(String(ids[i]).trim(), titles[i]);
+      }
+    }
+  }
+  
+  return map;
+}
+
 // Initialize globally so all tabs can leverage eBay aggregations
 clean_ebay_master = transpose(ojs_ebay).map(d => {
-  // Strip out stray quotes from the DB that break string matching (e.g. "'PSA'" -> "PSA")
-  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "Ungraded";
-  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "Ungraded";
+  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
+  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
   
-  if (/^(NA|N\/A|NONE|NULL|UNG)$/i.test(rawComp)) rawComp = "Ungraded";
-  if (/^(NA|N\/A|NONE|NULL|UNG)$/i.test(rawGrade)) rawGrade = "Ungraded";
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
 
   let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
-  let cleanGrade = "Ungraded";
+  let cleanGrade = "UNG";
   
-  if (numMatch && rawGrade !== "Ungraded") {
+  if (numMatch && rawGrade !== "UNG") {
     let parsed = parseFloat(numMatch[0]);
     if (parsed > 0 && parsed <= 10) {
       cleanGrade = parsed.toString();
     }
   }
   
-  let cleanCompany = (cleanGrade === "Ungraded" || rawComp === "Ungraded") ? "Ungraded" : rawComp;
-  if (cleanCompany === "Ungraded") cleanGrade = "Ungraded";
+  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
+  if (cleanCompany === "UNG") cleanGrade = "UNG";
 
-  let label = cleanCompany === 'Ungraded' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
+  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
   
   return {
     ...d,
@@ -157,11 +279,10 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     grading_company: cleanCompany,
     clean_price: +d.price_val,
     label: label,
-    hover_text: `<b>${d.cardname}</b><br>${label} (${d.card_language || 'English'})<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+    hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
   };
 }).filter(d => {
    if (isNaN(d.clean_price) || d.clean_price <= 0) return false;
-   // Explicitly remove fake/messy decimal grades for PSA (PSA doesn't use .5)
    if (d.grading_company === "PSA" && String(d.grade_val).includes(".")) return false;
    return true;
 })
@@ -245,8 +366,11 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 
 # Market Overview {orientation="rows"}
 
+## Row {.flow}
+
 ::: {.callout-note appearance="minimal" icon="false"}
-## 📈 Understanding the Market Metrics
+**📈 Understanding the Market Metrics**
+
 * **7-Day Changes:** All percentage shifts and momentum categories represent a **7-day rolling window**. This captures actual weekly momentum rather than noisy day-to-day spikes.
 :::
 
@@ -317,7 +441,7 @@ movers_data = transpose(ojs_movers)
       ]
     });
 
-    wrapper.querySelector(`#back-${row.tcgplayer_id}`).appendChild(sparkline);
+    wrapper.querySelector('#back-' + row.tcgplayer_id).appendChild(sparkline);
     flex_target.appendChild(wrapper);
   });
 
@@ -326,8 +450,10 @@ movers_data = transpose(ojs_movers)
 ```
 
 ## Row {.flow}
+
 ::: {.callout-note appearance="minimal" icon="false"}
-## FUTURE PLANS 
+**FUTURE PLANS**
+
 * I am currently collecting eBay data on Lorcana listings (for both graded and ungraded). I plan to take a deep dive into these data and use them to feed the forecasting models AND to utilize them to assess proxies of demand, supply etc. 
 :::
 
@@ -346,11 +472,12 @@ Plotly = require("plotly.js-dist-min@2.30.0")
 {
   const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_metrics = typeof ojs_metrics !== 'undefined' ? transpose(ojs_metrics) : [];
+  
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   let raw_data = transpose(ojs_info).map(d => {
-    const c_hist = all_hist.filter(h => h.cardname === d.cardname);
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
     const cur_price = d.current_price || 0;
     
@@ -362,31 +489,16 @@ Plotly = require("plotly.js-dist-min@2.30.0")
     const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
     const g_pct = (g_pred !== null && cur_price > 0) ? ((g_pred - cur_price) / cur_price) * 100 : null;
     
-    function calc_mape(model_name) {
-      const shadows = c_fcst.filter(f => f.model === model_name && f.is_shadow);
-      if(shadows.length === 0) return null;
-      const runs = [...new Set(shadows.map(s => s.run_id))];
-      let total_err = 0; let valid_runs = 0;
-      runs.forEach(rid => {
-        const run_data = shadows.filter(s => s.run_id === rid).sort((a,b)=>a.date-b.date);
-        const day30_pred = run_data[run_data.length - 1]; 
-        let closest_hist = null; let min_diff = Infinity;
-        c_hist.forEach(h => {
-           const diff = Math.abs(h.date - day30_pred.date);
-           if(diff < min_diff && diff <= 2 * 24 * 60 * 60 * 1000) { min_diff = diff; closest_hist = h; }
-        });
-        if(closest_hist && closest_hist.price > 0) {
-           total_err += Math.abs((day30_pred.price - closest_hist.price) / closest_hist.price);
-           valid_runs++;
-        }
-      });
-      return valid_runs > 0 ? (total_err / valid_runs) * 100 : null;
-    }
+    // Pull the pre-calculated Day 30 Error for the table
+    const card_metrics = all_metrics.filter(m => m.tcgplayer_id === d.tcgplayer_id && m.horizon === 30);
+    const c_err = card_metrics.find(m => m.model === "Chronos");
+    const g_err = card_metrics.find(m => m.model === "GRU");
     
     return {
       ...d,
       c_pred_30d: c_pred, c_pct_30d: c_pct, g_pred_30d: g_pred, g_pct_30d: g_pct,
-      c_err_30d: calc_mape("Chronos"), g_err_30d: calc_mape("GRU")
+      c_err_30d: c_err ? c_err.mdape * 100 : null,
+      g_err_30d: g_err ? g_err.mdape * 100 : null
     };
   });
 
@@ -563,6 +675,7 @@ Plotly = require("plotly.js-dist-min@2.30.0")
       const cardname = tr.dataset.cardname; const price = parseFloat(tr.dataset.price);
       const card_info = raw_data.find(d => d.cardname === cardname);
       const img_src = card_info ? card_info.image_path : '';
+      
       const full_c_hist = all_hist.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
       const full_c_fcst = all_fcst.filter(d => d.cardname === cardname).sort((a,b)=>a.date-b.date);
       const c_hist = full_c_hist.filter(d => d.date >= t_ago && d.date <= t_fut);
@@ -586,12 +699,14 @@ Plotly = require("plotly.js-dist-min@2.30.0")
         </div>
       `;
 
+      // Set up Line Chart Traces (Live + Shadows)
       const last_m_pt = c_hist.length > 0 ? c_hist[c_hist.length - 1] : null;
       const link_m_c = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "Chronos", conf_low: last_m_pt.price, conf_high: last_m_pt.price } : null;
       const link_m_g = last_m_pt ? { date: last_m_pt.date, price: last_m_pt.price, model: "GRU" } : null;
+      
       const live_c = c_fcst.filter(d => d.model === "Chronos" && !d.is_shadow);
       const live_g = c_fcst.filter(d => d.model === "GRU" && !d.is_shadow);
-      const shadow = c_fcst.filter(d => d.is_shadow);
+      const shadow = c_fcst.filter(d => d.is_shadow); // Still contains the 35 shadows pulled via R
 
       const live_c_conn = link_m_c ? [link_m_c, ...live_c] : live_c;
       const live_g_conn = link_m_g ? [link_m_g, ...live_g] : live_g;
@@ -606,6 +721,7 @@ Plotly = require("plotly.js-dist-min@2.30.0")
         showlegend: false, hoverinfo: 'skip'
       } : null;
 
+      // Construct the Shadow Fan Traces
       const shadow_traces = Array.from(new Set(shadow.map(d => d.run_id))).map(rid => {
         const run_data = shadow.filter(d => d.run_id === rid);
         if(run_data.length === 0) return null;
@@ -624,43 +740,32 @@ Plotly = require("plotly.js-dist-min@2.30.0")
         showlegend: true, legend: { orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' }
       };
 
-      const build_error = (model_name, fcst_data, hist_data) => {
-         const shadow_data = fcst_data.filter(d => d.model === model_name && d.is_shadow);
-         const runs = [...new Set(shadow_data.map(d => d.run_id))];
-         let error_records = [];
-         runs.forEach(rid => {
-            let run_pts = shadow_data.filter(d => d.run_id === rid).sort((a,b) => a.date - b.date);
-            if(run_pts.length === 0) return;
-            let first_date = run_pts[0].date.getTime();
-            let anchor_pt = hist_data.filter(h => h.date.getTime() < first_date).sort((a,b) => b.date - a.date)[0];
-            let anchor_price = anchor_pt ? anchor_pt.price : null;
-            run_pts.forEach((pt, idx) => {
-               let actual_pt = hist_data.find(h => h.date.getTime() === pt.date.getTime());
-               if(actual_pt && anchor_price > 0 && actual_pt.price > 0) {
-                  error_records.push({ horizon: idx + 1, ape: Math.abs(pt.price - actual_pt.price) / actual_pt.price, naive_ape: Math.abs(anchor_price - actual_pt.price) / actual_pt.price });
-               }
-            });
-         });
-         let agg = [];
-         for(let h=1; h<=30; h++) {
-            let h_recs = error_records.filter(r => r.horizon === h);
-            if(h_recs.length > 0) {
-               let apes = h_recs.map(r => r.ape).sort((a,b)=>a-b);
-               let naives = h_recs.map(r => r.naive_ape).sort((a,b)=>a-b);
-               let mdape = apes.length % 2 !== 0 ? apes[Math.floor(apes.length/2)] : (apes[Math.floor(apes.length/2)-1] + apes[Math.floor(apes.length/2)])/2;
-               let n_mdape = naives.length % 2 !== 0 ? naives[Math.floor(naives.length/2)] : (naives[Math.floor(naives.length/2)-1] + naives[Math.floor(naives.length/2)])/2;
-               agg.push({ horizon: h, mdape: mdape, min: apes[0], max: apes[apes.length-1], naive: n_mdape, n: h_recs.length });
-            }
-         }
-         return agg;
+      // Set up Error Bar Chart Traces (Pre-calculated backend metrics!)
+      const c_tcg_id = card_info ? card_info.tcgplayer_id : null;
+      const metrics_data = all_metrics.filter(d => d.tcgplayer_id === c_tcg_id);
+
+      let err_c = metrics_data.filter(d => d.model === "Chronos").sort((a,b)=>a.horizon - b.horizon);
+      let err_g = metrics_data.filter(d => d.model === "GRU").sort((a,b)=>a.horizon - b.horizon);
+
+      const trace_base = err_c.length > 0 ? { 
+        x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive_mdape), 
+        type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', 
+        name: 'Naive Market Baseline', yaxis: 'y2', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' 
+      } : null;
+
+      const trace_err_c = { 
+        x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), 
+        type: 'bar', name: 'Chronos Error', marker: {color: '#fbbf24'}, 
+        customdata: err_c.map(d => [d.min_err, d.max_err, d.sample_size]), 
+        hovertemplate: '<b>Chronos: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' 
       };
 
-      let err_c = build_error("Chronos", full_c_fcst, full_c_hist);
-      let err_g = build_error("GRU", full_c_fcst, full_c_hist);
-
-      const trace_base = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive), type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', name: 'Naive Market Baseline', yaxis: 'y2', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' };
-      const trace_err_c = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos Error', marker: {color: '#fbbf24'}, customdata: err_c.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>Chronos: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
-      const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Error', marker: {color: '#22d3ee'}, customdata: err_g.map(d => [d.min, d.max, d.n]), hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' };
+      const trace_err_g = { 
+        x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), 
+        type: 'bar', name: 'GRU Error', marker: {color: '#22d3ee'}, 
+        customdata: err_g.map(d => [d.min_err, d.max_err, d.sample_size]), 
+        hovertemplate: '<b>GRU: %{y:.1%}</b><br>Min: %{customdata[0]:.1%} | Max: %{customdata[1]:.1%}<br>Samples: %{customdata[2]}<extra></extra>' 
+      };
 
       const layout_err = {
         height: 320, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter, sans-serif' },
@@ -684,7 +789,7 @@ Plotly = require("plotly.js-dist-min@2.30.0")
         if(err_c.length === 0 && err_g.length === 0) {
            target_err.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding-top: 50px;">Not enough historical backtesting data to calculate error yet. Model needs at least one full evaluation cycle.</div>';
         } else {
-           Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g], layout_err, {responsive: true, displayModeBar: false});
+           Plotly.newPlot(target_err, [trace_base, trace_err_c, trace_err_g].filter(Boolean), layout_err, {responsive: true, displayModeBar: false});
            Plotly.Plots.resize(target_err);
         }
       }, 50); 
@@ -776,7 +881,6 @@ Plot.plot({
 //| output: false
 // Extract distinct drop-down indices for table filters
 unique_sets_list = ["All Sets", ...new Set(transpose(ojs_info).map(d => d.set_name).filter(Boolean))].sort()
-unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => d.rarity).filter(Boolean))].sort()
 ```
 
 ```{ojs}
@@ -795,7 +899,8 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
       <div id="ebay-modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
       <div class="modal-controls-grid" id="modal-filter-anchor"></div>
       <div id="ebay-modal-bin-target" style="width: 100%; height: 400px; overflow: hidden; margin-bottom: 25px;"></div>
-      <div id="ebay-modal-auc-target" style="width: 100%; height: 400px; overflow: hidden;"></div>
+      <div id="ebay-modal-auc-target" style="width: 100%; height: 400px; overflow: hidden; margin-bottom: 25px;"></div>
+      <div id="ebay-modal-listings-target" style="width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; padding-top: 15px; border-top: 1px solid var(--border-subtle);"></div>
     </div>
   `;
   document.body.appendChild(eb_modal);
@@ -813,15 +918,11 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
     <div style="display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap;">
       <input type="text" id="eb-search" placeholder="🔍 Search card inventory..." style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; font-family: Inter;">
       <select id="eb-set-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
-      <select id="eb-rarity-select" style="padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter;"></select>
     </div>
   `;
 
   const setSel = controls.querySelector('#eb-set-select');
   unique_sets_list.forEach(s => { let opt = document.createElement("option"); opt.value = s; opt.text = s; setSel.appendChild(opt); });
-
-  const rarSel = controls.querySelector('#eb-rarity-select');
-  unique_rarities_list.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; rarSel.appendChild(opt); });
 
   const table_container = html`<div style="max-height: 700px; overflow-y: auto; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); width: 100%;"></div>`;
 
@@ -839,7 +940,6 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
   function executeRender() {
     const searchVal = controls.querySelector('#eb-search').value.toLowerCase();
     const setVal = setSel.value;
-    const rarityVal = rarSel.value;
 
     function getMedianAndCount(listings) {
         if(listings.length === 0) return { median: null, count: 0 };
@@ -879,15 +979,14 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
     let records = transpose(ojs_info).filter(d => {
       const matchQ = d.cardname.toLowerCase().includes(searchVal);
       const matchSet = (setVal === "All Sets" || d.set_name === setVal);
-      const matchRar = (rarityVal === "All Rarities" || d.rarity === rarityVal);
-      return matchQ && matchSet && matchRar;
+      return matchQ && matchSet;
     }).map(d => {
-      let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grade_val === "Ungraded" && e.card_language === "English");
+      let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "BIN" && e.label === "Ungraded");
       let raw_stats = getMedianAndCount(card_ebay_raw);
       let recent_ebay_med = raw_stats.median;
       let totalCount = raw_stats.count;
 
-      let card_ebay_psa = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "Buy It Now" && e.grading_company === "PSA" && e.grade_val === "10" && e.card_language === "English");
+      let card_ebay_psa = clean_ebay_master.filter(e => e.cardname === d.cardname && e.type_simple === "BIN" && e.label === "PSA 10");
       let psa_stats = getMedianAndCount(card_ebay_psa);
       let psa_10_med = psa_stats.median;
 
@@ -977,7 +1076,6 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
 
   controls.querySelector('#eb-search').addEventListener("input", executeRender);
   setSel.addEventListener("change", executeRender);
-  rarSel.addEventListener("change", executeRender);
 
   table_container.addEventListener("eb_sort", (e) => {
     if(eb_current_sort === e.detail) { eb_is_asc = !eb_is_asc; } 
@@ -1008,7 +1106,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
     let modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
     let modalCompanies = ["All", ...new Set(masterCardListings.map(d => d.grading_company))].sort();
     let modalGrades = [...new Set(masterCardListings.map(d => d.grade_val))].sort((a,b) => {
-       if(a === "Ungraded") return -1; if(b === "Ungraded") return 1; return parseFloat(a) - parseFloat(b);
+       if(a === "UNG") return -1; if(b === "UNG") return 1; return parseFloat(a) - parseFloat(b);
     });
 
     const filterAnchor = document.getElementById('modal-filter-anchor');
@@ -1019,7 +1117,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
       </div>
       <div class="modal-filter-box">
         <label>Grading Service</label>
-        <select id="m-comp">${modalCompanies.map(c => '<option value="' + c + '" ' + (c === 'Ungraded' ? 'selected' : '') + '>' + c + '</option>').join('')}</select>
+        <select id="m-comp">${modalCompanies.map(c => '<option value="' + c + '" ' + (c === 'UNG' ? 'selected' : '') + '>' + c + '</option>').join('')}</select>
       </div>
       <div class="modal-filter-box" style="grid-column: span 2;">
         <label>Condition / Grade Value Selection</label>
@@ -1046,6 +1144,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
 
       const bin_target = document.getElementById('ebay-modal-bin-target');
       const auc_target = document.getElementById('ebay-modal-auc-target');
+      const list_target = document.getElementById('ebay-modal-listings-target');
 
       const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
       const valid_dates = new Set(scopedListings.map(d => d.date_pulled));
@@ -1059,7 +1158,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
       active_labels.forEach((lbl, i) => { color_map[lbl] = color_palette[i % color_palette.length]; });
 
       // Build Buy It Now Plots with Plot-Specific 1.5x IQR Filter
-      let bin_data = scopedListings.filter(d => d.type_simple === "Buy It Now");
+      let bin_data = scopedListings.filter(d => d.type_simple === "BIN");
       let clean_bin_data = [];
       
       active_labels.forEach(lbl => {
@@ -1107,7 +1206,7 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
           traces.push({ x: meds.map(d => d.date), y: meds.map(d => d.med), mode: 'lines', name: lbl, legendgroup: lbl, line: {color: color_map[lbl], width: 3.5}, hovertemplate: '%{x}<br>Median: $%{y:.2f}<extra></extra>' });
         });
 
-        if (checkedGrades.includes("Ungraded") && tcg_data.length > 0) {
+        if (checkedGrades.includes("UNG") && tcg_data.length > 0) {
           traces.push({ x: tcg_data.map(d => d.date), y: tcg_data.map(d => d.price), mode: 'lines', name: 'TCGPlayer Market Baseline', line: {color: '#f8fafc', width: 2, dash: 'dot'}, hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>' });
         }
         Plotly.newPlot(bin_target, traces, { title: {text: 'Fixed Price Metrics', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, barmode: 'stack', xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: { title: 'Price ($)', gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero' }, yaxis2: { title: 'Supply Vol', overlaying: 'y', side: 'right', showgrid: false }, margin: {l:60, r:60, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
@@ -1148,6 +1247,62 @@ unique_rarities_list = ["All Rarities", ...new Set(transpose(ojs_info).map(d => 
         });
         Plotly.newPlot(auc_target, traces2, { title: {text: 'Auction Price Realization Trajectories', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'}, margin: {l:60, r:20, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
       }
+
+      // Title List Injection
+      function get7DayListings(listings) {
+          if(listings.length === 0) return [];
+          let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
+          let max_date_ms = new Date(max_date_str).getTime();
+          return listings.filter(e => {
+              return (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000);
+          });
+      }
+      
+      function getUniqueListings(listings) {
+          let map = new Map();
+          listings.forEach(item => {
+              if(!map.has(item.item_id)) {
+                  map.set(item.item_id, item);
+              } else {
+                  if (item.date_pulled > map.get(item.item_id).date_pulled) {
+                      map.set(item.item_id, item);
+                  }
+              }
+          });
+          return Array.from(map.values()).sort((a,b) => a.clean_price - b.clean_price);
+      }
+
+      let ungraded_raw = masterCardListings.filter(e => e.type_simple === "BIN" && e.label === "Ungraded");
+      let psa10_raw = masterCardListings.filter(e => e.type_simple === "BIN" && e.label === "PSA 10");
+      
+      let unique_ungraded = getUniqueListings(get7DayListings(ungraded_raw));
+      let unique_psa10 = getUniqueListings(get7DayListings(psa10_raw));
+
+      const buildListHTML = (title, items) => {
+          if(items.length === 0) return '<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle);"><h4 style="color:var(--accent-blue); margin-top:0; font-size:14px; text-transform:uppercase;">' + title + '</h4><p style="color:var(--text-muted); font-size:13px; margin:0;">No listings found in the 7-day window.</p></div>';
+          
+          let lis = items.map(item => {
+             // Force String and trim whitespace for guaranteed matching
+             let lookup_key = String(item.item_id).trim();
+             let actualTitle = ebay_title_map.get(lookup_key) || "Unknown Title";
+             let cleanTitle = actualTitle.replace(/"/g, '&quot;');
+             
+             return '<div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;">' +
+                 '<span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px; flex: 1;" title="' + cleanTitle + '">' + actualTitle + '</span>' +
+                 '<span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0; margin-top: 2px;">$' + item.clean_price.toFixed(2) + '</span>' +
+             '</div>';
+          }).join('');
+
+          return '<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 400px; overflow-y: auto;">' +
+              '<div style="position: sticky; top: -15px; background: var(--bg-base); z-index: 5; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle);">' +
+                '<h4 style="color:var(--accent-blue); margin:0; font-size:14px; text-transform:uppercase;">' + title + '</h4>' +
+                '<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sample Size: ' + items.length + ' Unique Listings</div>' +
+              '</div>' +
+              lis +
+          '</div>';
+      };
+
+      list_target.innerHTML = buildListHTML("Ungraded 7-Day Component Titles", unique_ungraded) + buildListHTML("PSA 10 7-Day Component Titles", unique_psa10);
     }
 
     filterAnchor.querySelector('#m-lang').addEventListener("change", renderModalCharts);
@@ -1206,7 +1361,8 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
 
 **Hurst Exponent (Momentum vs. Reversion)**
 * *What it means:* Tells us if a card is currently riding a consistent wave or if it's stuck in a rut.
-* *How to read it:* * **Near 0.5:** The price is wandering randomly.
+* *How to read it:*
+    * **Near 0.5:** The price is wandering randomly.
     * **Above 0.5:** The card has *Momentum*. If it's trending up, it will likely keep going up. 
     * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up suddenly, it will likely snap back down soon.
 

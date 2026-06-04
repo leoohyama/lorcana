@@ -51,3 +51,7 @@ jobs:
           commit_message: "📈 Auto-infer: Daily forecasts & residuals uploaded to Neon"
           file_pattern: 'data/*.csv'
           push_options: '--force'
+      - name: Calculate and Upload Backtest Metrics
+        env:
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: Rscript calculate_backtest_metrics.R
