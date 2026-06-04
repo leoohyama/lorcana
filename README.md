@@ -1,8 +1,14 @@
-<div align="center">
-<img width="405" height="260" alt="image" src="https://github.com/user-attachments/assets/c24a2f57-abf3-48d8-aebb-1e62bce11d41" />
-</div>
+<table>
+  <tr>
+    <td align="center" valign="middle">
+      <img width="250" alt="Lorecaster Logo" src="https://github.com/user-attachments/assets/c24a2f57-abf3-48d8-aebb-1e62bce11d41" />
+    </td>
+    <td valign="middle">
+      <h1>Lorecaster:<br>Lorcana Market Data Analysis & Forecasting</h1>
+    </td>
+  </tr>
+</table>
 
-# Lorecaster: Lorcana Market Data Analysis & Forecasting 
 
 <p align="center">
   <img src="https://img.shields.io/badge/R-276DC3?style=for-the-badge&logo=r&logoColor=white" alt="R" />
