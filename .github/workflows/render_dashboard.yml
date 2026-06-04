@@ -1,48 +1,49 @@
 name: Daily Dashboard Render
 
-on:
-  workflow_run:
-    # This listens for your MacBook to finish its ML job!
-    workflows: ["Daily Lorcana Market Inference"]
-    types:
-      - completed
-  
-  # Keep the manual button just in case
+on:  
+  workflow_run:    
+    # This listens for your MacBook to finish its ML job!    
+    workflows: ["Daily Lorcana Market Inference"]    
+    types:      
+      - completed    
+  # Keep the manual button just in case  
   workflow_dispatch: 
 
-jobs:
-  render-site:
-    runs-on: ubuntu-latest
-    # CRITICAL: Only render if the MacBook ML pipeline succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
-        with:
+jobs:  
+  render-site:    
+    runs-on: ubuntu-latest    
+    # CRITICAL: Only render if the MacBook ML pipeline succeeded    
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}    
+    
+    steps:      
+      - name: 📥 Checkout Repository        
+        uses: actions/checkout@v4        
+        with:          
           fetch-depth: 0
+          # Force checkout of the absolute latest main branch to prevent push conflicts
+          ref: main 
 
-      - name: 🛠️ Setup R
-        uses: r-lib/actions/setup-r@v2
-        with:
-          use-public-rspm: true 
+      - name: 🛠️ Setup R        
+        uses: r-lib/actions/setup-r@v2        
+        with:          
+          use-public-rspm: true       
 
-      - name: 📦 Install R Packages
-        run: install.packages(c("tidyverse", "DBI", "RPostgres"))
-        shell: Rscript {0}
+      - name: 📦 Install R Packages        
+        run: install.packages(c("tidyverse", "DBI", "RPostgres"))        
+        shell: Rscript {0}      
 
-      - name: 📝 Setup Quarto
-        uses: quarto-dev/quarto-actions/setup@v2
+      - name: 📝 Setup Quarto        
+        uses: quarto-dev/quarto-actions/setup@v2      
 
-      - name: 📊 Render Dashboard
-        env:
-          # Give Quarto access to Neon to pull the fresh data
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
-        run: quarto render index.qmd
+      - name: 📊 Render Dashboard        
+        env:          
+          # Give Quarto access to Neon to pull the fresh data          
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}        
+        run: quarto render index.qmd      
 
-      - name: 🚀 Commit and Push
-        # Using the exact same auto-commit action you already trust
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"
+      - name: 🚀 Commit and Push        
+        # Using the exact same auto-commit action you already trust        
+        uses: stefanzweifel/git-auto-commit-action@v5        
+        with:          
+          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"          
           file_pattern: 'docs/*'
