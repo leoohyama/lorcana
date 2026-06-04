@@ -5,6 +5,7 @@ format:
     theme: darkly
     scrolling: true
     orientation: columns
+    include-in-header: google-analytics.html
 execute:
   echo: false
   warning: false
