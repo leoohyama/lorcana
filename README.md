@@ -176,6 +176,7 @@ To bridge the gap between academic model evaluation and real-world deployment, t
 
 ## Project Roadmap & To-Dos
 - [ ] **Blue Chip Index:** Develop a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
+- [ ] **Modularize index.qmd
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
 
 ## Project changelog (significant change logs)
