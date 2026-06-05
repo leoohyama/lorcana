@@ -802,76 +802,7 @@ Plotly = require("plotly.js-dist-min@2.30.0")
 }
 ```
 
-# Long-term Trends
 
-## Sidebar {.sidebar}
-
-```{ojs}
-//| echo: false
-//| output: false
-safe_default_card = Array.isArray(ojs_default_card) ? ojs_default_card[0] : ojs_default_card;
-```
-
-```{ojs}
-//| echo: false
-viewof selected_card = Inputs.select(ojs_cards, { value: safe_default_card, label: "Select a Card:" })
-viewof show_ci = Inputs.toggle({label: "Show Confidence Interval", value: false})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-my_hist = transpose(ojs_hist).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
-my_fcst = transpose(ojs_forecast).filter(d => d.cardname === selected_card).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") })).sort((a, b) => a.date - b.date)
-live_fcst = my_fcst.filter(d => d.is_shadow === false)
-my_info = transpose(ojs_info).find(d => d.cardname === selected_card) || {}
-current_price = my_hist.length > 0 ? my_hist[my_hist.length - 1].price : 0
-
-last_hist_pt = my_hist.length > 0 ? my_hist[my_hist.length - 1] : null;
-link_c = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "Chronos", conf_low: last_hist_pt.price, conf_high: last_hist_pt.price } : null;
-link_g = last_hist_pt ? { date: last_hist_pt.date, price: last_hist_pt.price, model: "GRU" } : null;
-live_fcst_conn = [...(link_c ? [link_c] : []), ...(link_g ? [link_g] : []), ...live_fcst];
-```
-
-```{ojs}
-//| echo: false
-html`
-<div style="background: var(--bg-card); border-radius: 12px; padding: 18px; border: 1px solid var(--border-subtle); text-align: center; margin-top: 15px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);">
-  <img src="${my_info.image_path}" style="width:100%; max-width: 250px; border-radius:8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); margin-bottom: 15px;">
-  <div style="font-size:14px; font-weight: 600; color:var(--text-main); margin-bottom: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">${my_info.cardname}</div>
-  <div style="font-size: 26px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 15px;">$${current_price.toFixed(2)}</div>
-  
-  <div style="font-size: 13px; font-weight: 700; color: var(--accent-blue); margin-top: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px; text-align: left; text-transform: uppercase; letter-spacing: 0.5px;">30-Day Risk Metrics</div>
-  <div style="font-size: 13px; color: var(--text-main); line-height: 1.8; padding-top: 8px; text-align: left;">
-    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Entropy: </span> <span style="font-family: monospace;">${my_info.samp_ent_30d ? my_info.samp_ent_30d.toFixed(3) : "N/A"}</span></div>
-    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Hurst Exp: </span> <span style="font-family: monospace;">${my_info.hurst_30d ? my_info.hurst_30d.toFixed(3) : "N/A"}</span></div>
-    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Vol (CV): </span> <span style="font-family: monospace;">${my_info.cv_30d ? my_info.cv_30d.toFixed(3) : "N/A"}</span></div>
-    <div style="display: flex; justify-content: space-between;"><span style="color:var(--text-muted);">Skew: </span> <span style="font-family: monospace;">${my_info.skewness_30d ? my_info.skewness_30d.toFixed(3) : "N/A"}</span></div>
-  </div>
-</div>
-`
-```
-
-## Column
-
-```{ojs}
-//| echo: false
-//| title: "Macro View: All-Time History & Long Term Forecast"
-Plot.plot({
-  height: 450,
-  style: { background: "var(--bg-card)", color: "var(--text-main)", fontFamily: "Inter", fontSize: "14px", borderRadius: "12px", padding: "10px" },
-  marginLeft: 75, marginRight: 40, marginTop: 20, marginBottom: 40, grid: true,
-  x: { type: "time", label: "Date" },
-  y: { tickFormat: "$.2f", label: "Market Price", ticks: 6 },
-  color: { domain: ["Chronos", "GRU"], range: ["#fbbf24", "#22d3ee"] },
-  marks: [
-    show_ci ? Plot.areaY(live_fcst_conn.filter(d => d.model === "Chronos"), { x: "date", y1: "conf_low", y2: "conf_high", fill: "#fbbf24", fillOpacity: 0.15 }) : null,
-    Plot.lineY(live_fcst_conn, { x: "date", y: "price", stroke: "model", strokeWidth: 2.5, strokeDasharray: d => d.model === "Chronos" ? "4 4" : "2 2", tip: true }),
-    Plot.lineY(my_hist, { x: "date", y: "price", stroke: "#f8fafc", strokeWidth: 2.5, tip: true }),
-    Plot.dot(my_hist, Plot.selectLast({ x: "date", y: "price", fill: "#f8fafc", r: 5 }))
-  ]
-})
-```
 
 # eBay Listings {orientation="rows"}
 
