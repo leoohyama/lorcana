@@ -1311,6 +1311,8 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
 * *How to read it:* We force the AI to predict prices for historical dates it already knows, and then grade its accuracy. If the Chronos Acc says `±5.2%`, it means that historically, the Chronos model's 30-day forecast for this specific card is reliably within 5.2% of the actual outcome.
 
 # Support the Project!
+
+```{=html}
 <div class="support-card">
   <h2 style="color: var(--accent-blue); font-weight: 800; margin-bottom: 20px;">Keep Lorecaster Running</h2>
   
@@ -1326,7 +1328,7 @@ If you are looking at the **Long-term Trends** sidebar or the **Price Forecasts*
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-<a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
-  <span style="font-size: 18px;">☕ Support on Ko-fi</span>
-</a>
+  <a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+    <span style="font-size: 18px;">☕ Support on Ko-fi</span>
+  </a>
 </div>
