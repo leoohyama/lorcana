@@ -14,7 +14,7 @@ ask_gemma_json <- function(target_card, ebay_title) {
     "You are a strict data extraction assistant for Disney Lorcana TCG. ",
     "Analyze the eBay title against the target card name and output ONLY a valid JSON object. Do not include markdown formatting.\n\n",
     "RULES:\n",
-    "1. 'validity': 'Match' ONLY if the title represents the Character Name and Subtitle of the target card. 'No Match' if it is a different version/subtitle, proxy, digital code, or empty box.\n",
+    "1. 'validity': 'Match' ONLY if the title represents the Character Name and Subtitle of the target card. 'No Match' if it is a different version/subtitle, proxy, digital code, empty box or if title contains words like playmat or play mat.\n",
     "2. COLLECTOR NUMBERS: The target card ends with a number. It is still a 'Match' if the eBay title formats it differently or omits it entirely, as long as the names match.\n",
     "3. 'is_graded': true or false. STRICT RULE: Set to false if the title implies the card *could* be graded but isn't currently (e.g., 'worthy', 'ready', 'candidate', 'potential').\n",
     "4. 'grading_company': Extract company ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
@@ -108,7 +108,7 @@ dbExecute(con, create_table_query)
 # ==========================================
 # Set this to TRUE to wipe the existing table and re-process everything from scratch.
 # Once wiped, if the script is interrupted, you can set it to FALSE to resume the queue.
-force_full_rerun <- FALSE
+force_full_rerun <- TRUE
 
 if(force_full_rerun) {
   print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
