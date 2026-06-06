@@ -108,7 +108,7 @@ dbExecute(con, create_table_query)
 # ==========================================
 # Set this to TRUE to wipe the existing table and re-process everything from scratch.
 # Once wiped, if the script is interrupted, you can set it to FALSE to resume the queue.
-force_full_rerun <- TRUE
+force_full_rerun <- FALSE
 
 if(force_full_rerun) {
   print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
