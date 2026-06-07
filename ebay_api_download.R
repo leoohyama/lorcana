@@ -58,51 +58,77 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   )
 
   fetch_and_parse <- function(query_params, source_name) {
-    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION}"
+    # 1. FIX: Push price filtering to the API so cheap cards don't waste your payload limits
+    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION},price:[20.00..]"
+    query_params$limit <- 200 # Max allowed per page
     
-    res <- GET(
-      "https://api.ebay.com/buy/browse/v1/item_summary/search",
-      query = query_params,
-      add_headers(
-        "Authorization" = paste("Bearer", token),
-        "X-EBAY-C-MARKETPLACE-ID" = "EBAY_US"
-      )
-    )
+    all_pages <- list()
+    offset <- 0
+    max_items <- 10000 # eBay API hard limit for browse searches
     
-    if (status_code(res) == 200) {
-      data <- fromJSON(content(res, "text", encoding = "UTF-8"))
-      if (data$total > 0 && !is.null(data$itemSummaries)) {
-        items <- data$itemSummaries
-        
-        p_fixed <- if ("price" %in% names(items)) items$price$value else rep(NA_character_, nrow(items))
-        p_bid   <- if ("currentBidPrice" %in% names(items)) items$currentBidPrice$value else rep(NA_character_, nrow(items))
-        p_combined <- coalesce(as.character(p_fixed), as.character(p_bid))
-        
-        raw_opts <- if ("buyingOptions" %in% names(items)) items$buyingOptions else NULL
-        l_type <- if (!is.null(raw_opts)) map_chr(raw_opts, ~ paste(.x, collapse = ", ")) else rep("UNKNOWN", nrow(items))
-        
-        df <- tibble(
-          item_id       = items$itemId,
-          listing_title = items$title,
-          price_val     = as.numeric(str_remove_all(p_combined, "[^0-9.]")),
-          item_url      = items$itemWebUrl,
-          is_graded     = str_detect(tolower(items$title), "psa|cgc|bgs|sgc|grade|graded|slab"),
-          pull_source   = source_name,
-          listing_type  = l_type,
-          posted_date   = if ("itemCreationDate" %in% names(items)) substr(items$itemCreationDate, 1, 10) else NA_character_
+    # 2. FIX: Implement pagination to capture all possible data beyond the first 200
+    repeat {
+      query_params$offset <- offset
+      
+      res <- GET(
+        "https://api.ebay.com/buy/browse/v1/item_summary/search",
+        query = query_params,
+        add_headers(
+          "Authorization" = paste("Bearer", token),
+          "X-EBAY-C-MARKETPLACE-ID" = "EBAY_US"
         )
-        return(df)
+      )
+      
+      if (status_code(res) != 200) break
+      
+      data <- fromJSON(content(res, "text", encoding = "UTF-8"))
+      
+      # Break if no results or total is 0
+      if (is.null(data$total) || data$total == 0 || is.null(data$itemSummaries)) break
+      
+      items <- data$itemSummaries
+      
+      p_fixed <- if ("price" %in% names(items)) items$price$value else rep(NA_character_, nrow(items))
+      p_bid   <- if ("currentBidPrice" %in% names(items)) items$currentBidPrice$value else rep(NA_character_, nrow(items))
+      p_combined <- coalesce(as.character(p_fixed), as.character(p_bid))
+      
+      raw_opts <- if ("buyingOptions" %in% names(items)) items$buyingOptions else NULL
+      l_type <- if (!is.null(raw_opts)) map_chr(raw_opts, ~ paste(.x, collapse = ", ")) else rep("UNKNOWN", nrow(items))
+      
+      df <- tibble(
+        item_id       = items$itemId,
+        listing_title = items$title,
+        price_val     = as.numeric(str_remove_all(p_combined, "[^0-9.]")),
+        item_url      = items$itemWebUrl,
+        is_graded     = str_detect(tolower(items$title), "psa|cgc|bgs|sgc|grade|graded|slab"),
+        pull_source   = source_name,
+        listing_type  = l_type,
+        posted_date   = if ("itemCreationDate" %in% names(items)) substr(items$itemCreationDate, 1, 10) else NA_character_
+      )
+      
+      all_pages[[length(all_pages) + 1]] <- df
+      
+      # Check if we've hit the end of results
+      if (is.null(data$`next`) || (offset + 200) >= data$total || (offset + 200) >= max_items) {
+        break
       }
+      
+      offset <- offset + 200
+      Sys.sleep(0.3) # Slight delay to respect rate limits during pagination
     }
-    return(template)
+    
+    if (length(all_pages) == 0) return(template)
+    return(bind_rows(all_pages))
   }
   
   api_name <- str_replace_all(card_name, "-", " ") %>% str_squish()
-  search_string <- paste0("Lorcana ", "\"", api_name, "\"") 
   
-  text_results <- fetch_and_parse(list(q = search_string, limit = 200), "Text")
+  # 3. FIX: Add negative exclusions directly to the eBay query to filter out obvious junk early
+  search_string <- paste0("Lorcana ", "\"", api_name, "\" -case -box -proxy -replica -wafer -custom") 
+  
+  text_results <- fetch_and_parse(list(q = search_string), "Text")
   epid_results <- if (!is.na(epid_code) && epid_code != "") {
-    fetch_and_parse(list(epid = epid_code, limit = 200), "EPID")
+    fetch_and_parse(list(epid = epid_code), "EPID")
   } else {
     template
   }
@@ -118,8 +144,8 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
     raw_v_keys <- str_split(tolower(str_replace_all(version, "[[:punct:]]", " ")), "\\s+")[[1]]
     version_keys <- raw_v_keys[nchar(raw_v_keys) > 3] 
 
-    # 2. Blacklist
-    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer"
+    # 2. Local Blacklist (keeping this as a secondary strict local filter)
+    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat"
 
     # 3. Vectorized Filter Logic
     final_df <- combined_unique %>% 
@@ -140,9 +166,9 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       ) %>%
       filter(
         pass_name,
+        # Trust EPID totally; otherwise, strictly require rarity + (number OR version)
         (pull_source == "EPID") | (has_rarity & (has_num | has_ver)),
-        !str_detect(lower_title, blacklist),
-        !is.na(price_val) & price_val >= 20.00
+        !str_detect(lower_title, blacklist)
       ) %>%
       select(-lower_title, -pass_name, -has_rarity, -has_num, -has_ver)
     
