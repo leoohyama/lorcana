@@ -1,285 +1,285 @@
 ,id,tcgplayer_id,name,version,set_name,rarity,released_at,cost,inkwell,ink_clean,epid,collector_number
-1,crd_a9c86e6316084d76a03b32be95977091,510148,Hades,King of Olympus,The First Chapter,Enchanted,8/18/23,8,FALSE,Amber,19072736900,205
-2,crd_35c968e4b25945e897940860221f9d51,510152,Stitch,Carefree Surfer,The First Chapter,Enchanted,8/18/23,7,TRUE,Amber,23072744342,206
-3,crd_cbc18e77d7ec4d50bf19650a9a559686,510153,Elsa,Spirit of Winter,The First Chapter,Enchanted,8/18/23,8,FALSE,Amethyst,18072744837,207
-4,crd_5739e1f6076840cd901a1bc283ca6e96,510154,Mickey Mouse,Wayward Sorcerer,The First Chapter,Enchanted,8/18/23,4,TRUE,Amethyst,12072723059,208
-5,crd_ae7e91462bfc4861bbf97e99ed53a1c1,510155,Genie,On the Job,The First Chapter,Enchanted,8/18/23,6,FALSE,Emerald,19072736956,209
-6,crd_1a8604b7ba6c45e2bc8b32b0a70d08b5,510156,Mickey Mouse,Artful Rogue,The First Chapter,Enchanted,8/18/23,7,FALSE,Emerald,18072744866,210
-7,crd_7c621010e3e6471d9916eee4bcd0b11d,510157,Aladdin,Heroic Outlaw,The First Chapter,Enchanted,8/18/23,7,TRUE,Ruby,27072739595,211
-8,crd_f839f8a7cb9a47ae962503f3ea69bec5,510158,Maui,Hero to All,The First Chapter,Enchanted,8/18/23,5,TRUE,Ruby,3072738592,212
-9,crd_72fe56f4aa85484284d8e3632d06ad9b,510159,Aurora,Dreaming Guardian,The First Chapter,Enchanted,8/18/23,5,TRUE,Sapphire,16072725824,213
-10,crd_021c1d57c42d4fb7836097cbe9eacfb7,510161,Belle,Strange but Special,The First Chapter,Enchanted,8/18/23,4,TRUE,Sapphire,19072736939,214
-11,crd_80cf71e223cf491796609458b2866665,510162,Simba,Returned King,The First Chapter,Enchanted,8/18/23,7,TRUE,Steel,18072744888,215
-12,crd_b42271147bf14a5e89d33571e64abb6d,510163,Tinker Bell,Giant Fairy,The First Chapter,Enchanted,8/18/23,6,TRUE,Steel,27072739647,216
-13,crd_4cf391db31ba468f948bad5a20b0bc16,527802,Cinderella,Ballroom Sensation,Rise of the Floodborn,Enchanted,11/17/23,1,TRUE,Amber,18072744875,205
-14,crd_e97e4b9894fe4c9798b0d925092d3eea,527799,Snow White,Well Wisher,Rise of the Floodborn,Enchanted,11/17/23,6,FALSE,Amber,19072736914,206
-15,crd_19431b87131547d98fef8a693077a77e,527797,Arthur,Wizard's Apprentice,Rise of the Floodborn,Enchanted,11/17/23,3,FALSE,Amethyst,18072744891,207
-16,crd_26dd3cd037974467a3c4078d58f4ae25,528107,Madam Mim,Purple Dragon,Rise of the Floodborn,Enchanted,11/17/23,7,TRUE,Amethyst,22072735420,208
-17,crd_67714955a33e4508913f44b8ccb08e5c,528108,Pete,Bad Guy,Rise of the Floodborn,Enchanted,11/17/23,5,TRUE,Emerald,23072744410,209
-18,crd_458325805fc445799aabfe4c4046f89b,527800,Beast,Relentless,Rise of the Floodborn,Enchanted,11/17/23,6,TRUE,Emerald,25072727226,210
-19,crd_e08d7a85c4e84f1e83a7521ff9c15a89,528109,Lady Tremaine,Imperious Queen,Rise of the Floodborn,Enchanted,11/17/23,6,FALSE,Ruby,8072737745,211
-20,crd_9c3f1e9961584a3ca4c8c32241d25d0b,528110,Shere Khan,Menacing Predator,Rise of the Floodborn,Enchanted,11/17/23,3,TRUE,Ruby,18072744902,212
-21,crd_3f0711ce8e06486a8bde68218e75d360,528111,Alice,Growing Girl,Rise of the Floodborn,Enchanted,11/17/23,3,TRUE,Sapphire,21072745388,213
-22,crd_f9edf9a591974716b2d7f02764f93737,528112,Sisu,Divine Water Dragon,Rise of the Floodborn,Enchanted,11/17/23,4,FALSE,Sapphire,28072746928,214
-23,crd_42ef053d7aab445fa7b0a2bf2e028864,528113,Hercules,Divine Hero,Rise of the Floodborn,Enchanted,11/17/23,6,TRUE,Steel,28072746950,215
-24,crd_8b02499c992945e2990cb669d7468256,527798,Namaari,Morning Mist,Rise of the Floodborn,Enchanted,11/17/23,4,FALSE,Steel,20072735565,216
-25,crd_7a288d030d1a471fbb818ccfdddc6052,539156,Chernabog,Evildoer,Into the Inklands,Enchanted,2/23/24,10,FALSE,Amber,15072740119,205
-26,crd_ae42b2ab4e074f3e91c29d4ba2c3e601,539273,Kida,Protector of Atlantis,Into the Inklands,Enchanted,2/23/24,5,TRUE,Amber,14072726714,206
-27,crd_bbb647e1cbe3487baa2ad65b27a999ba,539157,Pride Lands,Pride Rock,Into the Inklands,Enchanted,2/23/24,2,FALSE,Amber,22072735446,207
-28,crd_3ecab24376cb4cd5989309e000f797c1,539158,Jafar,Striking Illusionist,Into the Inklands,Enchanted,2/23/24,7,TRUE,Amethyst,22072735435,208
-29,crd_40690491af114f2e810a6fd1c6ddcafa,539159,Maleficent,Mistress of All Evil,Into the Inklands,Enchanted,2/23/24,5,TRUE,Amethyst,25072727170,209
-30,crd_5a2ba6e63b07496d96a17d2565b2a1db,539162,The Sorcerer's Hat,NA,Into the Inklands,Enchanted,2/23/24,2,TRUE,Amethyst,4072738313,210
-31,crd_2e1d43823fc642549ba92787523ce17f,539163,Morph,Space Goo,Into the Inklands,Enchanted,2/23/24,2,TRUE,Emerald,18072744894,211
-32,crd_7c5be60911d844b48189f3a042abdcfa,539164,Ursula,Deceiver of All,Into the Inklands,Enchanted,2/23/24,3,TRUE,Emerald,11072724753,212
-33,crd_a1af7dad15b64d31a696f7bbb49bfe92,539165,Kuzco's Palace,Home of the Emperor,Into the Inklands,Enchanted,2/23/24,3,TRUE,Emerald,9072730704,213
-34,crd_266d7d17b42a44be9472057e4e6dd1b1,539166,Captain Hook,Master Swordsman,Into the Inklands,Enchanted,2/23/24,5,TRUE,Ruby,11072724759,214
-35,crd_b5e74b533270492982dff9472aee8664,539274,Peter Pan,Pirate's Bane,Into the Inklands,Enchanted,2/23/24,6,TRUE,Ruby,26072745232,215
-36,crd_7c421033c14c40e7a5be957ba42bb1b7,539167,RLS Legacy,Solar Galleon,Into the Inklands,Enchanted,2/23/24,4,FALSE,Ruby,6072751794,216
-37,crd_7ad03b4873f042bcae4da820a7061ba4,539275,Gramma Tala,Spirit of the Ocean,Into the Inklands,Enchanted,2/23/24,7,TRUE,Sapphire,25072727238,217
-38,crd_ee9f19ba64f54bf78ba3cf40e0cac256,539168,Scrooge McDuck,Richest Duck in the World,Into the Inklands,Enchanted,2/23/24,5,FALSE,Sapphire,22072735383,218
-39,crd_c9f08696c3cd44bf96e2a149bb3cfb12,539169,Belle's House,Maurice's Workshop,Into the Inklands,Enchanted,2/23/24,1,TRUE,Sapphire,14072726775,219
-40,crd_51bf217683f54e1bb4e6835392851031,539276,Mickey Mouse,Trumpeter,Into the Inklands,Enchanted,2/23/24,4,FALSE,Steel,5072746177,220
-41,crd_0a9db863f78c46429d3f1835d046bb2e,539171,Robin Hood,Champion of Sherwood,Into the Inklands,Enchanted,2/23/24,5,TRUE,Steel,11072724752,221
-42,crd_0bd8f734ff064b3881191b916f8354cf,539173,And Then Along Came Zeus,NA,Into the Inklands,Enchanted,2/23/24,4,FALSE,Steel,10072748142,222
-43,crd_eaf7db4a652b47939bddb0db4c9030e9,550544,Cinderella,Melody Weaver,Ursula's Return,Enchanted,5/17/24,5,TRUE,Amber,7072748517,205
-44,crd_b20587f1945e42d59b750f9b69cc4a6b,550537,Minnie Mouse,Musketeer Champion,Ursula's Return,Enchanted,5/17/24,5,FALSE,Amber,26072745221,206
-45,crd_7bd65d4574434dd3ba908203c8cea774,550718,Look at This Family,NA,Ursula's Return,Enchanted,5/17/24,7,TRUE,Amber,8072737753,207
-46,crd_68c45595c25041f3bcf2073a5b533edd,550844,Ursula,Sea Witch Queen,Ursula's Return,Enchanted,5/17/24,7,TRUE,Amethyst,13072732590,208
-47,crd_34dd94ad32194a96931c9e2ff311ad26,550538,Yen Sid,Powerful Sorcerer,Ursula's Return,Enchanted,5/17/24,2,TRUE,Amethyst,4072738335,209
-48,crd_45acf301d7e2469fb961cc1f06bd2889,551943,Second Star to the Right,NA,Ursula's Return,Enchanted,5/17/24,10,FALSE,Amethyst,25072727184,210
-49,crd_93ab5d88940f4610a375a928963a570f,550535,Diablo,Devoted Herald,Ursula's Return,Enchanted,5/17/24,3,FALSE,Emerald,6072751826,211
-50,crd_54e413e671dc4fa3872b3481db960d47,551944,Jasmine,Desert Warrior,Ursula's Return,Enchanted,5/17/24,5,FALSE,Emerald,15072740113,212
-51,crd_3694abe0d09349ca9dbef6861ea42f5a,550541,We Don't Talk About Bruno,NA,Ursula's Return,Enchanted,5/17/24,5,TRUE,Emerald,10072748077,213
-52,crd_3088ee50256240d0b22c045f593df9a8,550542,Goofy,Super Goof,Ursula's Return,Enchanted,5/17/24,4,TRUE,Ruby,26072745280,214
-53,crd_d0714091b2a14f478e2d7704c8eb50d8,550839,Sisu,Empowered Sibling,Ursula's Return,Enchanted,5/17/24,8,FALSE,Ruby,13072732634,215
-54,crd_016db7e8b21348aca4b407fb6d2ce26d,550838,Snuggly Duckling,Disreputable Pub,Ursula's Return,Enchanted,5/17/24,2,TRUE,Ruby,19072736907,216
-55,crd_6155d5f7f7da4f3da02d755d51f10fa7,550674,Anna,True-Hearted,Ursula's Return,Enchanted,5/17/24,4,TRUE,Sapphire,23072744408,217
-56,crd_20f6a0577b714cf393648a074b1f0bb2,550540,The Queen,Diviner,Ursula's Return,Enchanted,5/17/24,3,TRUE,Sapphire,26072745238,218
-57,crd_79195cfde0ae4948894c37bef02d9e6f,550719,Ariel’s Grotto,A Secret Place,Ursula's Return,Enchanted,5/17/24,2,TRUE,Sapphire,12072723162,219
-58,crd_94501fb9ecad49e9a81cd51f7c31dac7,550549,Ariel,Sonic Warrior,Ursula's Return,Enchanted,5/17/24,6,TRUE,Steel,12072723167,220
-59,crd_8ac9f95c19af4213b7c6aed341965206,550721,Piglet,Sturdy Swordsman,Ursula's Return,Enchanted,5/17/24,5,FALSE,Steel,13072732630,221
-60,crd_ae2a969b746542268ff0bcfc735ea367,550536,The Wall,Border Fortress,Ursula's Return,Enchanted,5/17/24,4,TRUE,Steel,20072735583,222
-61,crd_74f050d47ef34391ba29b8c521450dac,561993,Prince Naveen,Ukulele Player,Shimmering Skies,Enchanted,8/9/24,4,FALSE,Amber,8079581877,205
-62,crd_6d0b490fddd34aab828b26cb90a827d6,561992,Vanellope von Schweetz,Sugar Rush Princess,Shimmering Skies,Enchanted,8/9/24,4,TRUE,Amber,13072732533,206
-63,crd_d7a644695e604c958aee5d0ba8fa8415,561979,Revive,NA,Shimmering Skies,Enchanted,8/9/24,5,FALSE,Amber,8072737763,207
-64,crd_cb38cec5fa8e49139bb0377111d6d048,561977,Archimedes,Electrified Owl,Shimmering Skies,Enchanted,8/9/24,5,TRUE,Amethyst,19072736911,208
-65,crd_19b1f802f23a4673aac60e04df0fb2ba,561994,Olaf,Happy Passenger,Shimmering Skies,Enchanted,8/9/24,9,FALSE,Amethyst,22072735439,209
-66,crd_ae57eb31413644379c43ec4208a4023b,561982,Finders Keepers,NA,Shimmering Skies,Enchanted,8/9/24,5,TRUE,Amethyst,6072751757,210
-67,crd_8dbe711cfb4541309eb32cf37fe48997,561991,Clarabelle,Light on Her Hooves,Shimmering Skies,Enchanted,8/9/24,7,TRUE,Emerald,20072735556,211
-68,crd_e382f2cee40343d7ae3faed897045a66,561980,Scar,Vengeful Lion,Shimmering Skies,Enchanted,8/9/24,4,TRUE,Emerald,2343783522,212
-69,crd_f799b47b4b894912a8d83942d0fa4d22,561983,You're Welcome,NA,Shimmering Skies,Enchanted,8/9/24,4,TRUE,Emerald,18072744829,213
-70,crd_306fb0ac65b44f289a2cbacac51ba9fe,559716,Donald Duck,Pie Slinger,Shimmering Skies,Enchanted,8/9/24,5,TRUE,Ruby,22072735491,214
-71,crd_d08869cde8294b0b9f73d0f7192e2335,561984,Robin Hood,Sharpshooter,Shimmering Skies,Enchanted,8/9/24,4,FALSE,Ruby,14072726727,215
-72,crd_4690391667a14f42a7df8ef76771703d,562000,Ratigan's Party,Seedy Back Room,Shimmering Skies,Enchanted,8/9/24,2,TRUE,Ruby,3072738674,216
-73,crd_ca78ff510359490a862b871b577a5fec,562021,Mufasa,Ruler of Pride Rock,Shimmering Skies,Enchanted,8/9/24,8,FALSE,Sapphire,12072723070,217
-74,crd_9c2a04a39aee4b989bf2b1f18bf923ba,561995,King Candy,Sweet Abomination,Shimmering Skies,Enchanted,8/9/24,5,FALSE,Sapphire,3072738613,218
-75,crd_ae4635bbf7ef4b4fb6a30c61f633fa0d,561976,Royal Tantrum,NA,Shimmering Skies,Enchanted,8/9/24,4,FALSE,Sapphire,5072746163,219
-76,crd_222e3894d8c04d2899b047a97912b5c6,562007,Snow White,Fair-Hearted,Shimmering Skies,Enchanted,8/9/24,5,FALSE,Steel,23072744404,220
-77,crd_ad336bbf94b74813aa25312a57af4525,561981,Arthur,King Victorious,Shimmering Skies,Enchanted,8/9/24,7,FALSE,Steel,24072730741,221
-78,crd_c88d044f605440a29cbf41b7cdc7d340,561978,Bad-Anon,Villain Support Center,Shimmering Skies,Enchanted,8/9/24,3,TRUE,Steel,3072738673,222
-79,crd_248b8f0ae7a84f368e48086307f50ff7,634261,Jafar,High Sultan of Lorcana,Promo Set 2,Enchanted,8/9/24,5,FALSE,Amethyst Steel,16072725842,33
-80,crd_c1cd26316f4948a382770ffb29440699,592030,Chip 'n' Dale,Recovery Rangers,Azurite Sea,Enchanted,11/15/24,8,FALSE,Amber,16072725813,205
-81,crd_4dfb12a1e5844317a783074a548bc8c7,592031,Tiana,Restaurant Owner,Azurite Sea,Enchanted,11/15/24,3,FALSE,Amber,15072740072,206
-82,crd_60630688715e45079236d447087a9a83,592001,Sugar Rush Speedway,Finish Line,Azurite Sea,Enchanted,11/15/24,2,FALSE,Amber,9072730723,207
-83,crd_d5432572fd3d4dfc95b01b682c71943c,592032,Rafiki,Ethereal Guide,Azurite Sea,Enchanted,11/15/24,9,FALSE,Amethyst,8072737780,208
-84,crd_b8f5f89ae4fa49e29637b1fffd9c9e4c,592013,Yzma,Conniving Chemist,Azurite Sea,Enchanted,11/15/24,4,TRUE,Amethyst,8072737779,209
-85,crd_66c2f5fd704b45bdbe79f585ac31d6fc,592034,Maleficent's Staff,NA,Azurite Sea,Enchanted,11/15/24,2,TRUE,Amethyst,23072744347,210
-86,crd_21bfac43fba64c06ab62139f3befd6c1,592040,Daisy Duck,Pirate Captain,Azurite Sea,Enchanted,11/15/24,4,TRUE,Emerald,19072736920,211
-87,crd_03fecbc6607a4948a586ccf4f0915c79,591994,Basil,Disguised Detective,Azurite Sea,Enchanted,11/15/24,6,TRUE,Emerald,9072730719,212
-88,crd_b29e4a26e9324724aab37e97a7738476,591998,You Came Back,NA,Azurite Sea,Enchanted,11/15/24,3,FALSE,Emerald,15072740111,213
-89,crd_b1ea1c67fc224e968a4906149590585c,592036,Raya,Kumandran Rider,Azurite Sea,Enchanted,11/15/24,4,TRUE,Ruby,28072746939,214
-90,crd_865641f3cac34a65a36bb2404f4e39dd,592037,Tigger,In the Crow's Nest,Azurite Sea,Enchanted,11/15/24,3,TRUE,Ruby,2343783553,215
-91,crd_37f652aa15934d2b9bd7ad15eb18bbfb,592000,The Islands I Pulled From the Sea,NA,Azurite Sea,Enchanted,11/15/24,3,FALSE,Ruby,21072745326,216
-92,crd_ae7e15af9559439ba734caac9aa567e5,592038,Gadget Hackwrench,Brilliant Bosun,Azurite Sea,Enchanted,11/15/24,6,TRUE,Sapphire,20072735553,217
-93,crd_7a1524eb2f994287ab6de2e677431724,591999,Baymax,Personal Healthcare Companion,Azurite Sea,Enchanted,11/15/24,3,TRUE,Sapphire,23072744348,218
-94,crd_c75fe9ce070a454696dd8d42c6931c68,592012,We Could Be Immortals,NA,Azurite Sea,Enchanted,11/15/24,4,TRUE,Sapphire,22072735402,219
-95,crd_98e2f67c2ee14092be9f89b31f20db4e,590822,Wreck-It Ralph,Ham Hands,Azurite Sea,Enchanted,11/15/24,6,FALSE,Steel,13072732543,220
-96,crd_eb10018264004dc59f9bf0f31295d757,592014,Captain Amelia,Commander of the Legacy,Azurite Sea,Enchanted,11/15/24,4,TRUE,Steel,4072738342,221
-97,crd_c343d1fc29f3491f95bb460c90e081a7,593162,Treasure Mountain,Azurite Sea Island,Azurite Sea,Enchanted,11/15/24,5,FALSE,Steel,19072736934,222
-98,crd_54102dba80604a609eed679b7f33fad3,619733,Aurora,Waking Beauty,Archazia's Island,Enchanted,3/7/25,3,TRUE,Amber,13075308489,205
-99,crd_dbecb4ca526f46ac8faa1a361f1c8bdf,619734,Mirabel Madrigal,Musically Talented,Archazia's Island,Enchanted,3/7/25,6,TRUE,Amber Amethyst,5075320539,206
-100,crd_e8863a1965284a3bad897ee8614d2866,619735,Bolt,Superdog,Archazia's Island,Enchanted,3/7/25,5,TRUE,Amber Steel,23075320393,207
-101,crd_aa7db27471b142cfa97cd5ca3409669d,619736,The Glass Slipper,NA,Archazia's Island,Enchanted,3/7/25,2,FALSE,Amber,26075321816,208
-102,crd_ac531a6c2f3046d3adcffbd1b1e5228e,619737,Donald Duck,Flustered Sorcerer,Archazia's Island,Enchanted,3/7/25,7,FALSE,Amethyst,6075325817,209
-103,crd_1cda76d2cbe84ccda25bd2dc1b21844b,619738,Jafar,Newly Crowned,Archazia's Island,Enchanted,3/7/25,4,TRUE,Amethyst Steel,16075304556,210
-104,crd_29df1d46e9f9463f9058c264f7b3bbd5,619739,Show Me More!,NA,Archazia's Island,Enchanted,3/7/25,2,FALSE,Amethyst,20075314565,211
-105,crd_07d1ea2923ad44b9b2dddf78993e103b,619740,Tramp,Enterprising Dog,Archazia's Island,Enchanted,3/7/25,2,TRUE,Emerald,7075325763,212
-106,crd_6826d906dfc147e89f475f146034e75f,619741,Mad Hatter,Unruly Eccentric,Archazia's Island,Enchanted,3/7/25,6,TRUE,Emerald Ruby,8075316185,213
-107,crd_434537e486234e2095f03c19628e07d4,619742,Hiro Hamada,Armor Designer,Archazia's Island,Enchanted,3/7/25,7,TRUE,Emerald Sapphire,4075316680,214
-108,crd_7896cd21215c42609fc262c908068d94,619743,The Return of Hercules,NA,Archazia's Island,Enchanted,3/7/25,5,TRUE,Emerald,26075321833,215
-109,crd_c43f19388b414266aeddb6cd78f7c020,619744,Ratigan,Nefarious Criminal,Archazia's Island,Enchanted,3/7/25,4,TRUE,Ruby,10075320034,216
-110,crd_0d38ed42e8f14a299f6efefb250350d3,619745,Belle,Mechanic Extraordinaire,Archazia's Island,Enchanted,3/7/25,9,TRUE,Ruby Sapphire,4075316674,217
-111,crd_6a4c5fe1b3b74110acd16d725f8cc3f6,619746,Devil's Eye Diamond,NA,Archazia's Island,Enchanted,3/7/25,2,TRUE,Ruby,28075325168,218
-112,crd_f2493d13b19a45559af0e7ce96f079bc,619747,Tamatoa,Happy as a Clam,Archazia's Island,Enchanted,3/7/25,6,TRUE,Sapphire,15075317373,219
-113,crd_0fa2b60dcf3d46fbb5e61428e33d7d7d,619748,All Is Found,NA,Archazia's Island,Enchanted,3/7/25,5,TRUE,Sapphire,19075313060,220
-114,crd_ec8ba95c2c20470ab00ef4f03c8db8ee,619749,Mickey Mouse,Inspirational Warrior,Archazia's Island,Enchanted,3/7/25,2,FALSE,Steel,8075316183,221
-115,crd_ad5f241dfb68479189af1ac3802327d7,619750,Restoring Atlantis,NA,Archazia's Island,Enchanted,3/7/25,5,FALSE,Steel,27075319094,222
-116,crd_d5c56759b4164f8d98eac7c93c8514b2,633053,Lady,Decisive Dog,Reign of Jafar,Enchanted,5/30/25,1,TRUE,Amber Emerald,11079341424,205
-117,crd_5615e8aef96941acb0e5cf1cfc8988c0,632252,Wreck-It Ralph,Big Lug,Reign of Jafar,Enchanted,5/30/25,7,FALSE,Amber Ruby,12079198010,206
-118,crd_db4137ebc57046a3ba7736adbdb01d44,632686,Perdita,Determined Mother,Reign of Jafar,Enchanted,5/30/25,6,TRUE,Amber Sapphire,4079335481,207
-119,crd_a288e4ad2fa24cadada391a6d1896d9c,631992,It Means No Worries,NA,Reign of Jafar,Enchanted,5/30/25,9,FALSE,Amber,23079185709,208
-120,crd_6527615670294d2a8a23873bc964cec0,633099,Bambi,Little Prince,Reign of Jafar,Enchanted,5/30/25,3,FALSE,Amethyst,14079376226,209
-121,crd_7f8ab8154a444fb69a3eed9c7647b623,632245,Kuzco,Impulsive Llama,Reign of Jafar,Enchanted,5/30/25,7,TRUE,Amethyst Emerald,27079216122,210
-122,crd_a44f1da598c94ec18b4060bb1e932c66,632208,Mother Gothel,Knows What's Best,Reign of Jafar,Enchanted,5/30/25,2,FALSE,Amethyst Ruby,24079208998,211
-123,crd_a728498e9f554bb2b5e4fd82595ed11e,631975,Fantastical and Magical,NA,Reign of Jafar,Enchanted,5/30/25,9,FALSE,Amethyst,19079178880,212
-124,crd_1f6ec070467643d195c82c92cf93c955,632720,Into the Unknown,NA,Reign of Jafar,Enchanted,5/30/25,3,TRUE,Amethyst Sapphire,11079316418,213
-125,crd_cf079ada81bd48cdb9290647f227982c,633103,Rapunzel,High Climber,Reign of Jafar,Enchanted,5/30/25,5,TRUE,Emerald,6079401167,214
-126,crd_0a53330fb9424adcab9e92d04aa428a0,632251,Captain Hook,The Pirate King,Reign of Jafar,Enchanted,5/30/25,5,TRUE,Emerald Steel,13079207870,215
-127,crd_a209d31e37bc44e78b2f56cf474bde5d,631988,Wrong Lever!,NA,Reign of Jafar,Enchanted,5/30/25,3,TRUE,Emerald,2350225518,216
-128,crd_95167fa28eb2442c8d04fc67d2db7fa7,632684,Lilo,Causing an Uproar,Reign of Jafar,Enchanted,5/30/25,5,TRUE,Ruby,3079331934,217
-129,crd_4ea909f6818d4776ae936aa51aed88b8,632228,Mushu,Your Worst Nightmare,Reign of Jafar,Enchanted,5/30/25,6,TRUE,Ruby Steel,9079203860,218
-130,crd_8b81f6ba845442d095833d7c1bee3a6c,631989,The Sword of Shan-Yu,NA,Reign of Jafar,Enchanted,5/30/25,1,TRUE,Ruby,26079189652,219
-131,crd_1a6358dd0385477eb83213749cb5d38f,633104,Stitch,Experiment 626,Reign of Jafar,Enchanted,5/30/25,3,FALSE,Sapphire,24079383344,220
-132,crd_a8b66e0b4abe48f58f9c47dc25593197,633098,Jasmine,Steady Strategist,Reign of Jafar,Enchanted,5/30/25,4,TRUE,Sapphire Steel,26079394297,221
-133,crd_cfbcf752b5064d1e8abfc2a2c6d3e98a,631990,Desperate Plan,NA,Reign of Jafar,Enchanted,5/30/25,3,FALSE,Steel,14079171917,222
-134,crd_61593ca4abb44723ae95ab9228e27aee,650141,The Queen,Conceited Ruler,Fabled,Epic,8/29/25,3,TRUE,Amber,28084733938,205
-135,crd_d292fcaa144d4f739bda2c14948da2ce,650142,Aurora,Holding Court,Fabled,Epic,8/29/25,1,TRUE,Amber,5084729354,206
-136,crd_6ccc388f32064927a08d9914aad4bc8f,650143,Stitch,Alien Dancer,Fabled,Epic,8/29/25,2,TRUE,Amber,11084707207,207
-137,crd_48ccbae93afd4032a54bf09f03f6a0c2,650145,Ursula,Sea Witch,Fabled,Epic,8/29/25,3,FALSE,Amethyst,18084734095,208
-138,crd_21489dcd479a4d209a1b740f356fff6f,647657,Kuzco,Wanted Llama,Fabled,Epic,8/29/25,2,TRUE,Amethyst,11084407534,209
-139,crd_2b5958e1524648629b663fb210bb7f76,647660,Elsa,Snow Queen,Fabled,Epic,8/29/25,3,TRUE,Amethyst,23084428888,210
-140,crd_bc96b5e1045e45a38da57c302c634ba2,650147,Goofy,Set for Adventure,Fabled,Epic,8/29/25,2,TRUE,Emerald,11084706935,211
-141,crd_5623b1aaf330477aa9d14cd755597509,650149,Pegasus,Gift for Hercules,Fabled,Epic,8/29/25,1,TRUE,Emerald,22084723305,212
-142,crd_7b7cb2bd63084cf6942b7174b07be8c0,647659,Stand Out,NA,Fabled,Epic,8/29/25,3,TRUE,Emerald,20084431225,213
-143,crd_4d1c2c4913d1417294da21592cee8363,650150,Max Goof,Rockin' Teen,Fabled,Epic,8/29/25,3,TRUE,Ruby,18084734116,214
-144,crd_e234293cec8f422eb1d613594771e5ee,650151,Powerline,Musical Superstar,Fabled,Epic,8/29/25,3,TRUE,Ruby,11084707165,215
-145,crd_d47a329c9f87420c8c2714ea6f7fffde,650152,Be King Undisputed,NA,Fabled,Epic,8/29/25,4,FALSE,Ruby,19084722070,216
-146,crd_54148f51de174f4a93a475eec138365e,647656,Alice,Accidentally Adrift,Fabled,Epic,8/29/25,4,TRUE,Sapphire,4084426690,217
-147,crd_d911158c4175449e9814484f3c5adb06,650153,Anna,Braving the Storm,Fabled,Epic,8/29/25,2,TRUE,Sapphire,25084710206,218
-148,crd_2124e542c7de4cadb69cb6e1887547ee,650154,The Queen,Mirror Seeker,Fabled,Epic,8/29/25,4,TRUE,Sapphire,15084754587,219
-149,crd_888f26474eba4f569f94c99251eddf06,650155,Robin Hood,Capable Fighter,Fabled,Epic,8/29/25,2,FALSE,Steel,20084729671,220
-150,crd_a78a6d864bae48dca06ed1dc25e75e3f,650156,Mickey Mouse,Standard Bearer,Fabled,Epic,8/29/25,2,TRUE,Steel,7084734752,221
-151,crd_ae1714b13cbc42a4a83ec36fee365526,650157,One Last Hope,NA,Fabled,Epic,8/29/25,3,FALSE,Steel,27084730244,222
-152,crd_c233fd3627b24b02bd616aa62bbdc83a,651110,Pongo,Determined Father,Fabled,Enchanted,8/29/25,3,TRUE,Amber,26085035563,223
-153,crd_8016f590ebb344a2934d76f614fedbba,651122,Beast,Gracious Prince,Fabled,Enchanted,8/29/25,5,TRUE,Amber,24085020991,224
-154,crd_ee377c93c09341fe808b8582cbded0f2,649230,Circle of Life,NA,Fabled,Enchanted,8/29/25,8,TRUE,Amber,13084592873,225
-155,crd_c51b6a26015b45f298d1664787f37234,651121,Belle,Accomplished Mystic,Fabled,Enchanted,8/29/25,5,TRUE,Amethyst,3085022564,226
-156,crd_69d9b22e10244e2fb65ffbdb5f99da83,651107,Winnie the Pooh,Hunny Wizard,Fabled,Enchanted,8/29/25,5,TRUE,Amethyst,2356071196,227
-157,crd_aa13ad9fe176464bac51e72c45dd6914,651119,Dumbo,Ninth Wonder of the Universe,Fabled,Enchanted,8/29/25,4,TRUE,Amethyst,23085029621,228
-158,crd_aed92d8e19b14ef19a92fb436dde357c,651118,Genie,Of the Lamp,Fabled,Enchanted,8/29/25,4,TRUE,Emerald,15085028526,229
-159,crd_b5087f60fdf4442686a00fb4243fcf48,651113,Max Goof,Chart Topper,Fabled,Enchanted,8/29/25,6,TRUE,Emerald,11085007859,230
-160,crd_d72f9b00497a4ff0ac7ddb0f85da659d,651112,Mickey Mouse,Steamboat Pilot,Fabled,Enchanted,8/29/25,3,TRUE,Emerald,20085031262,231
-161,crd_e6a1d03334964fb78033020d86a5f502,651123,Ariel,Adventurous Collector,Fabled,Enchanted,8/29/25,3,TRUE,Ruby,19085023566,232
-162,crd_be9c85638bda44878c44cf4cc7e7cfb0,649231,Powerline,World's Greatest Rock Star,Fabled,Enchanted,8/29/25,6,TRUE,Ruby,19084593324,233
-163,crd_d2d94d7cffe349d9a618f8bdb6695f29,651116,I2I,NA,Fabled,Enchanted,8/29/25,9,TRUE,Ruby,3085022575,234
-164,crd_08b670dabf3b4ff0a56cb4525b0b57db,651111,Mulan,Considerate Diplomat,Fabled,Enchanted,8/29/25,5,TRUE,Sapphire,17085027365,235
-165,crd_f5d62175b09243eda1bf9f34ea01d884,651120,Cruella De Vil,Style Icon,Fabled,Enchanted,8/29/25,3,FALSE,Sapphire,11085007939,236
-166,crd_050ae6da90154532905911c8c2569802,651117,Hades,Infernal Schemer,Fabled,Enchanted,8/29/25,7,FALSE,Sapphire,17085027326,237
-167,crd_fbccd8fc95fa45009665824b0731c3d3,649236,Lilo,Best Explorer Ever,Fabled,Enchanted,8/29/25,3,TRUE,Steel,14084582594,238
-168,crd_3d02b1019aa34f70b5e0da64191d9326,651108,Scar,Finally King,Fabled,Enchanted,8/29/25,5,FALSE,Steel,5085031027,239
-169,crd_7e0b8f2e97fc4d6ca8badbb552024f58,651114,Jasmine,Fearless Princess,Fabled,Enchanted,8/29/25,5,TRUE,Steel,15085028484,240
-170,crd_77b92f4bb7d2460ea85b9d547cb8e72f,651106,Minnie Mouse,Sweetheart Princess,Fabled,Iconic,8/29/25,4,TRUE,Amber,7085035146,241
-171,crd_4d10d4cd91454ff389318fd9a19a879f,647663,Mickey Mouse,Brave Little Prince,Fabled,Iconic,8/29/25,3,TRUE,Ruby,9084421091,242
-172,crd_6283ca50c61544b7a6226fadbc7f0a17,660359,Goofy,Ghost Hunter,Whispers in the Well,Epic,11/7/25,4,TRUE,Amber,22086769684,205
-173,crd_22fb811c179742f6b17bead54e0d68f2,657888,Gaston,Frightful Bully,Whispers in the Well,Epic,11/7/25,2,FALSE,Amber,6086433032,206
-174,crd_faf17cc51b9748daa7187f81103430d0,660013,The Horseman Strikes!,NA,Whispers in the Well,Epic,11/7/25,3,TRUE,Amber,6086698629,207
-175,crd_04d59c2ff0e648eb9dad622fa82ce49b,660188,Elsa,Exploring the Unknown,Whispers in the Well,Epic,11/7/25,3,TRUE,Amethyst,16086731649,208
-176,crd_d51cdd2a1d904e03adb5e255a2b53a22,660189,Merlin,Completing His Research,Whispers in the Well,Epic,11/7/25,2,FALSE,Amethyst,4086775656,209
-177,crd_ffc221e006704b97a8b62c29180b33b2,658323,The Horned King,Triumphant Ghoul,Whispers in the Well,Epic,11/7/25,2,TRUE,Amethyst,23086554525,210
-178,crd_63194dcb766c473093e3802f309030e0,660190,Webby Vanderquack,Mystery Enthusiast,Whispers in the Well,Epic,11/7/25,1,TRUE,Emerald,12086757669,211
-179,crd_f2d99b79354c466ebcaaeadcba69678e,660191,Kaa,Secretive Snake,Whispers in the Well,Epic,11/7/25,7,TRUE,Emerald,17086778746,212
-180,crd_78c11305e1674d348fe8839940f029a5,658217,Megara,Secret Keeper,Whispers in the Well,Epic,11/7/25,3,TRUE,Emerald,12086390266,213
-181,crd_1eeb3d6d93bf4e228fafce3b3d4cdcff,660268,Tinker Bell,Fancy Footwork,Whispers in the Well,Epic,11/7/25,1,TRUE,Ruby,14086754161,214
-182,crd_082177dd6df34573a455c5f1b2ddad31,660362,Mulan,Standing Her Ground,Whispers in the Well,Epic,11/7/25,3,TRUE,Ruby,24086748323,215
-183,crd_eca465c4f9f6483db912ae876f8011ce,660269,Aladdin,Barreling Through,Whispers in the Well,Epic,11/7/25,3,TRUE,Ruby,15086747760,216
-184,crd_8076e7de5c3a4681b8a91629932092e5,660363,Daisy Duck,Ghost Finder,Whispers in the Well,Epic,11/7/25,2,TRUE,Sapphire,21086772302,217
-185,crd_c74126bc80ba4d52bc7c499ba67dce25,660270,Kristoff,Mining the Ruins,Whispers in the Well,Epic,11/7/25,3,TRUE,Sapphire,22086769390,218
-186,crd_7101d6f7aaba488e9a508b0d40172743,660271,Sudden Scare,NA,Whispers in the Well,Epic,11/7/25,4,TRUE,Sapphire,21086772218,219
-187,crd_1ad6e15d73174d7ab0d55b27d770e14d,660364,Minnie Mouse,Ghost Hunter,Whispers in the Well,Epic,11/7/25,2,TRUE,Steel,23086757093,220
-188,crd_9a7e83a63b8444438f4bc7714df6faf9,660272,Robin Hood,Ephemeral Archer,Whispers in the Well,Epic,11/7/25,4,TRUE,Steel,23086757624,221
-189,crd_de5dfda85c534def9ee3a0d93cb55597,660026,He Hurled His Thunderbolt,NA,Whispers in the Well,Epic,11/7/25,4,FALSE,Steel,15086673314,222
-190,crd_51faef6e502845188f6fee9429829df2,660365,Goofy,Galumphing Gumshoe,Whispers in the Well,Enchanted,11/7/25,8,TRUE,Amber,2357814230,223
-191,crd_54bfc0bd37f44871a4ef50193d58ca2c,658449,Simba,King in the Making,Whispers in the Well,Enchanted,11/7/25,7,TRUE,Amber,26086469212,224
-192,crd_24dfd54db49e4a5d8004c51d0882aa46,658884,The Black Cauldron,NA,Whispers in the Well,Enchanted,11/7/25,3,FALSE,Amber,20086472588,225
-193,crd_831e34ca1c2143dd82785500356c339e,660044,The Horned King,Wicked Ruler,Whispers in the Well,Enchanted,11/7/25,4,TRUE,Amethyst,14086755034,226
-194,crd_ed9fc60aa63a4eafa4116188e41910f2,658215,Demona,Scourge of the Wyvern Clan,Whispers in the Well,Enchanted,11/7/25,6,TRUE,Amethyst,4086410024,227
-195,crd_715c77fe8d9b410d8194beea91b7163d,660041,Can't Hold it Back Anymore,NA,Whispers in the Well,Enchanted,11/7/25,4,FALSE,Amethyst,22086769807,228
-196,crd_c607f55525894e1bbdb8121eed6bf886,660173,Webby Vanderquack,Junior Prospector,Whispers in the Well,Enchanted,11/7/25,4,TRUE,Emerald,27086770622,229
-197,crd_9a1c82a2d3dd4ef898fb86f089242018,659443,Baloo,Carefree Bear,Whispers in the Well,Enchanted,11/7/25,5,TRUE,Emerald,12086580201,230
-198,crd_5547bd08bb6344d4bcd03d37e415c75f,660027,"Malicious, Mean, and Scary",NA,Whispers in the Well,Enchanted,11/7/25,3,TRUE,Emerald,28086696692,231
-199,crd_c2a0cc56159841db921d13a52589d13a,660012,The Headless Horseman,Terror of Sleepy Hollow,Whispers in the Well,Enchanted,11/7/25,5,FALSE,Ruby,25086676859,232
-200,crd_ee5abfdfaa9d469e93dd20e1253ed1d0,660042,Lady Tremaine,Sinister Socialite,Whispers in the Well,Enchanted,11/7/25,5,FALSE,Ruby,12086757938,233
-201,crd_fe0bc499ead74e4f8a5d2b0e6037cf91,660028,"Next Stop, Olympus",NA,Whispers in the Well,Enchanted,11/7/25,2,TRUE,Ruby,27086695719,234
-202,crd_5413c96876fd4884861caaef3fcb58b5,660043,Judy Hopps,Lead Detective,Whispers in the Well,Enchanted,11/7/25,6,TRUE,Sapphire,12086757668,235
-203,crd_3c235410b79145c080fa8e3b000a2c60,660029,Cinderella,Dream Come True,Whispers in the Well,Enchanted,11/7/25,4,FALSE,Sapphire,10086667431,236
-204,crd_9a1fff8a9426484ebc7fae9cb8605572,660011,Spooky Sight,NA,Whispers in the Well,Enchanted,11/7/25,6,FALSE,Sapphire,5086697063,237
-205,crd_8941521977e54d6fa2baaae91d13fb6e,660035,Goliath,Clan Leader,Whispers in the Well,Enchanted,11/7/25,6,TRUE,Steel,22086769391,238
-206,crd_8a558015ad0948f5be96f85dc60b3c76,660030,Nick Wilde,Persistent Investigator,Whispers in the Well,Enchanted,11/7/25,5,FALSE,Steel,3086679794,239
-207,crd_70fa88bf3a35452b8178209944e8604a,660031,The Sword of Hercules,NA,Whispers in the Well,Enchanted,11/7/25,2,TRUE,Steel,5086697349,240
-208,crd_5b53a4c5b3854ab0ba71dd388aaa0d9f,657885,Ariel,Ethereal Voice,Whispers in the Well,Iconic,11/7/25,4,TRUE,Amber,25086396288,241
-209,crd_4656262d1cbc478aab92978dc7729663,657889,Hades,Looking for a Deal,Whispers in the Well,Iconic,11/7/25,5,TRUE,Amethyst,26086414898,242
-210,crd_801cd6ba9a3048499af41d6186fa4100,677142,Tiana,Warm and Happy,Winterspell,Epic,2/13/26,4,TRUE,Amber,24089997450,205
-211,crd_d8dddac12b0749ba9c6510af447895bd,677143,Grandmother Willow,Ancient Advisor,Winterspell,Epic,2/13/26,2,FALSE,Amber,4090017378,206
-212,crd_899fe35731aa4f609bb72a19d7e831c8,677144,Tigger,Bouncing All the Way,Winterspell,Epic,2/13/26,4,TRUE,Amethyst,15090004504,208
-213,crd_9702c37c04864acd9912592d55d9dce0,677145,Anna,Little Sister,Winterspell,Epic,2/13/26,2,TRUE,Amethyst,18090039450,209
-214,crd_13f9925099454b7a8fd6225381d11061,675280,Genie,Magical Researcher,Winterspell,Epic,2/13/26,3,TRUE,Amethyst,26089635470,210
-215,crd_629d577b144c424286035635ec968b4a,677146,Aladdin,On the Edge of Adventure,Winterspell,Epic,2/13/26,3,TRUE,Emerald,12089995493,211
-216,crd_239773eb4b194139916d4c31bba66356,677147,Mushu,Sneaky Dragon,Winterspell,Epic,2/13/26,5,FALSE,Emerald,26090024956,212
-217,crd_84aa488aa433406493abed00a9d99611,677148,Minnie Mouse,Mrs. Cratchit,Winterspell,Epic,2/13/26,5,TRUE,Emerald,27090043123,213
-218,crd_366f46e2c0bc4366832935158a49cdb4,677149,Hercules,Spectral Demigod,Winterspell,Epic,2/13/26,1,TRUE,Ruby,6090041032,214
-219,crd_d66016477d454f19abf12684a50221ef,677150,Elsa,Concerned Sister,Winterspell,Epic,2/13/26,3,TRUE,Ruby,18090039045,215
-220,crd_05285db16a3b4cb28941b7a24913d33f,677151,Goofy,Klutzy Skier,Winterspell,Epic,2/13/26,3,FALSE,Ruby,10089997686,216
-221,crd_5da5944a7e9240aab2d30466337643c3,677152,Winnie the Pooh,Hungry Bear,Winterspell,Epic,2/13/26,4,TRUE,Sapphire,14089990510,217
-222,crd_ea1ae83b3c414a2a838398390473ebc6,677153,Jiminy Cricket,Ghost of Christmas Past,Winterspell,Epic,2/13/26,3,TRUE,Sapphire,25089996300,218
-223,crd_7379a15083914913b21c37d59e503c0c,677154,Mickey Mouse,Bob Cratchit,Winterspell,Epic,2/13/26,2,TRUE,Sapphire,26090024525,219
-224,crd_197bd1d5d07843d49d892ea9536fcbed,677155,Donald Duck,Along for the Ride,Winterspell,Epic,2/13/26,5,TRUE,Steel,28090066658,220
-225,crd_b7a2a60eb9d34fd986cf0bd44e2a1f1a,677156,Judy Hopps,Snowball Patrol,Winterspell,Epic,2/13/26,2,TRUE,Steel,17090037089,221
-226,crd_b3924beae9a04927adc0e542f5656aa0,677157,Rapunzel,Ethereal Protector,Winterspell,Epic,2/13/26,3,FALSE,Steel,27090043122,222
-227,crd_41acb92e0c494214949c72c409593b50,677158,Lilo,Rock Star,Winterspell,Enchanted,2/13/26,6,TRUE,Amber,26090024529,223
-228,crd_87abaabc59344ef1bfed548f0b6753bf,673068,Ohana Means Family,NA,Winterspell,Enchanted,2/13/26,3,TRUE,Amber,14089414774,224
-229,crd_b3c4b83755bd417bb09f35ffea57cb68,677159,Raging Storm,NA,Winterspell,Enchanted,2/13/26,8,FALSE,Amber,27090043212,225
-230,crd_758bab20496f4673991e53ac59f1bcaa,675279,Eeyore,In the Way,Winterspell,Enchanted,2/13/26,9,TRUE,Amethyst,5089650806,226
-231,crd_862f8b58a6e247cd865509856286449e,677160,Anna,Soothing Sister,Winterspell,Enchanted,2/13/26,5,TRUE,Amethyst,12089995987,227
-232,crd_8ef1d474eb68402e8d35e2aa3bce689a,677161,Colors of the Wind,NA,Winterspell,Enchanted,2/13/26,4,TRUE,Amethyst,22086769807,228
-233,crd_5eb205c36e0b4038a8a46aa47dd50b0f,677162,Mulan,Resourceful Recruit,Winterspell,Enchanted,2/13/26,2,TRUE,Emerald,27090043125,229
-234,crd_2319774247e242a19dfa6a0fe584fff0,677163,Tod,Knows All the Tricks,Winterspell,Enchanted,2/13/26,7,TRUE,Emerald,20090001780,230
-235,crd_d0659baf8fad4748ae9abf7260279d8c,675395,Freeze the Vine,NA,Winterspell,Enchanted,2/13/26,4,TRUE,Emerald,28089715124,231
-236,crd_580ca4f029554dd68409aac983fdae69,677164,Negaduck,Public Enemy Number One,Winterspell,Enchanted,2/13/26,5,TRUE,Ruby,12089995495,232
-237,crd_b35b509f95d441c1bd11ec67d755db5d,675515,Elsa,Ice Artisan,Winterspell,Enchanted,2/13/26,6,TRUE,Ruby,12089644616,233
-238,crd_e3dbc3e8ae3543059ee67af1d144c576,677165,The Cold Never Bothered Me,NA,Winterspell,Enchanted,2/13/26,3,FALSE,Ruby,10089997848,234
-239,crd_b30562a95420404b911886bcfc9e7a9c,677166,Scrooge McDuck,Reformed Ebenezer,Winterspell,Enchanted,2/13/26,6,TRUE,Sapphire,23090017209,235
-240,crd_9652fdf2822645ee91302352c74c9d6a,677167,Belle,Snowfield Strategist,Winterspell,Enchanted,2/13/26,4,TRUE,Sapphire,18090039530,236
-241,crd_82807328c2514c0d8f22366b4720a583,677168,Tamatoa,Seeker of Shine,Winterspell,Enchanted,2/13/26,7,TRUE,Sapphire,14089990511,237
-242,crd_fbad358f2f804554838545c738341380,677169,Angel,Experiment 624,Winterspell,Enchanted,2/13/26,4,TRUE,Steel,28090066583,238
-243,crd_789d5871174e4da293165a39bdfece14,677170,Darkwing Duck,Cool Under Pressure,Winterspell,Enchanted,2/13/26,7,TRUE,Steel,12089995528,239
-244,crd_656cd1bfb0084f92bfd003ca69b3b3c9,677171,Let's Get Dangerous,NA,Winterspell,Enchanted,2/13/26,4,TRUE,Steel,12089995394,240
-245,crd_40a3f6d8de604ff085fa5629597780a3,673298,Pocahontas,Peacekeeper,Winterspell,Iconic,2/13/26,5,TRUE,Amber,25089449558,241
-246,crd_b73d08030c9646ab8a227158b8e453d4,673300,Moana,Curious Explorer,Winterspell,Iconic,2/13/26,5,TRUE,Sapphire,3089452370,242
-247,crd_2eb1fa4c7ab0498b8d4cfcd28f56a8cf,692203,Woody,Waiting for a Friend,Wilds Unknown,Epic,5/8/26,1,TRUE,Amber,,205
-248,crd_70e7c418c5034714b2eb7889c89e3c86,692204,Rex,Protective Dinosaur,Wilds Unknown,Epic,5/8/26,2,TRUE,Amber,,206
-249,crd_1747f940605e4b6eb87f5df5ee96d9d8,692088,Isabela Madrigal,Such a Lovely Voice,Wilds Unknown,Epic,5/8/26,3,TRUE,Amber,,207
-250,crd_31ae4e3c265448b894f74dcaf1914a3a,692205,Mirage,Super Recruiter,Wilds Unknown,Epic,5/8/26,4,TRUE,Amethyst,,208
-251,crd_fb68c593a65344d5ad1585cb7a67777f,692206,Edna Mode,Fashion Designer,Wilds Unknown,Epic,5/8/26,3,TRUE,Amethyst,,209
-252,crd_fd529e637c964866821ab9f2946451cb,692207,Doc,Taking Notes,Wilds Unknown,Epic,5/8/26,4,TRUE,Amethyst,,210
-253,crd_dc61d69860c541f6bca41a4a9b8c17f1,692208,Buzz Lightyear,Space Ranger,Wilds Unknown,Epic,5/8/26,2,TRUE,Emerald,,211
-254,crd_5186a8ffa2ac448c9108a110b747e4e5,692209,Donald Duck,Distracted Traveler,Wilds Unknown,Epic,5/8/26,5,TRUE,Emerald,,212
-255,crd_52404c741d6e424e8a8f901408ccb11a,692235,Merida,Gifted Archer,Wilds Unknown,Epic,5/8/26,5,TRUE,Emerald,,213
-256,crd_ab041a63b5204af49dbe1cbc49cbabe2,692210,Lyle Tiberius Rourke,Crystallized Commander,Wilds Unknown,Epic,5/8/26,6,FALSE,Ruby,,214
-257,crd_04e84b2e5eca458da5e3ce89ac7b19cb,692211,Mr. Incredible,Bob Parr,Wilds Unknown,Epic,5/8/26,1,TRUE,Ruby,,215
-258,crd_995abfb15ba34115bbf2283bd853c2c2,690555,Daisy Duck,Trendy Traveler,Wilds Unknown,Epic,5/8/26,3,TRUE,Ruby,,216
-259,crd_4f772bcbcd244314a99264fb106166dd,692212,Kida,Guardian of the Path,Wilds Unknown,Epic,5/8/26,2,TRUE,Sapphire,,217
-260,crd_60e4bcd50631400eac4cf9544951e4ad,692213,Bruno Madrigal,Oasis Oracle,Wilds Unknown,Epic,5/8/26,5,TRUE,Sapphire,,218
-261,crd_c3586bda90744abf8eb5c15db3b0b766,692214,Minnie Mouse,Practical Traveler,Wilds Unknown,Epic,5/8/26,1,TRUE,Sapphire,,219
-262,crd_5b512fbc3a31425eb70175752010d69c,692215,Pocahontas,Steadfast Traveler,Wilds Unknown,Epic,5/8/26,4,TRUE,Steel,,220
-263,crd_705137b1ace0487ba1f71ee39019989a,692216,Incrediboy,Buddy Pine,Wilds Unknown,Epic,5/8/26,2,TRUE,Steel,,221
-264,crd_8bc3e60c6a77434ca8ba598742c86362,690215,Three Arrows,NA,Wilds Unknown,Epic,5/8/26,3,TRUE,Steel,,222
-265,crd_c0337343682c4e9e9bac90b90fb4f24a,692217,Jessie,Lively Cowgirl,Wilds Unknown,Enchanted,5/8/26,3,TRUE,Amber,,223
-266,crd_68c6733378304dca8d2adb4b1c993433,692089,Isabela Madrigal,Caring Cultivator,Wilds Unknown,Enchanted,5/8/26,6,TRUE,Amber,,224
-267,crd_611ab7622d0b4aa7a9aa98ab736f329c,690747,You've Got a Friend in Me,NA,Wilds Unknown,Enchanted,5/8/26,3,TRUE,Amber,,225
-268,crd_aa4a880f25814ec58358ea3ad771fbb3,692090,Frozone,Super Cool,Wilds Unknown,Enchanted,5/8/26,6,FALSE,Amethyst,,226
-269,crd_ea1ebbf0332f4cb78f6b7a6a90d826a7,692218,Luisa Madrigal,Confident Climber,Wilds Unknown,Enchanted,5/8/26,5,TRUE,Amethyst,,227
-270,crd_a8ae68af26f84535869ce0dac1f4a3de,692219,DunBroch Family Tapestry,NA,Wilds Unknown,Enchanted,5/8/26,2,TRUE,Amethyst,,228
-271,crd_c671f23fc8e74ee3a7925ad650577008,692220,Alien,True Believer,Wilds Unknown,Enchanted,5/8/26,1,TRUE,Emerald,,229
-272,crd_2ec97929d9ee45578f91dea1a62048b8,692221,Milo Thatch,Getting His Hands Dirty,Wilds Unknown,Enchanted,5/8/26,7,TRUE,Emerald,,230
-273,crd_c4e66047e01c49f4bedb6c185d0af90a,692222,The Family Scattered,NA,Wilds Unknown,Enchanted,5/8/26,8,FALSE,Emerald,,231
-274,crd_519eea38258c49ca9b1eab9981d74544,692223,Jack-Jack Parr,Incredible Potential,Wilds Unknown,Enchanted,5/8/26,4,TRUE,Ruby,,232
-275,crd_acf86cd5ee4e434fac91134e9ecf07c5,692224,The Leviathan,Guardian of Atlantis,Wilds Unknown,Enchanted,5/8/26,10,FALSE,Ruby,,233
-276,crd_549170e882a24974be95e3cbaf53f34e,692225,Mr. Incredible,Super Strong,Wilds Unknown,Enchanted,5/8/26,5,TRUE,Ruby,,234
-277,crd_d515c85e0daa4cfd8c3a84154d328cd4,692226,Zipper,Big Helper,Wilds Unknown,Enchanted,5/8/26,4,TRUE,Sapphire,,235
-278,crd_8197b190acad44c7a28b50a83fb573f1,692227,Kida,Crystal Scion,Wilds Unknown,Enchanted,5/8/26,8,TRUE,Sapphire,,236
-279,crd_a2a3a343dac1408092294ea226dcd028,690556,What Else Can I Do?,NA,Wilds Unknown,Enchanted,5/8/26,5,FALSE,Sapphire,,237
-280,crd_4ca85bb2c2274683bb7f2015997479c5,692228,Syndrome,Out for Revenge,Wilds Unknown,Enchanted,5/8/26,6,TRUE,Steel,,238
-281,crd_fcfb9ad84f3a4c2db462a9ec4d3a63d1,692229,Mrs. Incredible,Determined Rescuer,Wilds Unknown,Enchanted,5/8/26,7,TRUE,Steel,,239
-282,crd_baeb30c2d1dd4756b259daeb2833fad4,692091,Touch the Sky,NA,Wilds Unknown,Enchanted,5/8/26,2,TRUE,Steel,,240
-283,crd_0b928f0cd5d2473482e07a609205c26b,690216,Buzz Lightyear,Jungle Ranger,Wilds Unknown,Iconic,5/8/26,7,FALSE,Emerald,,241
-284,crd_4811e7317e3149db966bab69151147cc,690217,Merida,Formidable Archer,Wilds Unknown,Iconic,5/8/26,5,FALSE,Steel,,242
+1,crd_a9c86e6316084d76a03b32be95977091,510148,Hades,King of Olympus,The First Chapter,Enchanted,8/18/2023,8,FALSE,Amber,19072736900,205
+2,crd_35c968e4b25945e897940860221f9d51,510152,Stitch,Carefree Surfer,The First Chapter,Enchanted,8/18/2023,7,TRUE,Amber,23072744342,206
+3,crd_cbc18e77d7ec4d50bf19650a9a559686,510153,Elsa,Spirit of Winter,The First Chapter,Enchanted,8/18/2023,8,FALSE,Amethyst,18072744837,207
+4,crd_5739e1f6076840cd901a1bc283ca6e96,510154,Mickey Mouse,Wayward Sorcerer,The First Chapter,Enchanted,8/18/2023,4,TRUE,Amethyst,12072723059,208
+5,crd_ae7e91462bfc4861bbf97e99ed53a1c1,510155,Genie,On the Job,The First Chapter,Enchanted,8/18/2023,6,FALSE,Emerald,19072736956,209
+6,crd_1a8604b7ba6c45e2bc8b32b0a70d08b5,510156,Mickey Mouse,Artful Rogue,The First Chapter,Enchanted,8/18/2023,7,FALSE,Emerald,18072744866,210
+7,crd_7c621010e3e6471d9916eee4bcd0b11d,510157,Aladdin,Heroic Outlaw,The First Chapter,Enchanted,8/18/2023,7,TRUE,Ruby,27072739595,211
+8,crd_f839f8a7cb9a47ae962503f3ea69bec5,510158,Maui,Hero to All,The First Chapter,Enchanted,8/18/2023,5,TRUE,Ruby,3072738592,212
+9,crd_72fe56f4aa85484284d8e3632d06ad9b,510159,Aurora,Dreaming Guardian,The First Chapter,Enchanted,8/18/2023,5,TRUE,Sapphire,16072725824,213
+10,crd_021c1d57c42d4fb7836097cbe9eacfb7,510161,Belle,Strange but Special,The First Chapter,Enchanted,8/18/2023,4,TRUE,Sapphire,19072736939,214
+11,crd_80cf71e223cf491796609458b2866665,510162,Simba,Returned King,The First Chapter,Enchanted,8/18/2023,7,TRUE,Steel,18072744888,215
+12,crd_b42271147bf14a5e89d33571e64abb6d,510163,Tinker Bell,Giant Fairy,The First Chapter,Enchanted,8/18/2023,6,TRUE,Steel,27072739647,216
+13,crd_4cf391db31ba468f948bad5a20b0bc16,527802,Cinderella,Ballroom Sensation,Rise of the Floodborn,Enchanted,11/17/2023,1,TRUE,Amber,18072744875,205
+14,crd_e97e4b9894fe4c9798b0d925092d3eea,527799,Snow White,Well Wisher,Rise of the Floodborn,Enchanted,11/17/2023,6,FALSE,Amber,19072736914,206
+15,crd_19431b87131547d98fef8a693077a77e,527797,Arthur,Wizard's Apprentice,Rise of the Floodborn,Enchanted,11/17/2023,3,FALSE,Amethyst,18072744891,207
+16,crd_26dd3cd037974467a3c4078d58f4ae25,528107,Madam Mim,Purple Dragon,Rise of the Floodborn,Enchanted,11/17/2023,7,TRUE,Amethyst,22072735420,208
+17,crd_67714955a33e4508913f44b8ccb08e5c,528108,Pete,Bad Guy,Rise of the Floodborn,Enchanted,11/17/2023,5,TRUE,Emerald,23072744410,209
+18,crd_458325805fc445799aabfe4c4046f89b,527800,Beast,Relentless,Rise of the Floodborn,Enchanted,11/17/2023,6,TRUE,Emerald,25072727226,210
+19,crd_e08d7a85c4e84f1e83a7521ff9c15a89,528109,Lady Tremaine,Imperious Queen,Rise of the Floodborn,Enchanted,11/17/2023,6,FALSE,Ruby,8072737745,211
+20,crd_9c3f1e9961584a3ca4c8c32241d25d0b,528110,Shere Khan,Menacing Predator,Rise of the Floodborn,Enchanted,11/17/2023,3,TRUE,Ruby,18072744902,212
+21,crd_3f0711ce8e06486a8bde68218e75d360,528111,Alice,Growing Girl,Rise of the Floodborn,Enchanted,11/17/2023,3,TRUE,Sapphire,21072745388,213
+22,crd_f9edf9a591974716b2d7f02764f93737,528112,Sisu,Divine Water Dragon,Rise of the Floodborn,Enchanted,11/17/2023,4,FALSE,Sapphire,28072746928,214
+23,crd_42ef053d7aab445fa7b0a2bf2e028864,528113,Hercules,Divine Hero,Rise of the Floodborn,Enchanted,11/17/2023,6,TRUE,Steel,28072746950,215
+24,crd_8b02499c992945e2990cb669d7468256,527798,Namaari,Morning Mist,Rise of the Floodborn,Enchanted,11/17/2023,4,FALSE,Steel,20072735565,216
+25,crd_7a288d030d1a471fbb818ccfdddc6052,539156,Chernabog,Evildoer,Into the Inklands,Enchanted,2/23/2024,10,FALSE,Amber,15072740119,205
+26,crd_ae42b2ab4e074f3e91c29d4ba2c3e601,539273,Kida,Protector of Atlantis,Into the Inklands,Enchanted,2/23/2024,5,TRUE,Amber,14072726714,206
+27,crd_bbb647e1cbe3487baa2ad65b27a999ba,539157,Pride Lands,Pride Rock,Into the Inklands,Enchanted,2/23/2024,2,FALSE,Amber,22072735446,207
+28,crd_3ecab24376cb4cd5989309e000f797c1,539158,Jafar,Striking Illusionist,Into the Inklands,Enchanted,2/23/2024,7,TRUE,Amethyst,22072735435,208
+29,crd_40690491af114f2e810a6fd1c6ddcafa,539159,Maleficent,Mistress of All Evil,Into the Inklands,Enchanted,2/23/2024,5,TRUE,Amethyst,25072727170,209
+30,crd_5a2ba6e63b07496d96a17d2565b2a1db,539162,The Sorcerer's Hat,NA,Into the Inklands,Enchanted,2/23/2024,2,TRUE,Amethyst,4072738313,210
+31,crd_2e1d43823fc642549ba92787523ce17f,539163,Morph,Space Goo,Into the Inklands,Enchanted,2/23/2024,2,TRUE,Emerald,18072744894,211
+32,crd_7c5be60911d844b48189f3a042abdcfa,539164,Ursula,Deceiver of All,Into the Inklands,Enchanted,2/23/2024,3,TRUE,Emerald,11072724753,212
+33,crd_a1af7dad15b64d31a696f7bbb49bfe92,539165,Kuzco's Palace,Home of the Emperor,Into the Inklands,Enchanted,2/23/2024,3,TRUE,Emerald,9072730704,213
+34,crd_266d7d17b42a44be9472057e4e6dd1b1,539166,Captain Hook,Master Swordsman,Into the Inklands,Enchanted,2/23/2024,5,TRUE,Ruby,11072724759,214
+35,crd_b5e74b533270492982dff9472aee8664,539274,Peter Pan,Pirate's Bane,Into the Inklands,Enchanted,2/23/2024,6,TRUE,Ruby,26072745232,215
+36,crd_7c421033c14c40e7a5be957ba42bb1b7,539167,RLS Legacy,Solar Galleon,Into the Inklands,Enchanted,2/23/2024,4,FALSE,Ruby,6072751794,216
+37,crd_7ad03b4873f042bcae4da820a7061ba4,539275,Gramma Tala,Spirit of the Ocean,Into the Inklands,Enchanted,2/23/2024,7,TRUE,Sapphire,25072727238,217
+38,crd_ee9f19ba64f54bf78ba3cf40e0cac256,539168,Scrooge McDuck,Richest Duck in the World,Into the Inklands,Enchanted,2/23/2024,5,FALSE,Sapphire,22072735383,218
+39,crd_c9f08696c3cd44bf96e2a149bb3cfb12,539169,Belle's House,Maurice's Workshop,Into the Inklands,Enchanted,2/23/2024,1,TRUE,Sapphire,14072726775,219
+40,crd_51bf217683f54e1bb4e6835392851031,539276,Mickey Mouse,Trumpeter,Into the Inklands,Enchanted,2/23/2024,4,FALSE,Steel,5072746177,220
+41,crd_0a9db863f78c46429d3f1835d046bb2e,539171,Robin Hood,Champion of Sherwood,Into the Inklands,Enchanted,2/23/2024,5,TRUE,Steel,11072724752,221
+42,crd_0bd8f734ff064b3881191b916f8354cf,539173,And Then Along Came Zeus,NA,Into the Inklands,Enchanted,2/23/2024,4,FALSE,Steel,10072748142,222
+43,crd_eaf7db4a652b47939bddb0db4c9030e9,550544,Cinderella,Melody Weaver,Ursula's Return,Enchanted,5/17/2024,5,TRUE,Amber,7072748517,205
+44,crd_b20587f1945e42d59b750f9b69cc4a6b,550537,Minnie Mouse,Musketeer Champion,Ursula's Return,Enchanted,5/17/2024,5,FALSE,Amber,26072745221,206
+45,crd_7bd65d4574434dd3ba908203c8cea774,550718,Look at This Family,NA,Ursula's Return,Enchanted,5/17/2024,7,TRUE,Amber,8072737753,207
+46,crd_68c45595c25041f3bcf2073a5b533edd,550844,Ursula,Sea Witch Queen,Ursula's Return,Enchanted,5/17/2024,7,TRUE,Amethyst,13072732590,208
+47,crd_34dd94ad32194a96931c9e2ff311ad26,550538,Yen Sid,Powerful Sorcerer,Ursula's Return,Enchanted,5/17/2024,2,TRUE,Amethyst,4072738335,209
+48,crd_45acf301d7e2469fb961cc1f06bd2889,551943,Second Star to the Right,NA,Ursula's Return,Enchanted,5/17/2024,10,FALSE,Amethyst,25072727184,210
+49,crd_93ab5d88940f4610a375a928963a570f,550535,Diablo,Devoted Herald,Ursula's Return,Enchanted,5/17/2024,3,FALSE,Emerald,6072751826,211
+50,crd_54e413e671dc4fa3872b3481db960d47,551944,Jasmine,Desert Warrior,Ursula's Return,Enchanted,5/17/2024,5,FALSE,Emerald,15072740113,212
+51,crd_3694abe0d09349ca9dbef6861ea42f5a,550541,We Don't Talk About Bruno,NA,Ursula's Return,Enchanted,5/17/2024,5,TRUE,Emerald,10072748077,213
+52,crd_3088ee50256240d0b22c045f593df9a8,550542,Goofy,Super Goof,Ursula's Return,Enchanted,5/17/2024,4,TRUE,Ruby,26072745280,214
+53,crd_d0714091b2a14f478e2d7704c8eb50d8,550839,Sisu,Empowered Sibling,Ursula's Return,Enchanted,5/17/2024,8,FALSE,Ruby,13072732634,215
+54,crd_016db7e8b21348aca4b407fb6d2ce26d,550838,Snuggly Duckling,Disreputable Pub,Ursula's Return,Enchanted,5/17/2024,2,TRUE,Ruby,19072736907,216
+55,crd_6155d5f7f7da4f3da02d755d51f10fa7,550674,Anna,True-Hearted,Ursula's Return,Enchanted,5/17/2024,4,TRUE,Sapphire,23072744408,217
+56,crd_20f6a0577b714cf393648a074b1f0bb2,550540,The Queen,Diviner,Ursula's Return,Enchanted,5/17/2024,3,TRUE,Sapphire,26072745238,218
+57,crd_79195cfde0ae4948894c37bef02d9e6f,550719,Ariel’s Grotto,A Secret Place,Ursula's Return,Enchanted,5/17/2024,2,TRUE,Sapphire,12072723162,219
+58,crd_94501fb9ecad49e9a81cd51f7c31dac7,550549,Ariel,Sonic Warrior,Ursula's Return,Enchanted,5/17/2024,6,TRUE,Steel,12072723167,220
+59,crd_8ac9f95c19af4213b7c6aed341965206,550721,Piglet,Sturdy Swordsman,Ursula's Return,Enchanted,5/17/2024,5,FALSE,Steel,13072732630,221
+60,crd_ae2a969b746542268ff0bcfc735ea367,550536,The Wall,Border Fortress,Ursula's Return,Enchanted,5/17/2024,4,TRUE,Steel,20072735583,222
+61,crd_74f050d47ef34391ba29b8c521450dac,561993,Prince Naveen,Ukulele Player,Shimmering Skies,Enchanted,8/9/2024,4,FALSE,Amber,8079581877,205
+62,crd_6d0b490fddd34aab828b26cb90a827d6,561992,Vanellope von Schweetz,Sugar Rush Princess,Shimmering Skies,Enchanted,8/9/2024,4,TRUE,Amber,13072732533,206
+63,crd_d7a644695e604c958aee5d0ba8fa8415,561979,Revive,NA,Shimmering Skies,Enchanted,8/9/2024,5,FALSE,Amber,8072737763,207
+64,crd_cb38cec5fa8e49139bb0377111d6d048,561977,Archimedes,Electrified Owl,Shimmering Skies,Enchanted,8/9/2024,5,TRUE,Amethyst,19072736911,208
+65,crd_19b1f802f23a4673aac60e04df0fb2ba,561994,Olaf,Happy Passenger,Shimmering Skies,Enchanted,8/9/2024,9,FALSE,Amethyst,22072735439,209
+66,crd_ae57eb31413644379c43ec4208a4023b,561982,Finders Keepers,NA,Shimmering Skies,Enchanted,8/9/2024,5,TRUE,Amethyst,6072751757,210
+67,crd_8dbe711cfb4541309eb32cf37fe48997,561991,Clarabelle,Light on Her Hooves,Shimmering Skies,Enchanted,8/9/2024,7,TRUE,Emerald,20072735556,211
+68,crd_e382f2cee40343d7ae3faed897045a66,561980,Scar,Vengeful Lion,Shimmering Skies,Enchanted,8/9/2024,4,TRUE,Emerald,2343783522,212
+69,crd_f799b47b4b894912a8d83942d0fa4d22,561983,You're Welcome,NA,Shimmering Skies,Enchanted,8/9/2024,4,TRUE,Emerald,18072744829,213
+70,crd_306fb0ac65b44f289a2cbacac51ba9fe,559716,Donald Duck,Pie Slinger,Shimmering Skies,Enchanted,8/9/2024,5,TRUE,Ruby,22072735491,214
+71,crd_d08869cde8294b0b9f73d0f7192e2335,561984,Robin Hood,Sharpshooter,Shimmering Skies,Enchanted,8/9/2024,4,FALSE,Ruby,14072726727,215
+72,crd_4690391667a14f42a7df8ef76771703d,562000,Ratigan's Party,Seedy Back Room,Shimmering Skies,Enchanted,8/9/2024,2,TRUE,Ruby,3072738674,216
+73,crd_ca78ff510359490a862b871b577a5fec,562021,Mufasa,Ruler of Pride Rock,Shimmering Skies,Enchanted,8/9/2024,8,FALSE,Sapphire,12072723070,217
+74,crd_9c2a04a39aee4b989bf2b1f18bf923ba,561995,King Candy,Sweet Abomination,Shimmering Skies,Enchanted,8/9/2024,5,FALSE,Sapphire,3072738613,218
+75,crd_ae4635bbf7ef4b4fb6a30c61f633fa0d,561976,Royal Tantrum,NA,Shimmering Skies,Enchanted,8/9/2024,4,FALSE,Sapphire,5072746163,219
+76,crd_222e3894d8c04d2899b047a97912b5c6,562007,Snow White,Fair-Hearted,Shimmering Skies,Enchanted,8/9/2024,5,FALSE,Steel,23072744404,220
+77,crd_ad336bbf94b74813aa25312a57af4525,561981,Arthur,King Victorious,Shimmering Skies,Enchanted,8/9/2024,7,FALSE,Steel,24072730741,221
+78,crd_c88d044f605440a29cbf41b7cdc7d340,561978,Bad-Anon,Villain Support Center,Shimmering Skies,Enchanted,8/9/2024,3,TRUE,Steel,3072738673,222
+79,crd_248b8f0ae7a84f368e48086307f50ff7,634261,Jafar,High Sultan of Lorcana,Promo Set 2,Enchanted,8/9/2024,5,FALSE,Amethyst Steel,16072725842,33
+80,crd_c1cd26316f4948a382770ffb29440699,592030,Chip 'n' Dale,Recovery Rangers,Azurite Sea,Enchanted,11/15/2024,8,FALSE,Amber,16072725813,205
+81,crd_4dfb12a1e5844317a783074a548bc8c7,592031,Tiana,Restaurant Owner,Azurite Sea,Enchanted,11/15/2024,3,FALSE,Amber,15072740072,206
+82,crd_60630688715e45079236d447087a9a83,592001,Sugar Rush Speedway,Finish Line,Azurite Sea,Enchanted,11/15/2024,2,FALSE,Amber,9072730723,207
+83,crd_d5432572fd3d4dfc95b01b682c71943c,592032,Rafiki,Ethereal Guide,Azurite Sea,Enchanted,11/15/2024,9,FALSE,Amethyst,8072737780,208
+84,crd_b8f5f89ae4fa49e29637b1fffd9c9e4c,592013,Yzma,Conniving Chemist,Azurite Sea,Enchanted,11/15/2024,4,TRUE,Amethyst,8072737779,209
+85,crd_66c2f5fd704b45bdbe79f585ac31d6fc,592034,Maleficent's Staff,NA,Azurite Sea,Enchanted,11/15/2024,2,TRUE,Amethyst,23072744347,210
+86,crd_21bfac43fba64c06ab62139f3befd6c1,592040,Daisy Duck,Pirate Captain,Azurite Sea,Enchanted,11/15/2024,4,TRUE,Emerald,19072736920,211
+87,crd_03fecbc6607a4948a586ccf4f0915c79,591994,Basil,Disguised Detective,Azurite Sea,Enchanted,11/15/2024,6,TRUE,Emerald,9072730719,212
+88,crd_b29e4a26e9324724aab37e97a7738476,591998,You Came Back,NA,Azurite Sea,Enchanted,11/15/2024,3,FALSE,Emerald,15072740111,213
+89,crd_b1ea1c67fc224e968a4906149590585c,592036,Raya,Kumandran Rider,Azurite Sea,Enchanted,11/15/2024,4,TRUE,Ruby,28072746939,214
+90,crd_865641f3cac34a65a36bb2404f4e39dd,592037,Tigger,In the Crow's Nest,Azurite Sea,Enchanted,11/15/2024,3,TRUE,Ruby,2343783553,215
+91,crd_37f652aa15934d2b9bd7ad15eb18bbfb,592000,The Islands I Pulled From the Sea,NA,Azurite Sea,Enchanted,11/15/2024,3,FALSE,Ruby,21072745326,216
+92,crd_ae7e15af9559439ba734caac9aa567e5,592038,Gadget Hackwrench,Brilliant Bosun,Azurite Sea,Enchanted,11/15/2024,6,TRUE,Sapphire,20072735553,217
+93,crd_7a1524eb2f994287ab6de2e677431724,591999,Baymax,Personal Healthcare Companion,Azurite Sea,Enchanted,11/15/2024,3,TRUE,Sapphire,23072744348,218
+94,crd_c75fe9ce070a454696dd8d42c6931c68,592012,We Could Be Immortals,NA,Azurite Sea,Enchanted,11/15/2024,4,TRUE,Sapphire,22072735402,219
+95,crd_98e2f67c2ee14092be9f89b31f20db4e,590822,Wreck-It Ralph,Ham Hands,Azurite Sea,Enchanted,11/15/2024,6,FALSE,Steel,13072732543,220
+96,crd_eb10018264004dc59f9bf0f31295d757,592014,Captain Amelia,Commander of the Legacy,Azurite Sea,Enchanted,11/15/2024,4,TRUE,Steel,4072738342,221
+97,crd_c343d1fc29f3491f95bb460c90e081a7,593162,Treasure Mountain,Azurite Sea Island,Azurite Sea,Enchanted,11/15/2024,5,FALSE,Steel,19072736934,222
+98,crd_54102dba80604a609eed679b7f33fad3,619733,Aurora,Waking Beauty,Archazia's Island,Enchanted,3/7/2025,3,TRUE,Amber,13075308489,205
+99,crd_dbecb4ca526f46ac8faa1a361f1c8bdf,619734,Mirabel Madrigal,Musically Talented,Archazia's Island,Enchanted,3/7/2025,6,TRUE,Amber Amethyst,5075320539,206
+100,crd_e8863a1965284a3bad897ee8614d2866,619735,Bolt,Superdog,Archazia's Island,Enchanted,3/7/2025,5,TRUE,Amber Steel,23075320393,207
+101,crd_aa7db27471b142cfa97cd5ca3409669d,619736,The Glass Slipper,NA,Archazia's Island,Enchanted,3/7/2025,2,FALSE,Amber,26075321816,208
+102,crd_ac531a6c2f3046d3adcffbd1b1e5228e,619737,Donald Duck,Flustered Sorcerer,Archazia's Island,Enchanted,3/7/2025,7,FALSE,Amethyst,6075325817,209
+103,crd_1cda76d2cbe84ccda25bd2dc1b21844b,619738,Jafar,Newly Crowned,Archazia's Island,Enchanted,3/7/2025,4,TRUE,Amethyst Steel,16075304556,210
+104,crd_29df1d46e9f9463f9058c264f7b3bbd5,619739,Show Me More!,NA,Archazia's Island,Enchanted,3/7/2025,2,FALSE,Amethyst,20075314565,211
+105,crd_07d1ea2923ad44b9b2dddf78993e103b,619740,Tramp,Enterprising Dog,Archazia's Island,Enchanted,3/7/2025,2,TRUE,Emerald,7075325763,212
+106,crd_6826d906dfc147e89f475f146034e75f,619741,Mad Hatter,Unruly Eccentric,Archazia's Island,Enchanted,3/7/2025,6,TRUE,Emerald Ruby,8075316185,213
+107,crd_434537e486234e2095f03c19628e07d4,619742,Hiro Hamada,Armor Designer,Archazia's Island,Enchanted,3/7/2025,7,TRUE,Emerald Sapphire,4075316680,214
+108,crd_7896cd21215c42609fc262c908068d94,619743,The Return of Hercules,NA,Archazia's Island,Enchanted,3/7/2025,5,TRUE,Emerald,26075321833,215
+109,crd_c43f19388b414266aeddb6cd78f7c020,619744,Ratigan,Nefarious Criminal,Archazia's Island,Enchanted,3/7/2025,4,TRUE,Ruby,10075320034,216
+110,crd_0d38ed42e8f14a299f6efefb250350d3,619745,Belle,Mechanic Extraordinaire,Archazia's Island,Enchanted,3/7/2025,9,TRUE,Ruby Sapphire,4075316674,217
+111,crd_6a4c5fe1b3b74110acd16d725f8cc3f6,619746,Devil's Eye Diamond,NA,Archazia's Island,Enchanted,3/7/2025,2,TRUE,Ruby,28075325168,218
+112,crd_f2493d13b19a45559af0e7ce96f079bc,619747,Tamatoa,Happy as a Clam,Archazia's Island,Enchanted,3/7/2025,6,TRUE,Sapphire,15075317373,219
+113,crd_0fa2b60dcf3d46fbb5e61428e33d7d7d,619748,All Is Found,NA,Archazia's Island,Enchanted,3/7/2025,5,TRUE,Sapphire,19075313060,220
+114,crd_ec8ba95c2c20470ab00ef4f03c8db8ee,619749,Mickey Mouse,Inspirational Warrior,Archazia's Island,Enchanted,3/7/2025,2,FALSE,Steel,8075316183,221
+115,crd_ad5f241dfb68479189af1ac3802327d7,619750,Restoring Atlantis,NA,Archazia's Island,Enchanted,3/7/2025,5,FALSE,Steel,27075319094,222
+116,crd_d5c56759b4164f8d98eac7c93c8514b2,633053,Lady,Decisive Dog,Reign of Jafar,Enchanted,5/30/2025,1,TRUE,Amber Emerald,11079341424,205
+117,crd_5615e8aef96941acb0e5cf1cfc8988c0,632252,Wreck-It Ralph,Big Lug,Reign of Jafar,Enchanted,5/30/2025,7,FALSE,Amber Ruby,12079198010,206
+118,crd_db4137ebc57046a3ba7736adbdb01d44,632686,Perdita,Determined Mother,Reign of Jafar,Enchanted,5/30/2025,6,TRUE,Amber Sapphire,4079335481,207
+119,crd_a288e4ad2fa24cadada391a6d1896d9c,631992,It Means No Worries,NA,Reign of Jafar,Enchanted,5/30/2025,9,FALSE,Amber,23079185709,208
+120,crd_6527615670294d2a8a23873bc964cec0,633099,Bambi,Little Prince,Reign of Jafar,Enchanted,5/30/2025,3,FALSE,Amethyst,14079376226,209
+121,crd_7f8ab8154a444fb69a3eed9c7647b623,632245,Kuzco,Impulsive Llama,Reign of Jafar,Enchanted,5/30/2025,7,TRUE,Amethyst Emerald,27079216122,210
+122,crd_a44f1da598c94ec18b4060bb1e932c66,632208,Mother Gothel,Knows What's Best,Reign of Jafar,Enchanted,5/30/2025,2,FALSE,Amethyst Ruby,24079208998,211
+123,crd_a728498e9f554bb2b5e4fd82595ed11e,631975,Fantastical and Magical,NA,Reign of Jafar,Enchanted,5/30/2025,9,FALSE,Amethyst,19079178880,212
+124,crd_1f6ec070467643d195c82c92cf93c955,632720,Into the Unknown,NA,Reign of Jafar,Enchanted,5/30/2025,3,TRUE,Amethyst Sapphire,11079316418,213
+125,crd_cf079ada81bd48cdb9290647f227982c,633103,Rapunzel,High Climber,Reign of Jafar,Enchanted,5/30/2025,5,TRUE,Emerald,6079401167,214
+126,crd_0a53330fb9424adcab9e92d04aa428a0,632251,Captain Hook,The Pirate King,Reign of Jafar,Enchanted,5/30/2025,5,TRUE,Emerald Steel,13079207870,215
+127,crd_a209d31e37bc44e78b2f56cf474bde5d,631988,Wrong Lever!,NA,Reign of Jafar,Enchanted,5/30/2025,3,TRUE,Emerald,2350225518,216
+128,crd_95167fa28eb2442c8d04fc67d2db7fa7,632684,Lilo,Causing an Uproar,Reign of Jafar,Enchanted,5/30/2025,5,TRUE,Ruby,3079331934,217
+129,crd_4ea909f6818d4776ae936aa51aed88b8,632228,Mushu,Your Worst Nightmare,Reign of Jafar,Enchanted,5/30/2025,6,TRUE,Ruby Steel,9079203860,218
+130,crd_8b81f6ba845442d095833d7c1bee3a6c,631989,The Sword of Shan-Yu,NA,Reign of Jafar,Enchanted,5/30/2025,1,TRUE,Ruby,26079189652,219
+131,crd_1a6358dd0385477eb83213749cb5d38f,633104,Stitch,Experiment 626,Reign of Jafar,Enchanted,5/30/2025,3,FALSE,Sapphire,24079383344,220
+132,crd_a8b66e0b4abe48f58f9c47dc25593197,633098,Jasmine,Steady Strategist,Reign of Jafar,Enchanted,5/30/2025,4,TRUE,Sapphire Steel,26079394297,221
+133,crd_cfbcf752b5064d1e8abfc2a2c6d3e98a,631990,Desperate Plan,NA,Reign of Jafar,Enchanted,5/30/2025,3,FALSE,Steel,14079171917,222
+134,crd_61593ca4abb44723ae95ab9228e27aee,650141,The Queen,Conceited Ruler,Fabled,Epic,8/29/2025,3,TRUE,Amber,28084733938,205
+135,crd_d292fcaa144d4f739bda2c14948da2ce,650142,Aurora,Holding Court,Fabled,Epic,8/29/2025,1,TRUE,Amber,5084729354,206
+136,crd_6ccc388f32064927a08d9914aad4bc8f,650143,Stitch,Alien Dancer,Fabled,Epic,8/29/2025,2,TRUE,Amber,11084707207,207
+137,crd_48ccbae93afd4032a54bf09f03f6a0c2,650145,Ursula,Sea Witch,Fabled,Epic,8/29/2025,3,FALSE,Amethyst,18084734095,208
+138,crd_21489dcd479a4d209a1b740f356fff6f,647657,Kuzco,Wanted Llama,Fabled,Epic,8/29/2025,2,TRUE,Amethyst,11084407534,209
+139,crd_2b5958e1524648629b663fb210bb7f76,647660,Elsa,Snow Queen,Fabled,Epic,8/29/2025,3,TRUE,Amethyst,23084428888,210
+140,crd_bc96b5e1045e45a38da57c302c634ba2,650147,Goofy,Set for Adventure,Fabled,Epic,8/29/2025,2,TRUE,Emerald,11084706935,211
+141,crd_5623b1aaf330477aa9d14cd755597509,650149,Pegasus,Gift for Hercules,Fabled,Epic,8/29/2025,1,TRUE,Emerald,22084723305,212
+142,crd_7b7cb2bd63084cf6942b7174b07be8c0,647659,Stand Out,NA,Fabled,Epic,8/29/2025,3,TRUE,Emerald,20084431225,213
+143,crd_4d1c2c4913d1417294da21592cee8363,650150,Max Goof,Rockin' Teen,Fabled,Epic,8/29/2025,3,TRUE,Ruby,18084734116,214
+144,crd_e234293cec8f422eb1d613594771e5ee,650151,Powerline,Musical Superstar,Fabled,Epic,8/29/2025,3,TRUE,Ruby,11084707165,215
+145,crd_d47a329c9f87420c8c2714ea6f7fffde,650152,Be King Undisputed,NA,Fabled,Epic,8/29/2025,4,FALSE,Ruby,19084722070,216
+146,crd_54148f51de174f4a93a475eec138365e,647656,Alice,Accidentally Adrift,Fabled,Epic,8/29/2025,4,TRUE,Sapphire,4084426690,217
+147,crd_d911158c4175449e9814484f3c5adb06,650153,Anna,Braving the Storm,Fabled,Epic,8/29/2025,2,TRUE,Sapphire,25084710206,218
+148,crd_2124e542c7de4cadb69cb6e1887547ee,650154,The Queen,Mirror Seeker,Fabled,Epic,8/29/2025,4,TRUE,Sapphire,15084754587,219
+149,crd_888f26474eba4f569f94c99251eddf06,650155,Robin Hood,Capable Fighter,Fabled,Epic,8/29/2025,2,FALSE,Steel,20084729671,220
+150,crd_a78a6d864bae48dca06ed1dc25e75e3f,650156,Mickey Mouse,Standard Bearer,Fabled,Epic,8/29/2025,2,TRUE,Steel,7084734752,221
+151,crd_ae1714b13cbc42a4a83ec36fee365526,650157,One Last Hope,NA,Fabled,Epic,8/29/2025,3,FALSE,Steel,27084730244,222
+152,crd_c233fd3627b24b02bd616aa62bbdc83a,651110,Pongo,Determined Father,Fabled,Enchanted,8/29/2025,3,TRUE,Amber,26085035563,223
+153,crd_8016f590ebb344a2934d76f614fedbba,651122,Beast,Gracious Prince,Fabled,Enchanted,8/29/2025,5,TRUE,Amber,24085020991,224
+154,crd_ee377c93c09341fe808b8582cbded0f2,649230,Circle of Life,NA,Fabled,Enchanted,8/29/2025,8,TRUE,Amber,13084592873,225
+155,crd_c51b6a26015b45f298d1664787f37234,651121,Belle,Accomplished Mystic,Fabled,Enchanted,8/29/2025,5,TRUE,Amethyst,3085022564,226
+156,crd_69d9b22e10244e2fb65ffbdb5f99da83,651107,Winnie the Pooh,Hunny Wizard,Fabled,Enchanted,8/29/2025,5,TRUE,Amethyst,2356071196,227
+157,crd_aa13ad9fe176464bac51e72c45dd6914,651119,Dumbo,Ninth Wonder of the Universe,Fabled,Enchanted,8/29/2025,4,TRUE,Amethyst,23085029621,228
+158,crd_aed92d8e19b14ef19a92fb436dde357c,651118,Genie,Of the Lamp,Fabled,Enchanted,8/29/2025,4,TRUE,Emerald,15085028526,229
+159,crd_b5087f60fdf4442686a00fb4243fcf48,651113,Max Goof,Chart Topper,Fabled,Enchanted,8/29/2025,6,TRUE,Emerald,11085007859,230
+160,crd_d72f9b00497a4ff0ac7ddb0f85da659d,651112,Mickey Mouse,Steamboat Pilot,Fabled,Enchanted,8/29/2025,3,TRUE,Emerald,20085031262,231
+161,crd_e6a1d03334964fb78033020d86a5f502,651123,Ariel,Adventurous Collector,Fabled,Enchanted,8/29/2025,3,TRUE,Ruby,19085023566,232
+162,crd_be9c85638bda44878c44cf4cc7e7cfb0,649231,Powerline,World's Greatest Rock Star,Fabled,Enchanted,8/29/2025,6,TRUE,Ruby,19084593324,233
+163,crd_d2d94d7cffe349d9a618f8bdb6695f29,651116,I2I,NA,Fabled,Enchanted,8/29/2025,9,TRUE,Ruby,3085022575,234
+164,crd_08b670dabf3b4ff0a56cb4525b0b57db,651111,Mulan,Considerate Diplomat,Fabled,Enchanted,8/29/2025,5,TRUE,Sapphire,17085027365,235
+165,crd_f5d62175b09243eda1bf9f34ea01d884,651120,Cruella De Vil,Style Icon,Fabled,Enchanted,8/29/2025,3,FALSE,Sapphire,11085007939,236
+166,crd_050ae6da90154532905911c8c2569802,651117,Hades,Infernal Schemer,Fabled,Enchanted,8/29/2025,7,FALSE,Sapphire,17085027326,237
+167,crd_fbccd8fc95fa45009665824b0731c3d3,649236,Lilo,Best Explorer Ever,Fabled,Enchanted,8/29/2025,3,TRUE,Steel,14084582594,238
+168,crd_3d02b1019aa34f70b5e0da64191d9326,651108,Scar,Finally King,Fabled,Enchanted,8/29/2025,5,FALSE,Steel,5085031027,239
+169,crd_7e0b8f2e97fc4d6ca8badbb552024f58,651114,Jasmine,Fearless Princess,Fabled,Enchanted,8/29/2025,5,TRUE,Steel,15085028484,240
+170,crd_77b92f4bb7d2460ea85b9d547cb8e72f,651106,Minnie Mouse,Sweetheart Princess,Fabled,Iconic,8/29/2025,4,TRUE,Amber,7085035146,241
+171,crd_4d10d4cd91454ff389318fd9a19a879f,647663,Mickey Mouse,Brave Little Prince,Fabled,Iconic,8/29/2025,3,TRUE,Ruby,9084421091,242
+172,crd_6283ca50c61544b7a6226fadbc7f0a17,660359,Goofy,Ghost Hunter,Whispers in the Well,Epic,11/7/2025,4,TRUE,Amber,22086769684,205
+173,crd_22fb811c179742f6b17bead54e0d68f2,657888,Gaston,Frightful Bully,Whispers in the Well,Epic,11/7/2025,2,FALSE,Amber,6086433032,206
+174,crd_faf17cc51b9748daa7187f81103430d0,660013,The Horseman Strikes!,NA,Whispers in the Well,Epic,11/7/2025,3,TRUE,Amber,6086698629,207
+175,crd_04d59c2ff0e648eb9dad622fa82ce49b,660188,Elsa,Exploring the Unknown,Whispers in the Well,Epic,11/7/2025,3,TRUE,Amethyst,16086731649,208
+176,crd_d51cdd2a1d904e03adb5e255a2b53a22,660189,Merlin,Completing His Research,Whispers in the Well,Epic,11/7/2025,2,FALSE,Amethyst,4086775656,209
+177,crd_ffc221e006704b97a8b62c29180b33b2,658323,The Horned King,Triumphant Ghoul,Whispers in the Well,Epic,11/7/2025,2,TRUE,Amethyst,23086554525,210
+178,crd_63194dcb766c473093e3802f309030e0,660190,Webby Vanderquack,Mystery Enthusiast,Whispers in the Well,Epic,11/7/2025,1,TRUE,Emerald,12086757669,211
+179,crd_f2d99b79354c466ebcaaeadcba69678e,660191,Kaa,Secretive Snake,Whispers in the Well,Epic,11/7/2025,7,TRUE,Emerald,17086778746,212
+180,crd_78c11305e1674d348fe8839940f029a5,658217,Megara,Secret Keeper,Whispers in the Well,Epic,11/7/2025,3,TRUE,Emerald,12086390266,213
+181,crd_1eeb3d6d93bf4e228fafce3b3d4cdcff,660268,Tinker Bell,Fancy Footwork,Whispers in the Well,Epic,11/7/2025,1,TRUE,Ruby,14086754161,214
+182,crd_082177dd6df34573a455c5f1b2ddad31,660362,Mulan,Standing Her Ground,Whispers in the Well,Epic,11/7/2025,3,TRUE,Ruby,24086748323,215
+183,crd_eca465c4f9f6483db912ae876f8011ce,660269,Aladdin,Barreling Through,Whispers in the Well,Epic,11/7/2025,3,TRUE,Ruby,15086747760,216
+184,crd_8076e7de5c3a4681b8a91629932092e5,660363,Daisy Duck,Ghost Finder,Whispers in the Well,Epic,11/7/2025,2,TRUE,Sapphire,21086772302,217
+185,crd_c74126bc80ba4d52bc7c499ba67dce25,660270,Kristoff,Mining the Ruins,Whispers in the Well,Epic,11/7/2025,3,TRUE,Sapphire,22086769390,218
+186,crd_7101d6f7aaba488e9a508b0d40172743,660271,Sudden Scare,NA,Whispers in the Well,Epic,11/7/2025,4,TRUE,Sapphire,21086772218,219
+187,crd_1ad6e15d73174d7ab0d55b27d770e14d,660364,Minnie Mouse,Ghost Hunter,Whispers in the Well,Epic,11/7/2025,2,TRUE,Steel,23086757093,220
+188,crd_9a7e83a63b8444438f4bc7714df6faf9,660272,Robin Hood,Ephemeral Archer,Whispers in the Well,Epic,11/7/2025,4,TRUE,Steel,23086757624,221
+189,crd_de5dfda85c534def9ee3a0d93cb55597,660026,He Hurled His Thunderbolt,NA,Whispers in the Well,Epic,11/7/2025,4,FALSE,Steel,15086673314,222
+190,crd_51faef6e502845188f6fee9429829df2,660365,Goofy,Galumphing Gumshoe,Whispers in the Well,Enchanted,11/7/2025,8,TRUE,Amber,2357814230,223
+191,crd_54bfc0bd37f44871a4ef50193d58ca2c,658449,Simba,King in the Making,Whispers in the Well,Enchanted,11/7/2025,7,TRUE,Amber,26086469212,224
+192,crd_24dfd54db49e4a5d8004c51d0882aa46,658884,The Black Cauldron,NA,Whispers in the Well,Enchanted,11/7/2025,3,FALSE,Amber,20086472588,225
+193,crd_831e34ca1c2143dd82785500356c339e,660044,The Horned King,Wicked Ruler,Whispers in the Well,Enchanted,11/7/2025,4,TRUE,Amethyst,14086755034,226
+194,crd_ed9fc60aa63a4eafa4116188e41910f2,658215,Demona,Scourge of the Wyvern Clan,Whispers in the Well,Enchanted,11/7/2025,6,TRUE,Amethyst,4086410024,227
+195,crd_715c77fe8d9b410d8194beea91b7163d,660041,Can't Hold it Back Anymore,NA,Whispers in the Well,Enchanted,11/7/2025,4,FALSE,Amethyst,22086769807,228
+196,crd_c607f55525894e1bbdb8121eed6bf886,660173,Webby Vanderquack,Junior Prospector,Whispers in the Well,Enchanted,11/7/2025,4,TRUE,Emerald,27086770622,229
+197,crd_9a1c82a2d3dd4ef898fb86f089242018,659443,Baloo,Carefree Bear,Whispers in the Well,Enchanted,11/7/2025,5,TRUE,Emerald,12086580201,230
+198,crd_5547bd08bb6344d4bcd03d37e415c75f,660027,"Malicious, Mean, and Scary",NA,Whispers in the Well,Enchanted,11/7/2025,3,TRUE,Emerald,28086696692,231
+199,crd_c2a0cc56159841db921d13a52589d13a,660012,The Headless Horseman,Terror of Sleepy Hollow,Whispers in the Well,Enchanted,11/7/2025,5,FALSE,Ruby,25086676859,232
+200,crd_ee5abfdfaa9d469e93dd20e1253ed1d0,660042,Lady Tremaine,Sinister Socialite,Whispers in the Well,Enchanted,11/7/2025,5,FALSE,Ruby,12086757938,233
+201,crd_fe0bc499ead74e4f8a5d2b0e6037cf91,660028,"Next Stop, Olympus",NA,Whispers in the Well,Enchanted,11/7/2025,2,TRUE,Ruby,27086695719,234
+202,crd_5413c96876fd4884861caaef3fcb58b5,660043,Judy Hopps,Lead Detective,Whispers in the Well,Enchanted,11/7/2025,6,TRUE,Sapphire,12086757668,235
+203,crd_3c235410b79145c080fa8e3b000a2c60,660029,Cinderella,Dream Come True,Whispers in the Well,Enchanted,11/7/2025,4,FALSE,Sapphire,10086667431,236
+204,crd_9a1fff8a9426484ebc7fae9cb8605572,660011,Spooky Sight,NA,Whispers in the Well,Enchanted,11/7/2025,6,FALSE,Sapphire,5086697063,237
+205,crd_8941521977e54d6fa2baaae91d13fb6e,660035,Goliath,Clan Leader,Whispers in the Well,Enchanted,11/7/2025,6,TRUE,Steel,22086769391,238
+206,crd_8a558015ad0948f5be96f85dc60b3c76,660030,Nick Wilde,Persistent Investigator,Whispers in the Well,Enchanted,11/7/2025,5,FALSE,Steel,3086679794,239
+207,crd_70fa88bf3a35452b8178209944e8604a,660031,The Sword of Hercules,NA,Whispers in the Well,Enchanted,11/7/2025,2,TRUE,Steel,5086697349,240
+208,crd_5b53a4c5b3854ab0ba71dd388aaa0d9f,657885,Ariel,Ethereal Voice,Whispers in the Well,Iconic,11/7/2025,4,TRUE,Amber,25086396288,241
+209,crd_4656262d1cbc478aab92978dc7729663,657889,Hades,Looking for a Deal,Whispers in the Well,Iconic,11/7/2025,5,TRUE,Amethyst,26086414898,242
+210,crd_801cd6ba9a3048499af41d6186fa4100,677142,Tiana,Warm and Happy,Winterspell,Epic,2/13/2026,4,TRUE,Amber,24089997450,205
+211,crd_d8dddac12b0749ba9c6510af447895bd,677143,Grandmother Willow,Ancient Advisor,Winterspell,Epic,2/13/2026,2,FALSE,Amber,4090017378,206
+212,crd_899fe35731aa4f609bb72a19d7e831c8,677144,Tigger,Bouncing All the Way,Winterspell,Epic,2/13/2026,4,TRUE,Amethyst,15090004504,208
+213,crd_9702c37c04864acd9912592d55d9dce0,677145,Anna,Little Sister,Winterspell,Epic,2/13/2026,2,TRUE,Amethyst,18090039450,209
+214,crd_13f9925099454b7a8fd6225381d11061,675280,Genie,Magical Researcher,Winterspell,Epic,2/13/2026,3,TRUE,Amethyst,26089635470,210
+215,crd_629d577b144c424286035635ec968b4a,677146,Aladdin,On the Edge of Adventure,Winterspell,Epic,2/13/2026,3,TRUE,Emerald,12089995493,211
+216,crd_239773eb4b194139916d4c31bba66356,677147,Mushu,Sneaky Dragon,Winterspell,Epic,2/13/2026,5,FALSE,Emerald,26090024956,212
+217,crd_84aa488aa433406493abed00a9d99611,677148,Minnie Mouse,Mrs. Cratchit,Winterspell,Epic,2/13/2026,5,TRUE,Emerald,27090043123,213
+218,crd_366f46e2c0bc4366832935158a49cdb4,677149,Hercules,Spectral Demigod,Winterspell,Epic,2/13/2026,1,TRUE,Ruby,6090041032,214
+219,crd_d66016477d454f19abf12684a50221ef,677150,Elsa,Concerned Sister,Winterspell,Epic,2/13/2026,3,TRUE,Ruby,18090039045,215
+220,crd_05285db16a3b4cb28941b7a24913d33f,677151,Goofy,Klutzy Skier,Winterspell,Epic,2/13/2026,3,FALSE,Ruby,10089997686,216
+221,crd_5da5944a7e9240aab2d30466337643c3,677152,Winnie the Pooh,Hungry Bear,Winterspell,Epic,2/13/2026,4,TRUE,Sapphire,14089990510,217
+222,crd_ea1ae83b3c414a2a838398390473ebc6,677153,Jiminy Cricket,Ghost of Christmas Past,Winterspell,Epic,2/13/2026,3,TRUE,Sapphire,25089996300,218
+223,crd_7379a15083914913b21c37d59e503c0c,677154,Mickey Mouse,Bob Cratchit,Winterspell,Epic,2/13/2026,2,TRUE,Sapphire,26090024525,219
+224,crd_197bd1d5d07843d49d892ea9536fcbed,677155,Donald Duck,Along for the Ride,Winterspell,Epic,2/13/2026,5,TRUE,Steel,28090066658,220
+225,crd_b7a2a60eb9d34fd986cf0bd44e2a1f1a,677156,Judy Hopps,Snowball Patrol,Winterspell,Epic,2/13/2026,2,TRUE,Steel,17090037089,221
+226,crd_b3924beae9a04927adc0e542f5656aa0,677157,Rapunzel,Ethereal Protector,Winterspell,Epic,2/13/2026,3,FALSE,Steel,27090043122,222
+227,crd_41acb92e0c494214949c72c409593b50,677158,Lilo,Rock Star,Winterspell,Enchanted,2/13/2026,6,TRUE,Amber,26090024529,223
+228,crd_87abaabc59344ef1bfed548f0b6753bf,673068,Ohana Means Family,NA,Winterspell,Enchanted,2/13/2026,3,TRUE,Amber,14089414774,224
+229,crd_b3c4b83755bd417bb09f35ffea57cb68,677159,Raging Storm,NA,Winterspell,Enchanted,2/13/2026,8,FALSE,Amber,27090043212,225
+230,crd_758bab20496f4673991e53ac59f1bcaa,675279,Eeyore,In the Way,Winterspell,Enchanted,2/13/2026,9,TRUE,Amethyst,5089650806,226
+231,crd_862f8b58a6e247cd865509856286449e,677160,Anna,Soothing Sister,Winterspell,Enchanted,2/13/2026,5,TRUE,Amethyst,12089995987,227
+232,crd_8ef1d474eb68402e8d35e2aa3bce689a,677161,Colors of the Wind,NA,Winterspell,Enchanted,2/13/2026,4,TRUE,Amethyst,22086769807,228
+233,crd_5eb205c36e0b4038a8a46aa47dd50b0f,677162,Mulan,Resourceful Recruit,Winterspell,Enchanted,2/13/2026,2,TRUE,Emerald,27090043125,229
+234,crd_2319774247e242a19dfa6a0fe584fff0,677163,Tod,Knows All the Tricks,Winterspell,Enchanted,2/13/2026,7,TRUE,Emerald,20090001780,230
+235,crd_d0659baf8fad4748ae9abf7260279d8c,675395,Freeze the Vine,NA,Winterspell,Enchanted,2/13/2026,4,TRUE,Emerald,28089715124,231
+236,crd_580ca4f029554dd68409aac983fdae69,677164,Negaduck,Public Enemy Number One,Winterspell,Enchanted,2/13/2026,5,TRUE,Ruby,12089995495,232
+237,crd_b35b509f95d441c1bd11ec67d755db5d,675515,Elsa,Ice Artisan,Winterspell,Enchanted,2/13/2026,6,TRUE,Ruby,12089644616,233
+238,crd_e3dbc3e8ae3543059ee67af1d144c576,677165,The Cold Never Bothered Me,NA,Winterspell,Enchanted,2/13/2026,3,FALSE,Ruby,10089997848,234
+239,crd_b30562a95420404b911886bcfc9e7a9c,677166,Scrooge McDuck,Reformed Ebenezer,Winterspell,Enchanted,2/13/2026,6,TRUE,Sapphire,23090017209,235
+240,crd_9652fdf2822645ee91302352c74c9d6a,677167,Belle,Snowfield Strategist,Winterspell,Enchanted,2/13/2026,4,TRUE,Sapphire,18090039530,236
+241,crd_82807328c2514c0d8f22366b4720a583,677168,Tamatoa,Seeker of Shine,Winterspell,Enchanted,2/13/2026,7,TRUE,Sapphire,14089990511,237
+242,crd_fbad358f2f804554838545c738341380,677169,Angel,Experiment 624,Winterspell,Enchanted,2/13/2026,4,TRUE,Steel,28090066583,238
+243,crd_789d5871174e4da293165a39bdfece14,677170,Darkwing Duck,Cool Under Pressure,Winterspell,Enchanted,2/13/2026,7,TRUE,Steel,12089995528,239
+244,crd_656cd1bfb0084f92bfd003ca69b3b3c9,677171,Let's Get Dangerous,NA,Winterspell,Enchanted,2/13/2026,4,TRUE,Steel,12089995394,240
+245,crd_40a3f6d8de604ff085fa5629597780a3,673298,Pocahontas,Peacekeeper,Winterspell,Iconic,2/13/2026,5,TRUE,Amber,25089449558,241
+246,crd_b73d08030c9646ab8a227158b8e453d4,673300,Moana,Curious Explorer,Winterspell,Iconic,2/13/2026,5,TRUE,Sapphire,3089452370,242
+247,crd_2eb1fa4c7ab0498b8d4cfcd28f56a8cf,692203,Woody,Waiting for a Friend,Wilds Unknown,Epic,5/8/2026,1,TRUE,Amber,2364444194,205
+248,crd_70e7c418c5034714b2eb7889c89e3c86,692204,Rex,Protective Dinosaur,Wilds Unknown,Epic,5/8/2026,2,TRUE,Amber,9093398687,206
+249,crd_1747f940605e4b6eb87f5df5ee96d9d8,692088,Isabela Madrigal,Such a Lovely Voice,Wilds Unknown,Epic,5/8/2026,3,TRUE,Amber,20093301840,207
+250,crd_31ae4e3c265448b894f74dcaf1914a3a,692205,Mirage,Super Recruiter,Wilds Unknown,Epic,5/8/2026,4,TRUE,Amethyst,20093390133,208
+251,crd_fb68c593a65344d5ad1585cb7a67777f,692206,Edna Mode,Fashion Designer,Wilds Unknown,Epic,5/8/2026,3,TRUE,Amethyst,2364444202,209
+252,crd_fd529e637c964866821ab9f2946451cb,692207,Doc,Taking Notes,Wilds Unknown,Epic,5/8/2026,4,TRUE,Amethyst,4093402951,210
+253,crd_dc61d69860c541f6bca41a4a9b8c17f1,692208,Buzz Lightyear,Space Ranger,Wilds Unknown,Epic,5/8/2026,2,TRUE,Emerald,6093445023,211
+254,crd_5186a8ffa2ac448c9108a110b747e4e5,692209,Donald Duck,Distracted Traveler,Wilds Unknown,Epic,5/8/2026,5,TRUE,Emerald,8093387863,212
+255,crd_52404c741d6e424e8a8f901408ccb11a,692235,Merida,Gifted Archer,Wilds Unknown,Epic,5/8/2026,5,TRUE,Emerald,23093399081,213
+256,crd_ab041a63b5204af49dbe1cbc49cbabe2,692210,Lyle Tiberius Rourke,Crystallized Commander,Wilds Unknown,Epic,5/8/2026,6,FALSE,Ruby,8093387708,214
+257,crd_04e84b2e5eca458da5e3ce89ac7b19cb,692211,Mr. Incredible,Bob Parr,Wilds Unknown,Epic,5/8/2026,1,TRUE,Ruby,16093359183,215
+258,crd_995abfb15ba34115bbf2283bd853c2c2,690555,Daisy Duck,Trendy Traveler,Wilds Unknown,Epic,5/8/2026,3,TRUE,Ruby,22093182204,216
+259,crd_4f772bcbcd244314a99264fb106166dd,692212,Kida,Guardian of the Path,Wilds Unknown,Epic,5/8/2026,2,TRUE,Sapphire,27093420219,217
+260,crd_60e4bcd50631400eac4cf9544951e4ad,692213,Bruno Madrigal,Oasis Oracle,Wilds Unknown,Epic,5/8/2026,5,TRUE,Sapphire,9093398599,218
+261,crd_c3586bda90744abf8eb5c15db3b0b766,692214,Minnie Mouse,Practical Traveler,Wilds Unknown,Epic,5/8/2026,1,TRUE,Sapphire,12093387197,219
+262,crd_5b512fbc3a31425eb70175752010d69c,692215,Pocahontas,Steadfast Traveler,Wilds Unknown,Epic,5/8/2026,4,TRUE,Steel,7093426214,220
+263,crd_705137b1ace0487ba1f71ee39019989a,692216,Incrediboy,Buddy Pine,Wilds Unknown,Epic,5/8/2026,2,TRUE,Steel,13093376172,221
+264,crd_8bc3e60c6a77434ca8ba598742c86362,690215,Three Arrows,NA,Wilds Unknown,Epic,5/8/2026,3,TRUE,Steel,5093916461,222
+265,crd_c0337343682c4e9e9bac90b90fb4f24a,692217,Jessie,Lively Cowgirl,Wilds Unknown,Enchanted,5/8/2026,3,TRUE,Amber,6093444864,223
+266,crd_68c6733378304dca8d2adb4b1c993433,692089,Isabela Madrigal,Caring Cultivator,Wilds Unknown,Enchanted,5/8/2026,6,TRUE,Amber,27093332423,224
+267,crd_611ab7622d0b4aa7a9aa98ab736f329c,690747,You've Got a Friend in Me,NA,Wilds Unknown,Enchanted,5/8/2026,3,TRUE,Amber,28093238052,225
+268,crd_aa4a880f25814ec58358ea3ad771fbb3,692090,Frozone,Super Cool,Wilds Unknown,Enchanted,5/8/2026,6,FALSE,Amethyst,15093295975,226
+269,crd_ea1ebbf0332f4cb78f6b7a6a90d826a7,692218,Luisa Madrigal,Confident Climber,Wilds Unknown,Enchanted,5/8/2026,5,TRUE,Amethyst,2364444198,227
+270,crd_a8ae68af26f84535869ce0dac1f4a3de,692219,DunBroch Family Tapestry,NA,Wilds Unknown,Enchanted,5/8/2026,2,TRUE,Amethyst,25093374328,228
+271,crd_c671f23fc8e74ee3a7925ad650577008,692220,Alien,True Believer,Wilds Unknown,Enchanted,5/8/2026,1,TRUE,Emerald,10093375168,229
+272,crd_2ec97929d9ee45578f91dea1a62048b8,692221,Milo Thatch,Getting His Hands Dirty,Wilds Unknown,Enchanted,5/8/2026,7,TRUE,Emerald,2364444199,230
+273,crd_c4e66047e01c49f4bedb6c185d0af90a,692222,The Family Scattered,NA,Wilds Unknown,Enchanted,5/8/2026,8,FALSE,Emerald,7093426213,231
+274,crd_519eea38258c49ca9b1eab9981d74544,692223,Jack-Jack Parr,Incredible Potential,Wilds Unknown,Enchanted,5/8/2026,4,TRUE,Ruby,6093444863,232
+275,crd_acf86cd5ee4e434fac91134e9ecf07c5,692224,The Leviathan,Guardian of Atlantis,Wilds Unknown,Enchanted,5/8/2026,10,FALSE,Ruby,4093402953,233
+276,crd_549170e882a24974be95e3cbaf53f34e,692225,Mr. Incredible,Super Strong,Wilds Unknown,Enchanted,5/8/2026,5,TRUE,Ruby,10093375489,234
+277,crd_d515c85e0daa4cfd8c3a84154d328cd4,692226,Zipper,Big Helper,Wilds Unknown,Enchanted,5/8/2026,4,TRUE,Sapphire,16093359335,235
+278,crd_8197b190acad44c7a28b50a83fb573f1,692227,Kida,Crystal Scion,Wilds Unknown,Enchanted,5/8/2026,8,TRUE,Sapphire,20093390132,236
+279,crd_a2a3a343dac1408092294ea226dcd028,690556,What Else Can I Do?,NA,Wilds Unknown,Enchanted,5/8/2026,5,FALSE,Sapphire,2364222538,237
+280,crd_4ca85bb2c2274683bb7f2015997479c5,692228,Syndrome,Out for Revenge,Wilds Unknown,Enchanted,5/8/2026,6,TRUE,Steel,27093420006,238
+281,crd_fcfb9ad84f3a4c2db462a9ec4d3a63d1,692229,Mrs. Incredible,Determined Rescuer,Wilds Unknown,Enchanted,5/8/2026,7,TRUE,Steel,27093420218,239
+282,crd_baeb30c2d1dd4756b259daeb2833fad4,692091,Touch the Sky,NA,Wilds Unknown,Enchanted,5/8/2026,2,TRUE,Steel,12093297705,240
+283,crd_0b928f0cd5d2473482e07a609205c26b,690216,Buzz Lightyear,Jungle Ranger,Wilds Unknown,Iconic,5/8/2026,7,FALSE,Emerald,10093868551,241
+284,crd_4811e7317e3149db966bab69151147cc,690217,Merida,Formidable Archer,Wilds Unknown,Iconic,5/8/2026,5,FALSE,Steel,13093872252,242
