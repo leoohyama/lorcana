@@ -1,6 +1,6 @@
 library(tidyverse)
-library(httr)
 library(jsonlite)
+library(httr)
 library(DBI)
 library(duckdb)
 
@@ -55,11 +55,14 @@ ask_gemma_json <- function(target_card, ebay_title) {
   fallback <- list(validity="ERROR", is_graded=NA, grading_company="ERROR", grade_value="ERROR")
   
   if (!is.null(res) && status_code(res) == 200) {
-    parsed <- content(res, "parsed")
-    unpacked <- tryCatch(
-      fromJSON(parsed$response),
-      error = function(e) return(fallback)
-    )
+    # SAFEST FIX: Extract raw text first, then parse everything inside the tryCatch.
+    unpacked <- tryCatch({
+      raw_text <- content(res, "text", encoding = "UTF-8")
+      parsed <- fromJSON(raw_text)
+      fromJSON(parsed$response)
+    }, error = function(e) {
+      return(fallback)
+    })
     return(unpacked)
   } else {
     return(fallback)
@@ -143,3 +146,59 @@ print(paste("🔎 Evaluating", nrow(processing_queue), "unique listings..."))
 for (i in 1:nrow(processing_queue)) {
   
   curr_item_id <- processing_queue$item_id[i]
+  curr_id <- processing_queue$id[i]
+  curr_title <- processing_queue$listing_title[i]
+  curr_target <- processing_queue$cardname[i]
+  
+  cat(sprintf("\rProcessing %d of %d...", i, nrow(processing_queue)))
+
+  # check language hints in title 
+  title_lower <- str_to_lower(curr_title)
+  lang_val <- case_when(
+    str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
+    str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
+    str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
+    str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
+    str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
+    TRUE ~ "English"
+  )
+  
+  result_list <- ask_gemma_json(curr_target, curr_title)
+  
+  is_valid_flag <- ifelse(result_list$validity == "Match", TRUE, FALSE)
+  is_graded_flag <- as.logical(result_list$is_graded)
+  company_val <- ifelse(result_list$grading_company == "NA" | is.na(result_list$grading_company), NA_character_, result_list$grading_company)
+  grade_val <- ifelse(result_list$grade_value == "NA" | is.na(result_list$grade_value), NA_character_, as.character(result_list$grade_value))
+  
+  # --- DETERMINISTIC SAFETY NET ---
+  if (is.na(company_val) || trimws(company_val) == "") {
+    is_graded_flag <- FALSE
+    company_val <- NA_character_
+    grade_val <- NA_character_
+  }
+  
+  if(!is.na(company_val) && toupper(company_val) == "BECKETT") {
+    company_val <- "BGS"
+  }
+  
+  # --- NATIVE DUCKDB INSERTION (Index-Safe) ---
+  dbExecute(con, "DELETE FROM llm_listing_metadata WHERE item_id = ?", params = list(curr_item_id))
+  
+  insert_query <- "
+    INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  "
+  
+  dbExecute(con, insert_query, params = list(
+    curr_item_id, 
+    curr_id, 
+    is_valid_flag, 
+    is_graded_flag, 
+    company_val, 
+    grade_val, 
+    lang_val
+  ))
+}
+
+cat("\n✨ Complete! The new llm_listing_metadata table is fully populated.\n")
+dbDisconnect(con, shutdown = TRUE)
