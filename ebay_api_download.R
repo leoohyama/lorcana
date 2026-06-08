@@ -145,7 +145,7 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
     version_keys <- raw_v_keys[nchar(raw_v_keys) > 3] 
 
     # 2. Local Blacklist (keeping this as a secondary strict local filter)
-    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat"
+    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship"
 
     # 3. Vectorized Filter Logic
     final_df <- combined_unique %>% 
