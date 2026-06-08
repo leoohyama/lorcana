@@ -22,7 +22,14 @@ resources:
 # ==========================================
 library(tidyverse)
 library(DBI)
-library(RPostgres)
+library(duckdb)
+
+# 1. Pull token from the environment
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+
+if (md_token == "") {
+  stop("MotherDuck token missing! The dashboard cannot fetch current data.")
+}
 
 # Load Dictionary & Fix Image Paths
 master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
@@ -35,8 +42,16 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
   ) %>%
   distinct(id, .keep_all = TRUE)
 
-# Connect to Neon
-con <- dbConnect(RPostgres::Postgres(), host = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech", dbname = "neondb", user = "neondb_owner", password = Sys.getenv("NEON_PASSWORD"), port = 5432, sslmode = "require")
+# 2. Bootstrap the MotherDuck connection
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+
+# FIX: Force load both motherduck and the icu collation extensions
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "INSTALL icu; LOAD icu;") # <--- Add this line here
+
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 # Fetch Core Data
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")

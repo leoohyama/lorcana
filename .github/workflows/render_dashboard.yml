@@ -29,7 +29,7 @@ jobs:
           use-public-rspm: true       
 
       - name: 📦 Install R Packages        
-        run: install.packages(c("tidyverse", "DBI", "RPostgres"))        
+        run: install.packages(c("tidyverse", "DBI", "duckdb"))        
         shell: Rscript {0}      
 
       - name: 📝 Setup Quarto        
@@ -38,7 +38,7 @@ jobs:
       - name: 📊 Render Dashboard        
         env:          
           # Give Quarto access to Neon to pull the fresh data          
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}        
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
         run: quarto render index.qmd      
 
       - name: 🚀 Commit and Push        
