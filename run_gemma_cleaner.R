@@ -109,7 +109,7 @@ dbExecute(con, create_table_query)
 # ==========================================
 # 3. THE FULL RERUN TOGGLE
 # ==========================================
-force_full_rerun <- TRUE
+force_full_rerun <- FALSE
 
 if(force_full_rerun) {
   print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
