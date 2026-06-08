@@ -103,7 +103,6 @@ if __name__ == "__main__":
             
             with torch.no_grad():
                 samples = []
-                # Model is explicitly set to train mode to activate dropout layers for Monte Carlo sampling
                 model.train() 
                 for _ in range(50):
                     pred_scaled = model(x_dyn, x_cat, x_cont).cpu().numpy()[0]
@@ -130,23 +129,30 @@ if __name__ == "__main__":
             today_str = datetime.date.today().strftime('%Y-%m-%d')
             model_name = 'GRU'
 
-            # 1. SMART IDEMPOTENT LOGIC
+            # 1. SMART IDEMPOTENT LOGIC WITH NULL HANDLING
             check_query = f"SELECT run_id FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}'"
             existing_runs = con.execute(check_query).fetchall()
 
             if existing_runs:
-                existing_ids = [str(r[0]) for r in existing_runs]
-                existing_ids_str = ", ".join(existing_ids)
-                print(f"Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
-
-                con.execute(f"DELETE FROM gru_predictions WHERE run_id IN ({existing_ids_str})")
-                con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
-                print("Cleared old data for today.")
+                # Filter out the broken None/NULL values so they don't break the SQL query
+                valid_ids = [str(r[0]) for r in existing_runs if r[0] is not None]
+                
+                if valid_ids:
+                    existing_ids_str = ", ".join(valid_ids)
+                    print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+                    con.execute(f"DELETE FROM gru_predictions WHERE run_id IN ({existing_ids_str})")
+                    con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
+                
+                # Automatically clean up the broken NULL run from the failed execution
+                if any(r[0] is None for r in existing_runs):
+                    con.execute(f"DELETE FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}' AND run_id IS NULL")
+                    print("🗑️ Cleared orphaned NULL runs from the database.")
             
-            # 2. Insert Metadata into 'model_runs'
+            # 2. BULLETPROOF INSERT USING COALESCE
+            # This completely bypasses the broken table sequence and generates a valid integer
             insert_meta_query = f"""
-                INSERT INTO model_runs (run_date, window_size, model_type) 
-                VALUES ('{today_str}', {seq_len}, '{model_name}') 
+                INSERT INTO model_runs (run_id, run_date, window_size, model_type) 
+                VALUES ((SELECT COALESCE(MAX(run_id), 0) + 1 FROM model_runs), '{today_str}', {seq_len}, '{model_name}') 
                 RETURNING run_id
             """
             run_id = con.execute(insert_meta_query).fetchone()[0] 
@@ -155,7 +161,7 @@ if __name__ == "__main__":
             final_df['run_id'] = run_id
             
             # 4. Push to 'gru_predictions'
-            print(f"Pushing {len(final_df)} predictions for Run ID: {run_id}")
+            print(f"🚀 Pushing {len(final_df)} predictions for Run ID: {run_id}")
             con.execute("INSERT INTO gru_predictions SELECT * FROM final_df")
             
             con.close()

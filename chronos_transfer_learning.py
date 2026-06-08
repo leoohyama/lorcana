@@ -135,27 +135,35 @@ else:
     today_str = run_date.strftime('%Y-%m-%d')
     model_name = 'Chronos'
     
-    # --- SMART IDEMPOTENT LOGIC ---
-    # Check if we already have a run for today
+    # --- 1. SMART IDEMPOTENT LOGIC WITH NULL HANDLING ---
     check_query = f"SELECT run_id FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}'"
     existing_runs = con.execute(check_query).fetchall()
 
     if existing_runs:
-        existing_ids = [str(r[0]) for r in existing_runs]
-        existing_ids_str = ", ".join(existing_ids)
-        print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+        # Filter out the broken None/NULL values so they don't break the SQL query
+        valid_ids = [str(r[0]) for r in existing_runs if r[0] is not None]
+        
+        if valid_ids:
+            existing_ids_str = ", ".join(valid_ids)
+            print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
 
-        # Delete child predictions FIRST to prevent orphans
-        con.execute(f"DELETE FROM chronos_predictions WHERE run_id IN ({existing_ids_str})")
-        # Delete parent run record
-        con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
-        print("🗑️ Cleared old data for today.")
+            # Delete child predictions FIRST to prevent orphans
+            con.execute(f"DELETE FROM chronos_predictions WHERE run_id IN ({existing_ids_str})")
+            # Delete parent run record
+            con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
+            print("🗑️ Cleared old data for today.")
+            
+        # Automatically clean up any broken NULL runs from previous failed executions
+        if any(r[0] is None for r in existing_runs):
+            con.execute(f"DELETE FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}' AND run_id IS NULL")
+            print("🗑️ Cleared orphaned NULL runs from the database.")
     # ------------------------------
 
-    # A. Insert Metadata into 'model_runs' and grab the ID
+    # --- 2. BULLETPROOF INSERT USING COALESCE ---
+    # Bypasses the broken sequence and generates a valid integer ID
     insert_meta_query = f"""
-        INSERT INTO model_runs (run_date, window_size, model_type) 
-        VALUES ('{today_str}', 30, '{model_name}') 
+        INSERT INTO model_runs (run_id, run_date, window_size, model_type) 
+        VALUES ((SELECT COALESCE(MAX(run_id), 0) + 1 FROM model_runs), '{today_str}', 30, '{model_name}') 
         RETURNING run_id
     """
     run_id = con.execute(insert_meta_query).fetchone()[0]
