@@ -95,10 +95,10 @@ metrics_df <- df_prices %>%
 if (nrow(metrics_df) > 0) {
   message("Preparing MotherDuck target tables...")
   
-  # Ensure target table exists with primary key constraints intact
+  # Ensure target table exists (without enforcing strict DuckDB constraints)
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS card_ts_metrics (
-      tcgplayer_id VARCHAR PRIMARY KEY,
+      tcgplayer_id VARCHAR,
       lifetime_days INTEGER,
       days_in_30d INTEGER,
       current_price DOUBLE,
@@ -115,30 +115,20 @@ if (nrow(metrics_df) > 0) {
   # Write the clean data frame directly into a high-speed local temp staging table
   dbWriteTable(con, "temp_card_ts_metrics", metrics_df, overwrite = TRUE, temporary = TRUE)
   
-  # Run a single optimized merge statement in the cloud
-  message(paste("Upserting", nrow(metrics_df), "rows via atomic database transaction..."))
-  upsert_sql <- "
-    INSERT INTO card_ts_metrics (
-      tcgplayer_id, lifetime_days, days_in_30d, current_price, avg_price_30d, 
-      cv_30d, samp_ent_30d, hurst_30d, lag1_corr_30d, skewness_30d, last_updated
-    )
-    SELECT 
-      tcgplayer_id, lifetime_days, days_in_30d, current_price, avg_price_30d, 
-      cv_30d, samp_ent_30d, hurst_30d, lag1_corr_30d, skewness_30d, last_updated
-    FROM temp_card_ts_metrics
-    ON CONFLICT (tcgplayer_id) DO UPDATE SET 
-      lifetime_days = EXCLUDED.lifetime_days,
-      days_in_30d = EXCLUDED.days_in_30d,
-      current_price = EXCLUDED.current_price,
-      avg_price_30d = EXCLUDED.avg_price_30d,
-      cv_30d = EXCLUDED.cv_30d,
-      samp_ent_30d = EXCLUDED.samp_ent_30d,
-      hurst_30d = EXCLUDED.hurst_30d,
-      lag1_corr_30d = EXCLUDED.lag1_corr_30d,
-      skewness_30d = EXCLUDED.skewness_30d,
-      last_updated = EXCLUDED.last_updated;
-  "
-  dbExecute(con, upsert_sql)
+  message(paste("Merging", nrow(metrics_df), "rows via staging table..."))
+  
+  # 1. Delete existing records for any cards we are updating today
+  dbExecute(con, "
+    DELETE FROM card_ts_metrics 
+    WHERE tcgplayer_id IN (SELECT tcgplayer_id FROM temp_card_ts_metrics);
+  ")
+  
+  # 2. Insert the fresh calculated rows
+  dbExecute(con, "
+    INSERT INTO card_ts_metrics 
+    SELECT * FROM temp_card_ts_metrics;
+  ")
+  
   message("✅ Pipeline complete! 30-Day Metrics successfully updated.")
 } else {
   message("No metrics processed. Skipping update step.")
