@@ -2,16 +2,16 @@ library(tidyverse)
 library(jsonlite)
 library(httr)
 library(DBI)
-library(RPostgres)
+library(duckdb)
 
 # ==========================================
 # --- STEP 1: Setup and Load Target Cards ---
 # ==========================================
 # Pulling secrets from the environment for security
-api_key   <- trimws(Sys.getenv("JUSTTCG_API_KEY"))
-neon_pass <- trimws(Sys.getenv("NEON_PASSWORD"))
+api_key  <- trimws(Sys.getenv("JUSTTCG_API_KEY"))
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
 
-if (api_key == "" || neon_pass == "") {
+if (api_key == "" || md_token == "") {
   stop("Missing credentials. Check your .Renviron file or GitHub Secrets.")
 }
 
@@ -65,7 +65,7 @@ for(i in seq_along(card_batches)) {
 }
 
 # ==========================================
-# --- STEP 3: Clean & Format for Neon ---
+# --- STEP 3: Clean & Format for Storage ---
 # ==========================================
 daily_prices_lean <- bind_rows(all_price_data) %>%
   select(
@@ -81,29 +81,27 @@ daily_prices_lean <- bind_rows(all_price_data) %>%
   distinct(tcgplayer_id, pull_date, .keep_all = TRUE)
 
 # ==========================================
-# --- STEP 4: Push to Neon Database ---
+# --- STEP 4: Push to MotherDuck Database ---
 # ==========================================
 if (nrow(daily_prices_lean) > 0) {
-  message("Pushing lean price data to Neon...")
+  message("Pushing lean price data to MotherDuck...")
   
-  con <- dbConnect(RPostgres::Postgres(),
-    host = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-    dbname = "neondb", user = "neondb_owner",
-    password = neon_pass, port = 5432, sslmode = "require"
-  )
+  Sys.setenv(motherduck_token = md_token)
+  con <- dbConnect(duckdb::duckdb())
+  
+  dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+  dbExecute(con, "ATTACH 'md:'")
+  dbExecute(con, "USE my_db;")
 
-  # 1. Clean out today's data (so you can run the script multiple times without duplicates)
-  dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", Sys.Date(), "';"))
+  # 1. Clean out today's data to support clean daily script execution re-runs
+  today_str <- as.character(Sys.Date())
+  dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", today_str, "';"))
   
-  # 2. Add the new lean data to the existing table
+  # 2. Add the new lean data to the existing cloud table using the native DuckDB engine
   dbWriteTable(con, "justtcg_prices", daily_prices_lean, append = TRUE) 
   
-  dbDisconnect(con)
-  message("Neon push complete. Added ", nrow(daily_prices_lean), " rows.")
+  dbDisconnect(con, shutdown = TRUE)
+  message("MotherDuck push complete. Added ", nrow(daily_prices_lean), " rows.")
 } else {
   message("No price data retrieved. Skipping database push.")
 }
-
-# --- STEP 1: Setup and Load Target Cards ---
-api_key <- "tcg_ed83c7138fff417098cd323bcdaaaa8b"
-base_url <- "https://api.justtcg.com/v1/cards"

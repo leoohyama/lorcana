@@ -35,13 +35,13 @@ jobs:
             any::jsonlite
             any::base64enc
             any::DBI
-            any::RPostgres
+            any::duckdb
 
-      - name: Run eBay API & Push to Neon
+      - name: Run eBay API & Push to MotherDuck
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript ebay_api_download.R
 
   # ==========================================
@@ -63,7 +63,7 @@ jobs:
 
       - name: Run Gemma Cleaner
         env:
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript run_gemma_cleaner.R
 
   # ==========================================
@@ -85,5 +85,5 @@ jobs:
 
       - name: Run Gemma Deduplication
         env:
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript dedupe_gemma4.R

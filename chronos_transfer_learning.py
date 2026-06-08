@@ -5,21 +5,20 @@ from chronos import ChronosPipeline
 import os
 import time
 from tqdm import tqdm
-from sqlalchemy import create_engine, text
 import datetime
 from dotenv import load_dotenv
+import duckdb
 
 # ==========================================
 # 1. SETUP & AUTHENTICATION
 # ==========================================
 load_dotenv()
-NEON_PASSWORD = os.getenv("NEON_PASSWORD")
-if not NEON_PASSWORD:
-    raise ValueError("⚠️ NEON_PASSWORD not found. Please check your .env file!")
+MD_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
+if not MD_TOKEN:
+    raise ValueError("⚠️ MOTHERDUCK_TOKEN not found. Please check your .env file!")
 
-NEON_HOST = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech"
-DB_URL = f"postgresql://neondb_owner:{NEON_PASSWORD}@{NEON_HOST}/neondb?sslmode=require"
-engine = create_engine(DB_URL)
+# We will open the database connection right before we need it in Step 6 
+# to avoid holding network connections open during long ML runs.
 
 if torch.backends.mps.is_available(): device = "mps"; print("🚀 Hardware: Apple Silicon GPU (MPS) detected.")
 elif torch.cuda.is_available(): device = "cuda"; print("🚀 Hardware: NVIDIA GPU (CUDA) detected.")
@@ -113,69 +112,64 @@ for i, cid in enumerate(valid_card_ids):
 
 final_chronos_df = pd.DataFrame(rows)
 
-# Optional: Still save locally to GitHub Actions workspace just in case you want the CSV
 os.makedirs('data/pytorch', exist_ok=True)
 final_chronos_df.to_csv("data/pytorch/chronos_inference_latest.csv", index=False)
+
 # ==========================================
-# 6. NORMALIZED NEON DATABASE UPLOAD (SMART APPEND)
+# 6. NORMALIZED MOTHERDUCK DATABASE UPLOAD
 # ==========================================
 if final_chronos_df.empty:
     print("⚠️ No Chronos forecasts generated.")
 else:
-    print(f"☁️ Syncing Chronos results to Neon (Normalized Schema)...")
+    print(f"☁️ Syncing Chronos results to MotherDuck...")
     
     # 1. Round prices and prep for database
     final_chronos_df['pred_price'] = final_chronos_df['pred_price'].round(2)
     final_chronos_df['conf_low'] = final_chronos_df['conf_low'].round(2)
     final_chronos_df['conf_high'] = final_chronos_df['conf_high'].round(2)
 
-    with engine.connect() as conn:
-        today_date = datetime.date.today()
-        model_name = 'Chronos'
-        
-        # --- SMART IDEMPOTENT LOGIC ---
-        # Check if we already have a run for today
-        check_query = text("""
-            SELECT run_id FROM model_runs 
-            WHERE run_date = :run_date AND model_type = :model_type
-        """)
-        existing_runs = conn.execute(check_query, {'run_date': today_date, 'model_type': model_name}).fetchall()
+    # 2. Connect to the cloud database
+    con = duckdb.connect(f"md:?motherduck_token={MD_TOKEN}")
+    con.execute("USE my_db;")
+    
+    today_str = run_date.strftime('%Y-%m-%d')
+    model_name = 'Chronos'
+    
+    # --- SMART IDEMPOTENT LOGIC ---
+    # Check if we already have a run for today
+    check_query = f"SELECT run_id FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}'"
+    existing_runs = con.execute(check_query).fetchall()
 
-        if existing_runs:
-            existing_ids = [str(r[0]) for r in existing_runs]
-            existing_ids_str = ", ".join(existing_ids)
-            print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+    if existing_runs:
+        existing_ids = [str(r[0]) for r in existing_runs]
+        existing_ids_str = ", ".join(existing_ids)
+        print(f"⚠️ Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
 
-            # Delete child predictions FIRST to prevent orphans
-            conn.execute(text(f"DELETE FROM chronos_predictions WHERE run_id IN ({existing_ids_str})"))
-            # Delete parent run record
-            conn.execute(text(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})"))
-            conn.commit()
-            print("🗑️ Cleared old data for today.")
-        # ------------------------------
+        # Delete child predictions FIRST to prevent orphans
+        con.execute(f"DELETE FROM chronos_predictions WHERE run_id IN ({existing_ids_str})")
+        # Delete parent run record
+        con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
+        print("🗑️ Cleared old data for today.")
+    # ------------------------------
 
-        # A. Insert Metadata into 'model_runs'
-        run_meta = {
-            'run_date': today_date,
-            'window_size': 30, # Chronos is fixed at 30
-            'model_type': model_name
-        }
-        
-        # This will return the next available run_id
-        res = conn.execute(
-            text("INSERT INTO model_runs (run_date, window_size, model_type) VALUES (:run_date, :window_size, :model_type) RETURNING run_id"),
-            run_meta
-        )
-        run_id = res.fetchone()[0]
-        
-        # B. Attach the run_id to predictions
-        final_chronos_df['run_id'] = run_id
-        
-        # C. Push to a specific 'chronos_predictions' table
-        slim_chronos = final_chronos_df[['card_id', 'target_date', 'pred_price', 'conf_low', 'conf_high', 'run_id']]
-        
-        print(f"🚀 Pushing {len(slim_chronos)} rows to 'chronos_predictions' (Run ID: {run_id})...")
-        slim_chronos.to_sql('chronos_predictions', engine, if_exists='append', index=False)
-        
-        conn.commit()
-    print("✨ Chronos database sync complete. Data is pristine.")
+    # A. Insert Metadata into 'model_runs' and grab the ID
+    insert_meta_query = f"""
+        INSERT INTO model_runs (run_date, window_size, model_type) 
+        VALUES ('{today_str}', 30, '{model_name}') 
+        RETURNING run_id
+    """
+    run_id = con.execute(insert_meta_query).fetchone()[0]
+    
+    # B. Attach the run_id to predictions
+    final_chronos_df['run_id'] = run_id
+    
+    # C. Push to 'chronos_predictions' using DuckDB's native Pandas reader
+    slim_chronos = final_chronos_df[['card_id', 'target_date', 'pred_price', 'conf_low', 'conf_high', 'run_id']]
+    
+    print(f"🚀 Pushing {len(slim_chronos)} rows to 'chronos_predictions' (Run ID: {run_id})...")
+    
+    # DuckDB automatically sees 'slim_chronos' in your local python variables
+    con.execute("INSERT INTO chronos_predictions SELECT * FROM slim_chronos")
+    
+    con.close()
+    print("✨ MotherDuck database sync complete. Data is pristine.")

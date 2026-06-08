@@ -1,22 +1,26 @@
 library(DBI)
-library(RPostgres)
+library(duckdb)
 library(tidyverse)
 library(lubridate) # Added for safe Date handling
 
 # ==========================================
-# 1. PULL LIVE DATA FROM NEON (WITH FILTER)
+# 1. PULL LIVE DATA FROM MOTHERDUCK (WITH FILTER)
 # ==========================================
-print("1. Connecting to Neon & Pulling Filtered Data...")
+print("1. Connecting to MotherDuck & Pulling Filtered Data...")
 
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-  dbname   = "neondb",
-  user     = "neondb_owner",
-  password = trimws(Sys.getenv("NEON_PASSWORD")), 
-  port     = 5432,
-  sslmode  = "require"
-)
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+if (md_token == "") {
+  stop("MotherDuck token is missing! Check your environment configurations.")
+}
+
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+
+# Load extensions and set the context
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "INSTALL icu; LOAD icu;")
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 # Pulls daily prices ONLY for cards with >= 180 days of history
 daily_prices <- dbGetQuery(con, "
@@ -34,7 +38,8 @@ daily_prices <- dbGetQuery(con, "
   ORDER BY tcgplayer_id, pull_date
 ")
 
-dbDisconnect(con)
+# Cleanly shutdown the DuckDB instance before running heavy CPU tasks
+dbDisconnect(con, shutdown = TRUE)
 
 # ==========================================
 # 2. FILLING TIME GAPS (CORRECTED)

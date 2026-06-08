@@ -31,10 +31,10 @@ jobs:
             any::jsonlite
             any::httr
             any::DBI
-            any::RPostgres
+            any::duckdb
 
-      - name: Run Daily Price Scraper & Push to Neon
+      - name: Run Daily Price Scraper & Push to MotherDuck
         env:
           JUSTTCG_API_KEY: ${{ secrets.JUSTTCG_API_KEY }}
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript pull_daily_prices.R

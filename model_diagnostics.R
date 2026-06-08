@@ -1,27 +1,28 @@
 library(tidyverse)
 library(lubridate)
 library(DBI)
-library(RPostgres)
+library(duckdb)
 
 # ==========================================
 # 1. AUTHENTICATION & SETUP
 # ==========================================
-print("🚀 Connecting to Neon via .Renviron...")
+print("🚀 Connecting to MotherDuck...")
 
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-  dbname   = "neondb",
-  user     = "neondb_owner",
-  password = Sys.getenv("NEON_PASSWORD"),
-  port     = 5432,
-  sslmode  = "require"
-)
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+if (md_token == "") {
+  stop("MotherDuck token is missing! Check your environment configurations.")
+}
+
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 # ==========================================
-# 2. LOAD DATA (LOCAL & NEON)
+# 2. LOAD DATA (LOCAL & CLOUD)
 # ==========================================
-print("📥 Loading Model Forecasts (Local) and History (Neon)...")
+print("📥 Loading Model Forecasts (Local) and History (MotherDuck)...")
 
 # Force dates to Date objects on load to prevent join/math errors
 date_cols <- cols(run_date = col_date(), target_date = col_date())
@@ -32,7 +33,7 @@ gru_30 <- read_csv("data/pytorch/gru_forecast_tidy_30.csv", col_types = cols(car
 gru_45 <- read_csv("data/pytorch/gru_forecast_tidy_45.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE) 
 chronos_preds <- read_csv("data/pytorch/chronos_forecast_tidy.csv", col_types = cols(card_id = col_character(), run_date = col_date(), target_date = col_date()), show_col_types = FALSE)
 
-# Live History from Neon
+# Live History from MotherDuck
 history_df <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices") %>%
   rename(
     card_id = tcgplayer_id,
@@ -66,7 +67,7 @@ all_preds_raw <- bind_rows(
   ensemble_preds,
   chronos_preds %>% mutate(model = "Chronos")
 ) %>%
-  select(-any_of("actual_price")) # Ensure we rely exclusively on the Neon Ground Truth
+  select(-any_of("actual_price")) # Ensure we rely exclusively on the Ground Truth
 
 # ==========================================
 # 4. LIFETIME CHAOS INDEX (VOLATILITY)
@@ -140,10 +141,11 @@ model_degradation_summary <- diagnostic_pool %>%
     horizon_mape = round(mean(ape, na.rm = TRUE), 4), 
     .groups = "drop"
   )
+
 # ==========================================
-# 6. PUSH TO NEON (SMART APPEND)
+# 6. PUSH TO MOTHERDUCK (SMART APPEND)
 # ==========================================
-print("☁️ Syncing diagnostics to Neon...")
+print("☁️ Syncing diagnostics to MotherDuck...")
 
 # List of tables to sync
 tables_to_sync <- list(
@@ -158,18 +160,18 @@ for (table_name in names(tables_to_sync)) {
   
   if (dbExistsTable(con, table_name)) {
     # SAFETY CHECK: Remove existing data for TODAY only 
-    # This makes the script 'idempotent' (you can run it 100x today and only get 1 set of rows)
-    delete_query <- glue::glue_sql("DELETE FROM {`table_name`} WHERE diagnostic_run_date = {current_run_timestamp}", .con = con)
-    dbExecute(con, delete_query)
+    # This makes the script 'idempotent' using a secure parameterized query
+    delete_query <- sprintf("DELETE FROM %s WHERE diagnostic_run_date = ?", table_name)
+    dbExecute(con, delete_query, params = list(current_run_timestamp))
     
-    print(glue::glue("Checking for existing data in {table_name}... Any rows for today were cleared. Appending..."))
+    print(sprintf("Checking for existing data in %s... Any rows for today were cleared. Appending...", table_name))
     dbWriteTable(con, table_name, df, append = TRUE, row.names = FALSE)
   } else {
     # If the table doesn't exist at all, create it
-    print(glue::glue("Table {table_name} does not exist. Creating it now..."))
+    print(sprintf("Table %s does not exist. Creating it now...", table_name))
     dbWriteTable(con, table_name, df, row.names = FALSE)
   }
 }
 
-dbDisconnect(con)
+dbDisconnect(con, shutdown = TRUE)
 print("✨ Smart sync complete! Historical data preserved, today's run updated.")

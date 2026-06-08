@@ -3,17 +3,17 @@ library(httr)
 library(jsonlite)
 library(base64enc)
 library(DBI)
-library(RPostgres)
+library(duckdb)
 
 # ==========================================
 # --- CONFIGURATION & SECRETS ---
 # ==========================================
 ebay_client <- trimws(Sys.getenv("EBAY_CLIENT_ID"))
 ebay_secret <- trimws(Sys.getenv("EBAY_CLIENT_SECRET"))
-neon_pass   <- trimws(Sys.getenv("NEON_PASSWORD"))
+md_token    <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
 
-if (ebay_client == "" || ebay_secret == "" || neon_pass == "") {
-  stop("Missing credentials. Check your .Renviron file.")
+if (ebay_client == "" || ebay_secret == "" || md_token == "") {
+  stop("Missing credentials. Check your .Renviron configuration.")
 }
 
 master_target_cards <- read_csv(
@@ -58,15 +58,14 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   )
 
   fetch_and_parse <- function(query_params, source_name) {
-    # 1. FIX: Push price filtering to the API so cheap cards don't waste your payload limits
+    # Price filtering pushed to API to conserve execution runtime & bandwidth
     query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION},price:[20.00..]"
-    query_params$limit <- 200 # Max allowed per page
+    query_params$limit <- 200 
     
     all_pages <- list()
     offset <- 0
-    max_items <- 10000 # eBay API hard limit for browse searches
+    max_items <- 10000 
     
-    # 2. FIX: Implement pagination to capture all possible data beyond the first 200
     repeat {
       query_params$offset <- offset
       
@@ -83,7 +82,6 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       
       data <- fromJSON(content(res, "text", encoding = "UTF-8"))
       
-      # Break if no results or total is 0
       if (is.null(data$total) || data$total == 0 || is.null(data$itemSummaries)) break
       
       items <- data$itemSummaries
@@ -108,13 +106,12 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       
       all_pages[[length(all_pages) + 1]] <- df
       
-      # Check if we've hit the end of results
       if (is.null(data$`next`) || (offset + 200) >= data$total || (offset + 200) >= max_items) {
         break
       }
       
       offset <- offset + 200
-      Sys.sleep(0.3) # Slight delay to respect rate limits during pagination
+      Sys.sleep(0.3) 
     }
     
     if (length(all_pages) == 0) return(template)
@@ -123,11 +120,11 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   
   api_name <- str_replace_all(card_name, "-", " ") %>% str_squish()
   
-  # 3. FIX: Add negative exclusions directly to the eBay query to filter out obvious junk early
+  # Negative exclusions added to the direct query string context
   search_string <- paste0("Lorcana ", "\"", api_name, "\" -case -box -proxy -replica -wafer -custom") 
   
   text_results <- fetch_and_parse(list(q = search_string), "Text")
-  epid_results <- if (!is.na(epid_code) && epid_code != "") {
+  epid_results = if (!is.na(epid_code) && epid_code != "") {
     fetch_and_parse(list(epid = epid_code), "EPID")
   } else {
     template
@@ -137,17 +134,14 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
     distinct(item_id, .keep_all = TRUE)
   
   if (nrow(combined_unique) > 0) {
-    # 1. Prepare Keys
     name_keys <- str_split(tolower(card_name), "\\s+|-")[[1]] %>% str_subset("...")
     rarity_synonyms <- unique(c(tolower(rarity), "enchanted", "promo", "alt art", "aa", "variant"))
     
     raw_v_keys <- str_split(tolower(str_replace_all(version, "[[:punct:]]", " ")), "\\s+")[[1]]
     version_keys <- raw_v_keys[nchar(raw_v_keys) > 3] 
 
-    # 2. Local Blacklist (keeping this as a secondary strict local filter)
     blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship"
 
-    # 3. Vectorized Filter Logic
     final_df <- combined_unique %>% 
       mutate(lower_title = tolower(listing_title)) %>%
       mutate(
@@ -166,7 +160,6 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       ) %>%
       filter(
         pass_name,
-        # Trust EPID totally; otherwise, strictly require rarity + (number OR version)
         (pull_source == "EPID") | (has_rarity & (has_num | has_ver)),
         !str_detect(lower_title, blacklist)
       ) %>%
@@ -205,24 +198,27 @@ final_gold_scrape <- master_target_cards %>%
   ))
 
 # ==========================================
-# --- STEP 4: PUSH TO NEON (DAILY LOGIC) ---
+# --- STEP 4: PUSH TO MOTHERDUCK (DAILY LOGIC) ---
 # ==========================================
 if (nrow(final_gold_scrape) > 0) {
-  message("\nConnecting to Neon...")
-  con <- dbConnect(RPostgres::Postgres(),
-    host = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-    dbname = "neondb", user = "neondb_owner",
-    password = neon_pass, port = 5432, sslmode = "require"
-  )
-
-  # Clean out today's data to prevent duplicates on re-runs
-  dbExecute(con, paste0("DELETE FROM lorcana_active_listings WHERE date_pulled = '", Sys.Date(), "';"))
+  message("\nConnecting to MotherDuck...")
   
-  # Append the new data
+  Sys.setenv(motherduck_token = md_token)
+  con <- dbConnect(duckdb::duckdb())
+  
+  dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+  dbExecute(con, "ATTACH 'md:'")
+  dbExecute(con, "USE my_db;")
+
+  # Clean out today's data to prevent duplicates on manual re-runs
+  today_str <- as.character(Sys.Date())
+  dbExecute(con, paste0("DELETE FROM lorcana_active_listings WHERE date_pulled = '", today_str, "';"))
+  
+  # Append the raw data directly using DuckDB's native data frame ingestion handler
   dbWriteTable(con, "lorcana_active_listings", final_gold_scrape, append = TRUE) 
   
-  dbDisconnect(con)
+  dbDisconnect(con, shutdown = TRUE)
   message("Daily pull complete. Added ", nrow(final_gold_scrape), " rows.")
 } else {
-  message("No data found to push to Neon.")
+  message("No data found to push to MotherDuck.")
 }

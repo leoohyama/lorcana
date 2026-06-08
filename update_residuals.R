@@ -1,16 +1,19 @@
 library(DBI)
-library(RPostgres)
+library(duckdb)
 
-print("🔌 Connecting to Neon Database...")
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-  dbname   = "neondb",
-  user     = "neondb_owner",
-  password = Sys.getenv("NEON_PASSWORD"),
-  port     = 5432,
-  sslmode  = "require"
-)
+print("🔌 Connecting to MotherDuck...")
+
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+if (md_token == "") {
+  stop("MotherDuck token is missing! Check your environment configurations.")
+}
+
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "INSTALL icu; LOAD icu;")
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 # ==========================================
 # 1. UPDATE GRANULAR LIVE TABLE (The Heavy Lifting)
@@ -23,20 +26,19 @@ INSERT INTO model_residuals_live (card_id, model_type, horizon, actual_price, pr
 SELECT 
     p.card_id, 
     m.model_type,
-    (p.target_date - m.run_date) as horizon,
+    CAST(p.target_date - m.run_date AS INTEGER) as horizon,
     a.market_price as actual_price,
     p.pred_price,
-    ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0))::numeric, 4) as error_abs_pct,
+    ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0)), 4) as error_abs_pct,
     p.target_date,
     m.run_date
 FROM gru_predictions p
-JOIN justtcg_prices a ON p.card_id = a.tcgplayer_id::text AND p.target_date = a.pull_date
+JOIN justtcg_prices a ON p.card_id = CAST(a.tcgplayer_id AS VARCHAR) AND p.target_date = a.pull_date
 JOIN model_runs m ON p.run_id = m.run_id
 WHERE p.target_date <= CURRENT_DATE
 ON CONFLICT (card_id, model_type, run_date, target_date) DO NOTHING;
 "
-# FIX: Added immediate = TRUE
-dbExecute(con, calc_gru_sql, immediate = TRUE)
+dbExecute(con, calc_gru_sql)
 print("✅ GRU granular residuals updated.")
 
 # --- B. Process Chronos Predictions ---
@@ -45,20 +47,19 @@ INSERT INTO model_residuals_live (card_id, model_type, horizon, actual_price, pr
 SELECT 
     p.card_id, 
     m.model_type,
-    (p.target_date - m.run_date) as horizon,
+    CAST(p.target_date - m.run_date AS INTEGER) as horizon,
     a.market_price as actual_price,
     p.pred_price,
-    ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0))::numeric, 4) as error_abs_pct,
+    ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0)), 4) as error_abs_pct,
     p.target_date,
     m.run_date
 FROM chronos_predictions p
-JOIN justtcg_prices a ON p.card_id = a.tcgplayer_id::text AND p.target_date = a.pull_date
+JOIN justtcg_prices a ON p.card_id = CAST(a.tcgplayer_id AS VARCHAR) AND p.target_date = a.pull_date
 JOIN model_runs m ON p.run_id = m.run_id
 WHERE p.target_date <= CURRENT_DATE
 ON CONFLICT (card_id, model_type, run_date, target_date) DO NOTHING;
 "
-# FIX: Added immediate = TRUE
-dbExecute(con, calc_chronos_sql, immediate = TRUE)
+dbExecute(con, calc_chronos_sql)
 print("✅ Chronos granular residuals updated.")
 
 # ==========================================
@@ -73,17 +74,17 @@ SELECT
     horizon,
     target_date,
     
-    -- 🟢 THE WMAPE FIX: Sum of absolute dollar errors / Sum of actual dollars
-    ROUND((SUM(ABS(actual_price - pred_price)) / NULLIF(SUM(actual_price), 0))::numeric, 4) as mean_error_pct,
+    -- wMAPE: Sum of absolute dollar errors / Sum of actual dollars
+    ROUND((SUM(ABS(actual_price - pred_price)) / NULLIF(SUM(actual_price), 0)), 4) as mean_error_pct,
     
-    ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY error_abs_pct))::numeric, 4) as median_error_pct,
+    -- Native DuckDB Median implementation
+    ROUND(MEDIAN(error_abs_pct), 4) as median_error_pct,
     COUNT(card_id) as card_count
 FROM model_residuals_live
 GROUP BY model_type, horizon, target_date
 ON CONFLICT (model_type, horizon, target_date) DO NOTHING;
 "
-# FIX: Added immediate = TRUE
-dbExecute(con, rollup_sql, immediate = TRUE)
+dbExecute(con, rollup_sql)
 print("✅ Historical aggregates updated (wMAPE and MdAPE).")
 
 # ==========================================
@@ -95,9 +96,8 @@ prune_sql <- "
 DELETE FROM model_residuals_live 
 WHERE target_date < CURRENT_DATE - INTERVAL '90 days';
 "
-# FIX: Added immediate = TRUE
-deleted_rows <- dbExecute(con, prune_sql, immediate = TRUE)
+deleted_rows <- dbExecute(con, prune_sql)
 print(paste("🗑️ Pruned", deleted_rows, "old granular rows."))
 
-dbDisconnect(con)
+dbDisconnect(con, shutdown = TRUE)
 print("🎉 Residual pipeline execution complete!")

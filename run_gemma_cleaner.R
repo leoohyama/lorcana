@@ -1,9 +1,8 @@
 library(tidyverse)
-library(httr)
 library(jsonlite)
+library(httr)
 library(DBI)
-library(RPostgres)
-library(glue)
+library(duckdb)
 
 # ==========================================
 # 1. THE GEMMA JSON FUNCTION (UPDATED PROMPT)
@@ -79,16 +78,17 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
   select(id, cardname) %>%
   distinct(id, .keep_all = TRUE)
 
-print("🚀 Connecting to Neon DB...")
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-  dbname   = "neondb",
-  user     = "neondb_owner",
-  password = Sys.getenv("NEON_PASSWORD"),
-  port     = 5432,
-  sslmode  = "require"
-)
+print("🚀 Connecting to MotherDuck...")
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+if (md_token == "") {
+  stop("MotherDuck token is missing! Check your environment configurations.")
+}
+
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 create_table_query <- "
   CREATE TABLE IF NOT EXISTS llm_listing_metadata (
@@ -129,7 +129,7 @@ processing_queue <- dbGetQuery(con, query)
 
 if(nrow(processing_queue) == 0) {
   print("✅ All unique listings have been checked! Exiting.")
-  dbDisconnect(con)
+  dbDisconnect(con, shutdown = TRUE)
   quit()
 }
 
@@ -151,7 +151,7 @@ for (i in 1:nrow(processing_queue)) {
   
   cat(sprintf("\rProcessing %d of %d...", i, nrow(processing_queue)))
 
-  #check language hints in title 
+  # check language hints in title 
   title_lower <- str_to_lower(curr_title)
   lang_val <- case_when(
     str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
@@ -170,32 +170,35 @@ for (i in 1:nrow(processing_queue)) {
   grade_val <- ifelse(result_list$grade_value == "NA" | is.na(result_list$grade_value), NA_character_, as.character(result_list$grade_value))
   
   # --- DETERMINISTIC SAFETY NET ---
-  # If Gemma flags it as graded but fails to pull a valid company, FORCE it to ungraded.
-  # This eliminates the "grade 5 but no company" issue natively.
   if (is.na(company_val) || trimws(company_val) == "") {
     is_graded_flag <- FALSE
     company_val <- NA_character_
     grade_val <- NA_character_
   }
   
-  # Optional: Normalize Beckett to BGS to keep downstream charting clean
   if(!is.na(company_val) && toupper(company_val) == "BECKETT") {
     company_val <- "BGS"
   }
   
-  # --- SQL INSERTION ---
-  # Use SQL() to strictly insert NULLs into Postgres instead of R "NA" strings
-  company_sql <- ifelse(is.na(company_val), DBI::SQL("NULL"), glue_sql("{company_val}", .con = con))
-  grade_sql <- ifelse(is.na(grade_val), DBI::SQL("NULL"), glue_sql("{grade_val}", .con = con))
-  
-  insert_query <- glue::glue_sql("
+  # --- NATIVE DUCKDB INSERTION ---
+  # Replaced glue_sql with a parameterized query. DuckDB will natively translate
+  # the NA_character_ objects into true SQL NULLs automatically.
+  insert_query <- "
     INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
-    VALUES ({curr_item_id}, {curr_id}, {is_valid_flag}, {is_graded_flag}, {company_sql}, {grade_sql}, {lang_val})
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (item_id) DO NOTHING;
-  ", .con = con)
+  "
   
-  dbExecute(con, insert_query)
+  dbExecute(con, insert_query, params = list(
+    curr_item_id, 
+    curr_id, 
+    is_valid_flag, 
+    is_graded_flag, 
+    company_val, 
+    grade_val, 
+    lang_val
+  ))
 }
 
 cat("\n✨ Complete! The new llm_listing_metadata table is fully populated.\n")
-dbDisconnect(con)
+dbDisconnect(con, shutdown = TRUE)

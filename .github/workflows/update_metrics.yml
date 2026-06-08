@@ -25,18 +25,13 @@ jobs:
         with:
           use-public-rspm: true
 
-      - name: Install System Dependencies for PostgreSQL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
-
       - name: Install required R packages
         run: |
-          install.packages(c("DBI", "RPostgres", "tidyverse", "pracma", "moments"))
+          install.packages(c("DBI", "duckdb", "tidyverse", "pracma", "moments"))
         shell: Rscript {0}
 
       - name: Run Metrics ETL Script
         env:
           # Pulls the password securely from your GitHub Secrets
-          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript update_ts_metrics.R

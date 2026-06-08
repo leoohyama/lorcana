@@ -2,17 +2,16 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import numpy as np
-from sqlalchemy import create_engine, text
 import datetime
 import os
 from dotenv import load_dotenv
+import duckdb
 
 # --- 1. CONFIG & AUTHENTICATION ---
 load_dotenv()
-NEON_PASSWORD = os.getenv("NEON_PASSWORD")
-NEON_HOST = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech"
-DB_URL = f"postgresql://neondb_owner:{NEON_PASSWORD}@{NEON_HOST}/neondb?sslmode=require"
-engine = create_engine(DB_URL)
+MD_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
+if not MD_TOKEN:
+    raise ValueError("⚠️ MOTHERDUCK_TOKEN not found. Please check your .env file!")
 
 # TOGGLE YOUR ACTIVE MODEL HERE (15, 30, or 45)
 ACTIVE_WINDOW = 15
@@ -104,6 +103,7 @@ if __name__ == "__main__":
             
             with torch.no_grad():
                 samples = []
+                # Model is explicitly set to train mode to activate dropout layers for Monte Carlo sampling
                 model.train() 
                 for _ in range(50):
                     pred_scaled = model(x_dyn, x_cat, x_cont).cpu().numpy()[0]
@@ -118,60 +118,48 @@ if __name__ == "__main__":
                     'pred_price': round(float(price), 2) 
                 })
 
-        # --- 4. NORMALIZED DATABASE UPLOAD ---
+        # --- 4. NORMALIZED MOTHERDUCK UPLOAD ---
         if all_card_forecasts:
             final_df = pd.DataFrame(all_card_forecasts)
             
-            print(f"Syncing results to Neon (Normalized Schema)...")
-            with engine.connect() as conn:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS model_runs (
-                        run_id SERIAL PRIMARY KEY,
-                        run_date DATE,
-                        window_size INTEGER,
-                        model_type TEXT
-                    )
-                """))
-                conn.commit()
-                
-                today_date = datetime.date.today()
-                model_name = 'GRU'
+            print(f"Syncing results to MotherDuck...")
+            
+            con = duckdb.connect(f"md:?motherduck_token={MD_TOKEN}")
+            con.execute("USE my_db;")
+            
+            today_str = datetime.date.today().strftime('%Y-%m-%d')
+            model_name = 'GRU'
 
-                check_query = text("""
-                    SELECT run_id FROM model_runs 
-                    WHERE run_date = :run_date AND model_type = :model_type
-                """)
-                existing_runs = conn.execute(check_query, {'run_date': today_date, 'model_type': model_name}).fetchall()
+            # 1. SMART IDEMPOTENT LOGIC
+            check_query = f"SELECT run_id FROM model_runs WHERE run_date = '{today_str}' AND model_type = '{model_name}'"
+            existing_runs = con.execute(check_query).fetchall()
 
-                if existing_runs:
-                    existing_ids = [str(r[0]) for r in existing_runs]
-                    existing_ids_str = ", ".join(existing_ids)
-                    print(f"Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
+            if existing_runs:
+                existing_ids = [str(r[0]) for r in existing_runs]
+                existing_ids_str = ", ".join(existing_ids)
+                print(f"Found existing runs for today (Run IDs: {existing_ids_str}). Overwriting with fresh test data...")
 
-                    conn.execute(text(f"DELETE FROM gru_predictions WHERE run_id IN ({existing_ids_str})"))
-                    conn.execute(text(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})"))
-                    conn.commit()
-                    print("Cleared old data for today.")
-                
-                run_meta = {
-                    'run_date': today_date,
-                    'window_size': seq_len,
-                    'model_type': model_name
-                }
-                
-                res = conn.execute(
-                    text("INSERT INTO model_runs (run_date, window_size, model_type) VALUES (:run_date, :window_size, :model_type) RETURNING run_id"),
-                    run_meta
-                )
-                run_id = res.fetchone()[0] 
-                
-                final_df['run_id'] = run_id
-                
-                print(f"Pushing {len(final_df)} predictions for Run ID: {run_id}")
-                final_df.to_sql('gru_predictions', engine, if_exists='append', index=False)
-                
-                conn.commit() 
-            print(f"{seq_len}-day window complete. Neon Sync successful.")
+                con.execute(f"DELETE FROM gru_predictions WHERE run_id IN ({existing_ids_str})")
+                con.execute(f"DELETE FROM model_runs WHERE run_id IN ({existing_ids_str})")
+                print("Cleared old data for today.")
+            
+            # 2. Insert Metadata into 'model_runs'
+            insert_meta_query = f"""
+                INSERT INTO model_runs (run_date, window_size, model_type) 
+                VALUES ('{today_str}', {seq_len}, '{model_name}') 
+                RETURNING run_id
+            """
+            run_id = con.execute(insert_meta_query).fetchone()[0] 
+            
+            # 3. Attach the run_id to predictions
+            final_df['run_id'] = run_id
+            
+            # 4. Push to 'gru_predictions'
+            print(f"Pushing {len(final_df)} predictions for Run ID: {run_id}")
+            con.execute("INSERT INTO gru_predictions SELECT * FROM final_df")
+            
+            con.close()
+            print(f"{seq_len}-day window complete. MotherDuck Sync successful.")
         else:
             print("No card data met the minimum length requirements for inference.")
 

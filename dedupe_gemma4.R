@@ -1,14 +1,13 @@
 # ==========================================
-# GEMMA 4 DEDUPE - LIVE DELETION MODE (TIMEOUT PROOF)
+# GEMMA 4 DEDUPE - LIVE DELETION MODE (MOTHERDUCK)
 # File: dedupe_gemma4.R
 # ==========================================
 
 library(DBI)
-library(RPostgres)
+library(duckdb)
 library(tidyverse)
 library(httr)
 library(jsonlite)
-library(glue)
 
 # ==========================================
 # 1. THE JSON GEMMA FUNCTION
@@ -70,23 +69,24 @@ ask_gemma_json <- function(target_card, ebay_title) {
 # ==========================================
 # 2. DOWNLOAD & IDENTIFY DUPES
 # ==========================================
-message("🔌 Connecting to Neon...")
-con <- dbConnect(
-  RPostgres::Postgres(),
-  host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-  dbname   = "neondb", 
-  user     = "neondb_owner",
-  password = Sys.getenv("NEON_PASSWORD"), 
-  port     = 5432, 
-  sslmode  = "require"
-)
+message("🔌 Connecting to MotherDuck...")
+md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
+if (md_token == "") {
+  stop("MotherDuck token is missing! Check your environment configurations.")
+}
+
+Sys.setenv(motherduck_token = md_token)
+con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "ATTACH 'md:'")
+dbExecute(con, "USE my_db;")
 
 message("📥 Downloading raw eBay identifiers...")
 raw_listings <- dbGetQuery(con, "SELECT DISTINCT item_id, id, listing_title FROM lorcana_active_listings")
 
-# VERY IMPORTANT: Disconnect immediately so the connection doesn't time out while Gemma thinks!
-dbDisconnect(con)
-message("🔒 Disconnected from Neon to save resources.")
+# VERY IMPORTANT: Disconnect to release DuckDB's memory back to the OS so Ollama can use maximum RAM
+dbDisconnect(con, shutdown = TRUE)
+message("🔒 Disconnected from MotherDuck to free resources.")
 
 message("🔍 Identifying cross-pollinated listings...")
 suspected_dupes <- raw_listings %>%
@@ -113,6 +113,7 @@ metadata <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE
   select(id, card_name)
 
 processing_queue <- suspected_dupes %>%
+  mutate(id = as.character(id)) %>%
   left_join(metadata, by = "id") %>%
   drop_na(card_name, listing_title)
 
@@ -142,7 +143,7 @@ for (i in 1:nrow(processing_queue)) {
 }
 
 # ==========================================
-# 5. EXECUTE NEON DELETIONS
+# 5. EXECUTE CLOUD DELETIONS
 # ==========================================
 kill_list <- evaluations %>% filter(is_valid == FALSE)
 
@@ -151,32 +152,24 @@ message("☠️ EXECUTING LIVE DELETIONS")
 message("==================================================")
 
 if(nrow(kill_list) > 0) {
-  message(sprintf("Gemma identified %d false matches. Reconnecting to Neon...", nrow(kill_list)))
+  message(sprintf("Gemma identified %d false matches. Reconnecting to MotherDuck...", nrow(kill_list)))
   
   # RECONNECT: Open a fresh connection just for the deletions
-  con <- dbConnect(
-    RPostgres::Postgres(),
-    host     = "ep-frosty-unit-amykrca9-pooler.c-5.us-east-1.aws.neon.tech",
-    dbname   = "neondb", 
-    user     = "neondb_owner",
-    password = Sys.getenv("NEON_PASSWORD"), 
-    port     = 5432, 
-    sslmode  = "require"
-  )
+  con <- dbConnect(duckdb::duckdb())
+  dbExecute(con, "LOAD motherduck;")
+  dbExecute(con, "ATTACH 'md:'")
+  dbExecute(con, "USE my_db;")
   
   for(i in 1:nrow(kill_list)) {
-    
-    # Safely inject the exact item_id and id combination into the DELETE statement
-    del_query <- glue::glue_sql("
-      DELETE FROM lorcana_active_listings 
-      WHERE item_id = {kill_list$item_id[i]} AND id = {kill_list$id[i]};
-    ", .con = con)
-    
-    # Execute with immediate = TRUE to bypass the prepared statement pooler issue
-    dbExecute(con, del_query, immediate = TRUE)
+    # Use standard parameterized queries (safer and cleaner than glue_sql)
+    dbExecute(
+      con,
+      "DELETE FROM lorcana_active_listings WHERE item_id = ? AND id = ?",
+      params = list(kill_list$item_id[i], kill_list$id[i])
+    )
   }
   
-  dbDisconnect(con)
+  dbDisconnect(con, shutdown = TRUE)
   message("✅ Deletions complete! Database is clean.")
   
 } else {
