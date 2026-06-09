@@ -605,6 +605,9 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
   container.addEventListener("click", (e) => {
     const tr = e.target.closest("tr.card-row");
     if(!tr) return;
+
+    // Responsive Mobile Checks for Plotly
+    const isMobile = window.innerWidth <= 768;
     
     const cardname = tr.dataset.cardname;
     const card_info = unified_data.find(d => d.cardname === cardname);
@@ -663,16 +666,18 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 
     const all_traces = [...shadow_traces, trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
 
-    // Added dragmode: false and fixedrange: true to strictly disable plotting friction on mobile
+    // Added mobile scaling logic + locked axes
     const layout_graph = {
       dragmode: false,
-      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter' },
-      xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true },
-      yaxis: { title: 'Price ($)', gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true },
-      yaxis2: { title: '', overlaying: 'y', side: 'right', showgrid: false, fixedrange: true },
-      margin: { l: 50, r: 40, t: 20, b: 40 }, hovermode: 'x unified',
-      hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14 } },
-      legend: { orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center' }
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', 
+      font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 10 : 12 },
+      xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+      yaxis: { title: {text: 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+      yaxis2: { title: '', overlaying: 'y', side: 'right', showgrid: false, fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+      margin: { l: isMobile ? 45 : 60, r: isMobile ? 25 : 40, t: isMobile ? 60 : 30, b: isMobile ? 35 : 40 }, 
+      hovermode: 'x unified',
+      hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 12 : 14 } },
+      legend: { orientation: 'h', y: isMobile ? 1.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
     };
 
     // Error Bar Chart
@@ -683,6 +688,16 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const trace_base = err_c.length > 0 ? { x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive_mdape), type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', name: 'Naive Baseline', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' } : null;
     const trace_err_c = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos Err', marker: {color: '#fbbf24'} };
     const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Err', marker: {color: '#22d3ee'} };
+
+    const layout_err = { 
+      dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', 
+      font: {color: '#f8fafc', family:'Inter', size: isMobile ? 10 : 12}, 
+      xaxis: {title: {text:'Days (Horizon)', font:{size: isMobile ? 11 : 14}}, gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+      yaxis: {title: {text:'MdAPE Error', font:{size: isMobile ? 11 : 14}}, gridcolor: '#334155', tickformat: '.0%', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+      margin: {l: isMobile ? 40 : 50, r: isMobile ? 15 : 20, t: isMobile ? 50 : 10, b: isMobile ? 40 : 40}, 
+      barmode: 'group', showlegend: true, 
+      legend: {orientation: 'h', y: isMobile ? 1.25 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30}
+    };
 
     // Set up Detailed eBay Filters inside Modal
     let modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
@@ -731,7 +746,15 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
           if(subset.length === 0) return;
           t_bin.push({ x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price), mode: 'markers', name: lbl, marker: {color: color_map[lbl], size: 6, opacity: 0.6}, text: subset.map(d => d.hover_text), hoverinfo: 'text' });
         });
-        Plotly.newPlot(bin_target, t_bin, { dragmode: false, title: {text: 'Daily Listing Scatter (Outliers Removed)', font: {color: '#f8fafc', family:'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, xaxis: {gridcolor: '#334155', fixedrange: true}, yaxis: {gridcolor: '#334155', tickprefix: '$', fixedrange: true}, margin: {l:50, r:20, t:40, b:30}, legend: {orientation: 'h', y: -0.2} }, {responsive: true, displayModeBar: false});
+        Plotly.newPlot(bin_target, t_bin, { 
+          dragmode: false, 
+          title: {text: 'Daily Listing Scatter', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 12 : 14}, x: 0.02, y: 0.98}, 
+          paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 10 : 12}, 
+          xaxis: {gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+          yaxis: {gridcolor: '#334155', tickprefix: '$', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+          margin: {l: isMobile ? 45 : 50, r: isMobile ? 15 : 20, t: isMobile ? 45 : 40, b: isMobile ? 35 : 30}, 
+          legend: {orientation: 'h', y: -0.2, font: {size: isMobile ? 9 : 12}, itemwidth: 30} 
+        }, {responsive: true, displayModeBar: false});
       }
 
       // Title Rendering (Unique listings from last 7 days)
@@ -763,7 +786,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     
     setTimeout(() => {
       Plotly.newPlot(document.getElementById('modal-graph-target'), all_traces, layout_graph, {responsive: true, displayModeBar: false});
-      Plotly.newPlot(document.getElementById('modal-error-target'), [trace_base, trace_err_c, trace_err_g].filter(Boolean), { dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, xaxis: {title: 'Days (Horizon)', gridcolor: '#334155', fixedrange: true}, yaxis: {title: 'MdAPE Error', gridcolor: '#334155', tickformat: '.0%', fixedrange: true}, margin: {l:50, r:20, t:10, b:40}, barmode: 'group', showlegend: true, legend: {orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center'}}, {responsive: true, displayModeBar: false});
+      Plotly.newPlot(document.getElementById('modal-error-target'), [trace_base, trace_err_c, trace_err_g].filter(Boolean), layout_err, {responsive: true, displayModeBar: false});
       renderEbayDetails();
     }, 50); 
   });
