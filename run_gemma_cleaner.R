@@ -10,7 +10,7 @@ library(duckdb)
 ask_gemma_json <- function(target_card, ebay_title) {
   prompt_text <- paste0(
     "You are a strict data extraction assistant for Disney Lorcana TCG. ",
-    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic' or 'Enchanted'.\n\n",
+    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic', 'Enchanted', 'Epic'.\n\n",
     "RULES:\n",
     "1. 'validity': Output 'Match' or 'No Match'.\n",
     "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match'. NOTE: A fractional format in the title like '242/204' is an EXACT match for a target number of '242'.\n",
@@ -107,7 +107,7 @@ processing_queue <- processing_queue %>%
       TRUE ~ "English"
     ),
     # INSTANT FAIL FILTER: Flag titles containing forbidden words (including legendary and promo)
-    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo)\\b")
+    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain|)\\b")
   )
 
 # Separate clear deterministic mismatches from ambiguous ones needing the LLM
