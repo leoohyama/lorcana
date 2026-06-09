@@ -103,7 +103,7 @@ backtest_metrics <- tryCatch(
 # ==========================================
 
 # 1. Fetch lightweight time-series data (7 days, English only, NO TITLES)
-# 1. Fetch lightweight time-series data (7 days, English only, NO TITLES)
+# Auctions and listings with "legendary" are filtered out at the SQL level
 ebay_ts_query <- "
   SELECT 
     a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled,
@@ -115,6 +115,9 @@ ebay_ts_query <- "
     AND a.price_val > 0
     AND a.date_pulled >= CURRENT_DATE - INTERVAL '30 days'
     AND (l.card_language IS NULL OR l.card_language = 'English')
+    AND a.listing_type NOT ILIKE '%AUCTION%'
+    AND a.listing_title IS NOT NULL
+    AND a.listing_title NOT ILIKE '%legendary%'
 "
 raw_ebay_sql <- tryCatch(
   dbGetQuery(con, ebay_ts_query), 
@@ -122,7 +125,6 @@ raw_ebay_sql <- tryCatch(
 )
 
 # 2. Fetch TARGETED dictionary of titles 
-# FIX: Use exact same WHERE conditions to guarantee 100% ID overlap with master payload
 ebay_titles_query <- "
   SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title
   FROM lorcana_active_listings a
@@ -133,6 +135,8 @@ ebay_titles_query <- "
     AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
     AND a.listing_title IS NOT NULL
     AND (l.card_language IS NULL OR l.card_language = 'English')
+    AND a.listing_type NOT ILIKE '%AUCTION%'
+    AND a.listing_title NOT ILIKE '%legendary%'
 "
 
 raw_ebay_titles <- tryCatch(
@@ -195,7 +199,6 @@ if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), type_simple=character())
 }
 
-
 # --- Process Titles Dictionary ---
 if(nrow(raw_ebay_titles) > 0) {
   ebay_title_dict <- raw_ebay_titles %>%
@@ -207,12 +210,9 @@ if(nrow(raw_ebay_titles) > 0) {
   ebay_title_dict <- data.frame(item_id=character(), listing_title=character())
 }
 
-
 # --- Find Default Card ---
 top_card <- unified %>% drop_na(current_price) %>% arrange(desc(current_price)) %>% slice(1) %>% pull(cardname)
 if(length(top_card) == 0) top_card <- "Stitch - Carefree Surfer - Enchanted"
-
-
 
 # Transfer to JavaScript
 ojs_define(
@@ -858,7 +858,6 @@ unique_sets_list = ["All Sets", ...new Set(transpose(ojs_info).map(d => d.set_na
       <div id="ebay-modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
       <div class="modal-controls-grid" id="modal-filter-anchor"></div>
       <div id="ebay-modal-bin-target" style="width: 100%; height: 400px; overflow: hidden; margin-bottom: 25px;"></div>
-      <div id="ebay-modal-auc-target" style="width: 100%; height: 400px; overflow: hidden; margin-bottom: 25px;"></div>
       <div id="ebay-modal-listings-target" style="width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; padding-top: 15px; border-top: 1px solid var(--border-subtle);"></div>
     </div>
   `;
@@ -1104,7 +1103,6 @@ unique_sets_list = ["All Sets", ...new Set(transpose(ojs_info).map(d => d.set_na
       );
 
       const bin_target = document.getElementById('ebay-modal-bin-target');
-      const auc_target = document.getElementById('ebay-modal-auc-target');
       const list_target = document.getElementById('ebay-modal-listings-target');
 
       const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
@@ -1171,42 +1169,6 @@ unique_sets_list = ["All Sets", ...new Set(transpose(ojs_info).map(d => d.set_na
           traces.push({ x: tcg_data.map(d => d.date), y: tcg_data.map(d => d.price), mode: 'lines', name: 'TCGPlayer Market Baseline', line: {color: '#f8fafc', width: 2, dash: 'dot'}, hovertemplate: 'TCGPlayer Market: $%{y:.2f}<extra></extra>' });
         }
         Plotly.newPlot(bin_target, traces, { title: {text: 'Fixed Price Metrics', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, barmode: 'stack', xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: { title: 'Price ($)', gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero' }, yaxis2: { title: 'Supply Vol', overlaying: 'y', side: 'right', showgrid: false }, margin: {l:60, r:60, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
-      }
-
-      // Build Auction Plots with identical plot-level 1.5x IQR Filter
-      let auc_data = scopedListings.filter(d => d.type_simple === "Auction");
-      let clean_auc_data = [];
-      active_labels.forEach(lbl => {
-        let subset = auc_data.filter(d => d.label === lbl);
-        if(subset.length < 4) { 
-           clean_auc_data.push(...subset); 
-           return; 
-        }
-        let prices = subset.map(d => d.clean_price).sort((a,b) => a - b);
-        let q1 = prices[Math.floor(prices.length * 0.25)];
-        let q3 = prices[Math.floor(prices.length * 0.75)];
-        let iqr = q3 - q1;
-        let lower = q1 - 1.5 * iqr;
-        let upper = q3 + 1.5 * iqr;
-        clean_auc_data.push(...subset.filter(d => d.clean_price >= Math.max(0, lower) && d.clean_price <= upper));
-      });
-      auc_data = clean_auc_data;
-
-      if(auc_data.length === 0) {
-        auc_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted);'>No live bidding matrices match selected modal scopes.</div>";
-      } else {
-        auc_target.innerHTML = "";
-        let traces2 = [];
-        active_labels.forEach(lbl => {
-          let subset = auc_data.filter(d => d.label === lbl);
-          if(subset.length === 0) return;
-          let item_ids = [...new Set(subset.map(d => d.item_id))];
-          item_ids.forEach((iid, idx) => {
-             let item_data = subset.filter(d => d.item_id === iid).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
-             traces2.push({ x: item_data.map(d => d.date_pulled), y: item_data.map(d => d.clean_price), mode: 'lines+markers', name: lbl, legendgroup: lbl, showlegend: idx === 0, line: {color: color_map[lbl], width: 2}, marker: {size: 5, color: color_map[lbl]}, text: item_data.map(d => d.hover_text), hoverinfo: 'text' });
-          });
-        });
-        Plotly.newPlot(auc_target, traces2, { title: {text: 'Auction Price Realization Trajectories', font: {color: '#f8fafc', family: 'Inter'}, x: 0.02}, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter'}, hovermode: 'x unified', hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 14, family:'Inter' } }, xaxis: {gridcolor: '#334155', tickformat: '%b %d'}, yaxis: {gridcolor: '#334155', tickprefix: '$'}, margin: {l:60, r:20, t:40, b:30}, legend: { orientation: 'h', y: -0.2 } }, {responsive: true, displayModeBar: false});
       }
 
       // Title List Injection
