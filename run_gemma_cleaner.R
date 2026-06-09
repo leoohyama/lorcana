@@ -5,33 +5,19 @@ library(DBI)
 library(duckdb)
 
 # ==========================================
-# 1. THE GEMMA JSON FUNCTION (UPDATED PROMPT)
+# 1. THE GEMMA JSON FUNCTION (SEQUENTIAL)
 # ==========================================
 ask_gemma_json <- function(target_card, ebay_title) {
-  
   prompt_text <- paste0(
     "You are a strict data extraction assistant for Disney Lorcana TCG. ",
-    "Analyze the eBay title against the target card name and output ONLY a valid JSON object. Do not include markdown formatting.\n\n",
+    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic' or 'Enchanted'.\n\n",
     "RULES:\n",
-    "1. 'validity': 'Match' ONLY if the title represents the Character Name and Subtitle of the target card. 'No Match' if it is a different version/subtitle, proxy, digital code, empty box or if title contains words like playmat, promo, set championship, or play mat.\n",
-    "2. COLLECTOR NUMBERS: The target card ends with a number. It is still a 'Match' if the eBay title formats it differently or omits it entirely, as long as the names match.\n",
-    "3. 'is_graded': true or false. STRICT RULE: Set to false if the title implies the card *could* be graded but isn't currently (e.g., 'worthy', 'ready', 'candidate', 'potential').\n",
-    "4. 'grading_company': Extract company ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
-    "5. 'grade_value': Extract the numeric grade (e.g., '10', '9.5'). STRICT RULE: If no valid grading company is found, you MUST output 'NA'. Do not extract random numbers (like lot sizes) as grades.\n\n",
-    
-    "EXAMPLES:\n",
-    "Target Card: Alice - Growing Girl - Enchanted - 213\n",
-    "eBay Title: 2023 DISNEY LORCANA EN 2-RISE OF THE FLOODBORN #213 ALICE - GROWING GIRL PSA 10\n",
-    "JSON Output: {\"validity\": \"Match\", \"is_graded\": true, \"grading_company\": \"PSA\", \"grade_value\": \"10\"}\n\n",
-    
-    "Target Card: Elsa - Spirit of Winter - Enchanted - 207\n",
-    "eBay Title: Elsa Spirit of Winter Enchanted PSA 10 Worthy! Pack Fresh\n",
-    "JSON Output: {\"validity\": \"Match\", \"is_graded\": false, \"grading_company\": \"NA\", \"grade_value\": \"NA\"}\n\n",
-    
-    "Target Card: Tinker Bell - Giant Fairy - Enchanted - 215\n",
-    "eBay Title: 5x Tinker Bell Giant Fairy Enchanted Lorcana TCG\n",
-    "JSON Output: {\"validity\": \"Match\", \"is_graded\": false, \"grading_company\": \"NA\", \"grade_value\": \"NA\"}\n\n",
-    
+    "1. 'validity': Output 'Match' or 'No Match'.\n",
+    "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match'. NOTE: A fractional format in the title like '242/204' is an EXACT match for a target number of '242'.\n",
+    "3. OMITTED NUMBERS: If the title omits any card number but matches the exact character name and subtitle, it can be a 'Match'.\n",
+    "4. 'is_graded': true or false.\n",
+    "5. 'grading_company': Extract ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
+    "6. 'grade_value': Extract numeric grade. Output 'NA' if ungraded.\n\n",
     "Target Card: ", target_card, "\n",
     "eBay Title: ", ebay_title, "\n",
     "JSON Output:"
@@ -48,21 +34,18 @@ ask_gemma_json <- function(target_card, ebay_title) {
         options = list(temperature = 0.0) 
       ),
       encode = "json",
-      timeout(15) 
+      timeout(10) 
     )
   }, error = function(e) return(NULL))
   
-  fallback <- list(validity="ERROR", is_graded=NA, grading_company="ERROR", grade_value="ERROR")
+  fallback <- list(validity="ERROR", is_graded=FALSE, grading_company="NA", grade_value="NA")
   
   if (!is.null(res) && status_code(res) == 200) {
-    # SAFEST FIX: Extract raw text first, then parse everything inside the tryCatch.
     unpacked <- tryCatch({
       raw_text <- content(res, "text", encoding = "UTF-8")
       parsed <- fromJSON(raw_text)
       fromJSON(parsed$response)
-    }, error = function(e) {
-      return(fallback)
-    })
+    }, error = function(e) return(fallback))
     return(unpacked)
   } else {
     return(fallback)
@@ -76,50 +59,22 @@ print("📂 Loading local master dictionary...")
 master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id), 
+    target_num = as.character(collector_number),
     cardname = paste(name, replace_na(version, ""), rarity, collector_number, sep = " - ")
   ) %>%
-  select(id, cardname) %>%
+  select(id, cardname, target_num) %>%
   distinct(id, .keep_all = TRUE)
 
 print("🚀 Connecting to MotherDuck...")
 md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
-if (md_token == "") {
-  stop("MotherDuck token is missing! Check your environment configurations.")
-}
-
 Sys.setenv(motherduck_token = md_token)
 con <- dbConnect(duckdb::duckdb())
-dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-dbExecute(con, "ATTACH 'md:'")
-dbExecute(con, "USE my_db;")
-
-create_table_query <- "
-  CREATE TABLE IF NOT EXISTS llm_listing_metadata (
-    item_id VARCHAR PRIMARY KEY,
-    id VARCHAR,
-    is_valid BOOLEAN,
-    is_graded BOOLEAN,
-    grading_company VARCHAR,
-    grade_val VARCHAR,
-    card_language VARCHAR
-  );
-"
-dbExecute(con, create_table_query)
+dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
 
 # ==========================================
-# 3. THE FULL RERUN TOGGLE
+# 3. FETCH & PRE-FILTER QUEUE (THE SHORT-CIRCUIT)
 # ==========================================
-force_full_rerun <- FALSE
-
-if(force_full_rerun) {
-  print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
-  dbExecute(con, "TRUNCATE TABLE llm_listing_metadata;")
-}
-
-# ==========================================
-# 4. FETCH UNIQUE ITEM IDs QUEUE
-# ==========================================
-print("📥 Fetching unique item_ids missing from the metadata table...")
+print("📥 Fetching processing queue...")
 query <- "
   SELECT DISTINCT a.item_id, a.id, a.listing_title 
   FROM lorcana_active_listings a
@@ -129,76 +84,105 @@ query <- "
 processing_queue <- dbGetQuery(con, query)
 
 if(nrow(processing_queue) == 0) {
-  print("✅ All unique listings have been checked! Exiting.")
+  print("✅ All unique listings checked. Exiting.")
   dbDisconnect(con, shutdown = TRUE)
   quit()
 }
 
+# Join dictionary and clean text patterns
 processing_queue <- processing_queue %>%
   left_join(master_dict, by = "id") %>%
-  drop_na(cardname, listing_title)
-
-# ==========================================
-# 5. EVALUATE & INSERT (WITH DETERMINISTIC SAFETY)
-# ==========================================
-print(paste("🔎 Evaluating", nrow(processing_queue), "unique listings..."))
-
-for (i in 1:nrow(processing_queue)) {
-  
-  curr_item_id <- processing_queue$item_id[i]
-  curr_id <- processing_queue$id[i]
-  curr_title <- processing_queue$listing_title[i]
-  curr_target <- processing_queue$cardname[i]
-  
-  cat(sprintf("\rProcessing %d of %d...", i, nrow(processing_queue)))
-
-  # check language hints in title 
-  title_lower <- str_to_lower(curr_title)
-  lang_val <- case_when(
-    str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
-    str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
-    str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
-    str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
-    str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
-    TRUE ~ "English"
+  drop_na(cardname, listing_title) %>%
+  mutate(
+    title_lower = str_to_lower(listing_title),
+    # Extract any explicit fraction patterns like '191/204'
+    title_num_extracted = str_extract(listing_title, "\\b\\d+(?=/\\d+)"),
+    # Language labeling logic
+    card_language = case_when(
+      str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
+      str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
+      str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
+      str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
+      str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
+      TRUE ~ "English"
+    ),
+    # INSTANT FAIL FILTER: Flag titles containing forbidden words (including legendary and promo)
+    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo)\\b")
   )
+
+# Separate clear deterministic mismatches from ambiguous ones needing the LLM
+print("⚡ Splitting dataset via deterministic regex short-circuit...")
+deterministic_mismatches <- processing_queue %>%
+  filter(has_forbidden_words | (!is.na(title_num_extracted) & title_num_extracted != target_num)) %>%
+  mutate(
+    is_valid = FALSE,
+    is_graded = FALSE,
+    grading_company = NA_character_,
+    grade_val = NA_character_
+  ) %>%
+  select(item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
+
+llm_queue <- processing_queue %>%
+  filter(!has_forbidden_words & (is.na(title_num_extracted) | title_num_extracted == target_num))
+
+print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM sequentially...", 
+              nrow(deterministic_mismatches), nrow(llm_queue)))
+
+# ==========================================
+# 4. SEQUENTIAL LLM PROCESSING
+# ==========================================
+llm_results_list <- list()
+
+if(nrow(llm_queue) > 0) {
+  print("🧠 Running sequential LLM processing...")
   
-  result_list <- ask_gemma_json(curr_target, curr_title)
-  
-  is_valid_flag <- ifelse(result_list$validity == "Match", TRUE, FALSE)
-  is_graded_flag <- as.logical(result_list$is_graded)
-  company_val <- ifelse(result_list$grading_company == "NA" | is.na(result_list$grading_company), NA_character_, result_list$grading_company)
-  grade_val <- ifelse(result_list$grade_value == "NA" | is.na(result_list$grade_value), NA_character_, as.character(result_list$grade_value))
-  
-  # --- DETERMINISTIC SAFETY NET ---
-  if (is.na(company_val) || trimws(company_val) == "") {
-    is_graded_flag <- FALSE
-    company_val <- NA_character_
-    grade_val <- NA_character_
+  for (i in 1:nrow(llm_queue)) {
+    cat(sprintf("\rProcessing %d of %d...", i, nrow(llm_queue)))
+    
+    res <- ask_gemma_json(llm_queue$cardname[i], llm_queue$listing_title[i])
+    
+    is_valid_flag <- ifelse(res$validity == "Match", TRUE, FALSE)
+    is_graded_flag <- as.logical(res$is_graded)
+    comp_val <- ifelse(res$grading_company %in% c("NA", "ERROR") || is.na(res$grading_company), NA_character_, res$grading_company)
+    g_val <- ifelse(res$grade_value %in% c("NA", "ERROR") || is.na(res$grade_value), NA_character_, as.character(res$grade_value))
+    
+    if (is.na(comp_val) || trimws(comp_val) == "") {
+      is_graded_flag <- FALSE
+      comp_val <- NA_character_
+      g_val <- NA_character_
+    }
+    if(!is.na(comp_val) && toupper(comp_val) == "BECKETT") comp_val <- "BGS"
+    
+    llm_results_list[[i]] <- tibble(
+      item_id = llm_queue$item_id[i],
+      id = llm_queue$id[i],
+      is_valid = is_valid_flag,
+      is_graded = is_graded_flag,
+      grading_company = comp_val,
+      grade_val = g_val,
+      card_language = llm_queue$card_language[i]
+    )
   }
-  
-  if(!is.na(company_val) && toupper(company_val) == "BECKETT") {
-    company_val <- "BGS"
-  }
-  
-  # --- NATIVE DUCKDB INSERTION (Index-Safe) ---
-  dbExecute(con, "DELETE FROM llm_listing_metadata WHERE item_id = ?", params = list(curr_item_id))
-  
-  insert_query <- "
-    INSERT INTO llm_listing_metadata (item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  "
-  
-  dbExecute(con, insert_query, params = list(
-    curr_item_id, 
-    curr_id, 
-    is_valid_flag, 
-    is_graded_flag, 
-    company_val, 
-    grade_val, 
-    lang_val
-  ))
+  cat("\n") # New line after the progress bar finishes
+  llm_results <- bind_rows(llm_results_list)
+  final_payload <- bind_rows(deterministic_mismatches, llm_results)
+} else {
+  final_payload <- deterministic_mismatches
 }
 
-cat("\n✨ Complete! The new llm_listing_metadata table is fully populated.\n")
+# ==========================================
+# 5. CHUNKED BULK DB WRITE (No Row-by-Row Latency)
+# ==========================================
+if(nrow(final_payload) > 0) {
+  print("💾 Committing payloads to MotherDuck in a single chunk...")
+  
+  # Delete conflicting IDs in a single batch query
+  item_id_list <- paste0("'", final_payload$item_id, "'", collapse = ",")
+  dbExecute(con, sprintf("DELETE FROM llm_listing_metadata WHERE item_id IN (%s)", item_id_list))
+  
+  # Bulk append dataframe using DuckDB's optimized appender stream
+  dbWriteTable(con, "llm_listing_metadata", final_payload, append = TRUE)
+}
+
+print("✨ Pipeline complete! Database sync complete.")
 dbDisconnect(con, shutdown = TRUE)
