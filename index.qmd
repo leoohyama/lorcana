@@ -1,7 +1,8 @@
 ---
-title: "Lorcana Forecasting"
+title: ""
 format: 
   dashboard:
+    logo: "lorecaster_logo.png"
     theme: darkly
     scrolling: true
     orientation: columns
@@ -11,6 +12,7 @@ execute:
   warning: false
 resources:
   - "data/enchanteds/images/"
+  - "lorecaster_logo.png"
 ---
 
 ```{r}
@@ -235,6 +237,18 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
   body, .dashboard-container, text, th, td, div { font-family: 'Inter', sans-serif !important; }
 
+  /* Navbar Logo Responsive Scaling */
+  .navbar-brand {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .navbar-brand img, .navbar-logo, .navbar-brand-logo {
+    max-height: 75px !important; /* Massively scaled up for desktop */
+    width: auto !important;
+    object-fit: contain;
+    transition: all 0.3s ease;
+  }
+
   .momentum-box { background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-left: 5px solid var(--accent-blue); padding: 18px 22px; border-radius: 12px; margin-bottom: 25px; color: var(--text-main); font-size: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
   .green-text { color: var(--accent-green); font-weight: 700; }
   .red-text { color: var(--accent-red); font-weight: 700; }
@@ -295,6 +309,7 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
     .modal-top-grid { grid-template-columns: 1fr !important; }
   }
   @media (max-width: 768px) {
+    .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 40px !important; }
     .flip-card-wrapper { width: 100% !important; margin: 15px 0 !important; padding: 0 10px; box-sizing: border-box; }
     .momentum-box { font-size: 13px !important; padding: 12px !important; }
     .modal-content { padding: 15px !important; border-radius: 8px !important; }
@@ -732,7 +747,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
     const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
     
-    // Calculate Daily eBay Median specifically for the unified graph
+    // Extract inline historical trendlines for main composite plot
     let raw_ungraded = masterCardListings.filter(d => d.label === "Ungraded");
     let grouped = {};
     raw_ungraded.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
