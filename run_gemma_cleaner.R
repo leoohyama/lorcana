@@ -128,7 +128,7 @@ processing_queue <- processing_queue %>%
       TRUE ~ "English"
     ),
     # INSTANT FAIL FILTER: Flag titles containing forbidden words (including legendary and promo)
-    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain)\\b")
+    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain|artwork)\\b")
   )
 
 # Separate clear deterministic mismatches from ambiguous ones needing the LLM
