@@ -868,7 +868,7 @@ The dashboard updates with fresh prices and new 30-day forecasts every single mo
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-  <a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+  <a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
     <span style="font-size: 18px;">☕ Support on Ko-fi</span>
   </a>
 </div>

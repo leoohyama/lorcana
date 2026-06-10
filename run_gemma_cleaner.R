@@ -71,8 +71,31 @@ Sys.setenv(motherduck_token = md_token)
 con <- dbConnect(duckdb::duckdb())
 dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
 
+create_table_query <- "
+  CREATE TABLE IF NOT EXISTS llm_listing_metadata (
+    item_id VARCHAR PRIMARY KEY,
+    id VARCHAR,
+    is_valid BOOLEAN,
+    is_graded BOOLEAN,
+    grading_company VARCHAR,
+    grade_val VARCHAR,
+    card_language VARCHAR
+  );
+"
+dbExecute(con, create_table_query)
+
 # ==========================================
-# 3. FETCH & PRE-FILTER QUEUE (THE SHORT-CIRCUIT)
+# 3. THE FULL RERUN TOGGLE
+# ==========================================
+force_full_rerun <- FALSE
+
+if(force_full_rerun) {
+  print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
+  dbExecute(con, "TRUNCATE TABLE llm_listing_metadata;")
+}
+
+# ==========================================
+# 4. FETCH & PRE-FILTER QUEUE (THE SHORT-CIRCUIT)
 # ==========================================
 print("📥 Fetching processing queue...")
 query <- "
@@ -84,9 +107,8 @@ query <- "
 processing_queue <- dbGetQuery(con, query)
 
 if(nrow(processing_queue) == 0) {
-  print("✅ All unique listings checked. Exiting.")
   dbDisconnect(con, shutdown = TRUE)
-  quit()
+  stop("✅ All unique listings checked. No new data to process. Exiting gracefully.", call. = FALSE)
 }
 
 # Join dictionary and clean text patterns
@@ -95,8 +117,6 @@ processing_queue <- processing_queue %>%
   drop_na(cardname, listing_title) %>%
   mutate(
     title_lower = str_to_lower(listing_title),
-    # Extract any explicit fraction patterns like '191/204'
-    title_num_extracted = str_extract(listing_title, "\\b\\d+(?=/\\d+)"),
     # Language labeling logic
     card_language = case_when(
       str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
@@ -104,16 +124,17 @@ processing_queue <- processing_queue %>%
       str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
       str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
       str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
+      str_detect(title_lower, "\\b(chinese|china|cn)\\b") ~ "Chinese",
       TRUE ~ "English"
     ),
     # INSTANT FAIL FILTER: Flag titles containing forbidden words (including legendary and promo)
-    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain|)\\b")
+    has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain)\\b")
   )
 
 # Separate clear deterministic mismatches from ambiguous ones needing the LLM
 print("⚡ Splitting dataset via deterministic regex short-circuit...")
 deterministic_mismatches <- processing_queue %>%
-  filter(has_forbidden_words | (!is.na(title_num_extracted) & title_num_extracted != target_num)) %>%
+  filter(has_forbidden_words) %>%
   mutate(
     is_valid = FALSE,
     is_graded = FALSE,
@@ -123,13 +144,13 @@ deterministic_mismatches <- processing_queue %>%
   select(item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
 
 llm_queue <- processing_queue %>%
-  filter(!has_forbidden_words & (is.na(title_num_extracted) | title_num_extracted == target_num))
+  filter(!has_forbidden_words)
 
 print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM sequentially...", 
               nrow(deterministic_mismatches), nrow(llm_queue)))
 
 # ==========================================
-# 4. SEQUENTIAL LLM PROCESSING
+# 5. SEQUENTIAL LLM PROCESSING
 # ==========================================
 llm_results_list <- list()
 
@@ -163,7 +184,7 @@ if(nrow(llm_queue) > 0) {
       card_language = llm_queue$card_language[i]
     )
   }
-  cat("\n") # New line after the progress bar finishes
+  cat("\n") 
   llm_results <- bind_rows(llm_results_list)
   final_payload <- bind_rows(deterministic_mismatches, llm_results)
 } else {
@@ -171,7 +192,7 @@ if(nrow(llm_queue) > 0) {
 }
 
 # ==========================================
-# 5. CHUNKED BULK DB WRITE (No Row-by-Row Latency)
+# 6. CHUNKED BULK DB WRITE (No Row-by-Row Latency)
 # ==========================================
 if(nrow(final_payload) > 0) {
   print("💾 Committing payloads to MotherDuck in a single chunk...")
