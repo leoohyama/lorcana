@@ -181,6 +181,15 @@ if(nrow(processing_queue) > 0) {
 }
 
 # --- 1.8 Fetch Core Dashboard Data (Latest Production Inferences Only) ---
+global_stats <- tryCatch({
+  dbGetQuery(con, "
+    SELECT 
+      (SELECT COUNT(DISTINCT item_id) FROM lorcana_active_listings) as total_ebay_listings,
+      (SELECT COUNT(DISTINCT DATE(date_pulled)) FROM lorcana_active_listings) as ebay_days,
+      (SELECT COUNT(DISTINCT pull_date) FROM justtcg_prices) as tcg_days
+  ")
+}, error = function(e) data.frame(total_ebay_listings=0, ebay_days=0, tcg_days=0))
+
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
 past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
 hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'")
@@ -213,7 +222,7 @@ if(nrow(raw_ebay_sql) > 0) {
 if(nrow(raw_ebay_titles) > 0) { ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title")) } else { ebay_title_dict <- data.frame(item_id=character(), listing_title=character()) }
 
 # Broadcast In-Memory Data Structures to OJS Space
-ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics)
+ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics, ojs_global_stats = global_stats)
 ```
 
 ```{=html}
@@ -235,7 +244,10 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
     --accent-green: #34d399;  
   }
 
-  body, .dashboard-container, text, th, td, div { font-family: 'Inter', sans-serif !important; }
+  /* Universal Font Family Enforcement */
+  body, h1, h2, h3, h4, h5, h6, p, a, span, div, text, th, td, input, select, button, .navbar, .nav-link, .quarto-dashboard { 
+    font-family: 'Inter', sans-serif !important; 
+  }
 
   /* Navbar Logo Responsive Scaling */
   .navbar-brand {
@@ -243,10 +255,24 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
     padding-bottom: 0 !important;
   }
   .navbar-brand img, .navbar-logo, .navbar-brand-logo {
-    max-height: 75px !important; /* Massively scaled up for desktop */
+    max-height: 75px !important; 
     width: auto !important;
     object-fit: contain;
     transition: all 0.3s ease;
+  }
+
+  /* Navbar Links Responsive Scaling */
+  .navbar-nav .nav-link, .navbar-title {
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    transition: font-size 0.3s ease;
+  }
+
+  /* Remove Quarto's default card wrapper styling for custom blocks */
+  .transparent-card {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
   .momentum-box { background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-left: 5px solid var(--accent-blue); padding: 18px 22px; border-radius: 12px; margin-bottom: 25px; color: var(--text-main); font-size: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
@@ -309,7 +335,9 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
     .modal-top-grid { grid-template-columns: 1fr !important; }
   }
   @media (max-width: 768px) {
-    .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 40px !important; }
+    .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 45px !important; }
+    .navbar-nav .nav-link, .navbar-title { font-size: 15px !important; }
+    
     .flip-card-wrapper { width: 100% !important; margin: 15px 0 !important; padding: 0 10px; box-sizing: border-box; }
     .momentum-box { font-size: 13px !important; padding: 12px !important; }
     .modal-content { padding: 15px !important; border-radius: 8px !important; }
@@ -329,21 +357,52 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
 # Market Overview {orientation="rows"}
 
-## Row {.flow}
+## Row {height="content"}
 
-::: {.callout-note appearance="minimal" icon="false"}
-**📈 Understanding the Market Metrics**
+```{ojs}
+//| echo: false
+//| padding: 0px
+//| classes: transparent-card
+// ==============================================================================
+// SECTION 2.5: GLOBAL DASHBOARD METRICS HERO BANNER
+// ==============================================================================
+{
+  if (!ojs_global_stats || !ojs_global_stats.total_ebay_listings) return html`<div style="padding: 20px;">Loading Data...</div>`;
+  
+  const stats = transpose(ojs_global_stats)[0];
+  const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
+  
+  return html`
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; width: 100%;">
+      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-cyan); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Analyzed eBay Listings</div>
+        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.total_ebay_listings)}</div>
+        <div style="font-size: 12px; color: var(--accent-cyan); margin-top: 4px; font-weight: 600;">Unique Records Validated</div>
+      </div>
+      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-purple); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">eBay Market Depth</div>
+        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.ebay_days)} <span style="font-size: 16px; color: var(--text-muted); font-weight: 500;">Days</span></div>
+        <div style="font-size: 12px; color: var(--accent-purple); margin-top: 4px; font-weight: 600;">Historical Tracking</div>
+      </div>
+      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-yellow); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">TCG Market Depth</div>
+        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.tcg_days)} <span style="font-size: 16px; color: var(--text-muted); font-weight: 500;">Days</span></div>
+        <div style="font-size: 12px; color: var(--accent-yellow); margin-top: 4px; font-weight: 600;">Baseline Pricing Data</div>
+      </div>
+    </div>
+  `;
+}
+```
 
-* **7-Day Changes:** All percentage shifts and momentum categories represent a **7-day rolling window**. This captures actual weekly momentum rather than noisy day-to-day spikes.
-:::
+## Row {height="content"}
 
-## Row {.flow}
+## Row
 
 ```{ojs}
 //| echo: false
 //| output: false
 // ==============================================================================
-// SECTION 2: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
+// SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
 // ==============================================================================
 
 movers_data = transpose(ojs_movers)
