@@ -21,6 +21,8 @@ resources:
 # R Data Processing (Runs Once at Build)
 # ==========================================
 library(tidyverse)
+library(jsonlite)
+library(httr)
 library(DBI)
 library(duckdb)
 
@@ -31,65 +33,214 @@ if (md_token == "") {
   stop("MotherDuck token missing! The dashboard cannot fetch current data.")
 }
 
-# Load Dictionary & Fix Image Paths
+# ==========================================
+# THE GEMMA JSON FUNCTION (SEQUENTIAL)
+# ==========================================
+ask_gemma_json <- function(target_card, ebay_title) {
+  prompt_text <- paste0(
+    "You are a strict data extraction assistant for Disney Lorcana TCG. ",
+    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic' or 'Enchanted'.\n\n",
+    "RULES:\n",
+    "1. 'validity': Output 'Match' or 'No Match'.\n",
+    "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match' (e.g. they are selling the standard non-rare version but stuffing the title with keywords).\n",
+    "3. OMITTED NUMBERS ARE OKAY: Sellers frequently omit the exact card number. If the title omits the number, but exactly matches the Character Name, Subtitle, and lacks conflicting rarity words (like 'Cold Foil'), it is a 'Match'. You do not need the number to be present to validate it.\n",
+    "4. 'is_graded': true or false. Set to false if the title implies the card *could* be graded but isn't currently (e.g., 'worthy', 'ready', 'candidate').\n",
+    "5. 'grading_company': Extract ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
+    "6. 'grade_value': Extract numeric grade. Output 'NA' if ungraded.\n\n",
+    "Target Card: ", target_card, "\n",
+    "eBay Title: ", ebay_title, "\n",
+    "JSON Output:"
+  )
+  
+  res <- tryCatch({
+    POST(
+      url = "http://localhost:11434/api/generate",
+      body = list(
+        model = "gemma4:e2b", 
+        prompt = prompt_text,
+        stream = FALSE,
+        format = "json",
+        options = list(temperature = 0.0) 
+      ),
+      encode = "json",
+      timeout(10) 
+    )
+  }, error = function(e) return(NULL))
+  
+  fallback <- list(validity="ERROR", is_graded=FALSE, grading_company="NA", grade_value="NA")
+  
+  if (!is.null(res) && status_code(res) == 200) {
+    unpacked <- tryCatch({
+      raw_text <- content(res, "text", encoding = "UTF-8")
+      parsed <- fromJSON(raw_text)
+      fromJSON(parsed$response)
+    }, error = function(e) return(fallback))
+    return(unpacked)
+  } else {
+    return(fallback)
+  }
+}
+
+# ==========================================
+# DICTIONARY & DB SETUP
+# ==========================================
+print("📂 Loading local master dictionary...")
 master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id), 
+    target_num = as.character(collector_number),
     tcgplayer_id = as.integer(tcgplayer_id), 
-    cardname = paste(name, replace_na(version, ""), rarity, sep = " - "),
+    cardname = paste(name, replace_na(version, ""), rarity, collector_number, sep = " - "),
     folder_name = str_replace_all(set_name, "[ ']", "_"),
     image_path = paste0("data/enchanteds/images/", folder_name, "/", id, ".avif")
   ) %>%
   distinct(id, .keep_all = TRUE)
 
-# 2. Bootstrap the MotherDuck connection
+print("🚀 Connecting to MotherDuck...")
 Sys.setenv(motherduck_token = md_token)
 con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
 
-# FIX: Force load both motherduck and the icu collation extensions
-dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-dbExecute(con, "INSTALL icu; LOAD icu;") 
+# Create tracking table if it doesn't exist yet
+create_table_query <- "
+  CREATE TABLE IF NOT EXISTS llm_listing_metadata (
+    item_id VARCHAR PRIMARY KEY,
+    id VARCHAR,
+    is_valid BOOLEAN,
+    is_graded BOOLEAN,
+    grading_company VARCHAR,
+    grade_val VARCHAR,
+    card_language VARCHAR
+  );
+"
+dbExecute(con, create_table_query)
 
-dbExecute(con, "ATTACH 'md:'")
-dbExecute(con, "USE my_db;")
+# ==========================================
+# FETCH UNIQUE ITEM IDs QUEUE
+# ==========================================
+print("📥 Fetching processing queue...")
+query <- "
+  SELECT DISTINCT a.item_id, a.id, a.listing_title 
+  FROM lorcana_active_listings a
+  LEFT JOIN llm_listing_metadata m ON a.item_id = m.item_id
+  WHERE m.item_id IS NULL
+"
+processing_queue <- dbGetQuery(con, query)
 
+if(nrow(processing_queue) > 0) {
+  
+  # Join dictionary and clean text patterns
+  processing_queue <- processing_queue %>%
+    left_join(master_dict, by = "id") %>%
+    drop_na(cardname, listing_title) %>%
+    mutate(
+      title_lower = str_to_lower(listing_title),
+      # Language labeling logic
+      card_language = case_when(
+        str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
+        str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
+        str_detect(title_lower, "\\b(french|français|francais|fr)\\b") ~ "French",
+        str_detect(title_lower, "\\b(italian|italiano|it)\\b")     ~ "Italian",
+        str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
+        TRUE ~ "English"
+      ),
+      # INSTANT FAIL FILTER: Flag titles containing forbidden words natively in R
+      has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo)\\b")
+    )
+  
+  # Separate clear deterministic mismatches from ambiguous ones needing the LLM
+  print("⚡ Splitting dataset via deterministic regex short-circuit...")
+  deterministic_mismatches <- processing_queue %>%
+    filter(has_forbidden_words) %>%
+    mutate(
+      is_valid = FALSE,
+      is_graded = FALSE,
+      grading_company = NA_character_,
+      grade_val = NA_character_
+    ) %>%
+    select(item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
+  
+  llm_queue <- processing_queue %>%
+    filter(!has_forbidden_words)
+  
+  print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM sequentially...", 
+                nrow(deterministic_mismatches), nrow(llm_queue)))
+  
+  # ==========================================
+  # SEQUENTIAL LLM PROCESSING
+  # ==========================================
+  llm_results_list <- list()
+  
+  if(nrow(llm_queue) > 0) {
+    print("🧠 Running sequential LLM processing...")
+    
+    for (i in 1:nrow(llm_queue)) {
+      cat(sprintf("\rProcessing %d of %d...", i, nrow(llm_queue)))
+      
+      res <- ask_gemma_json(llm_queue$cardname[i], llm_queue$listing_title[i])
+      
+      is_valid_flag <- ifelse(res$validity == "Match", TRUE, FALSE)
+      is_graded_flag <- as.logical(res$is_graded)
+      comp_val <- ifelse(res$grading_company %in% c("NA", "ERROR") || is.na(res$grading_company), NA_character_, res$grading_company)
+      g_val <- ifelse(res$grade_value %in% c("NA", "ERROR") || is.na(res$grade_value), NA_character_, as.character(res$grade_value))
+      
+      if (is.na(comp_val) || trimws(comp_val) == "") {
+        is_graded_flag <- FALSE
+        comp_val <- NA_character_
+        g_val <- NA_character_
+      }
+      if(!is.na(comp_val) && toupper(comp_val) == "BECKETT") comp_val <- "BGS"
+      
+      llm_results_list[[i]] <- tibble(
+        item_id = llm_queue$item_id[i],
+        id = llm_queue$id[i],
+        is_valid = is_valid_flag,
+        is_graded = is_graded_flag,
+        grading_company = comp_val,
+        grade_val = g_val,
+        card_language = llm_queue$card_language[i]
+      )
+    }
+    cat("\n") 
+    llm_results <- bind_rows(llm_results_list)
+    final_payload <- bind_rows(deterministic_mismatches, llm_results)
+  } else {
+    final_payload <- deterministic_mismatches
+  }
+  
+  # ==========================================
+  # CHUNKED BULK DB WRITE
+  # ==========================================
+  if(nrow(final_payload) > 0) {
+    print("💾 Committing payloads to MotherDuck in a single chunk...")
+    item_id_list <- paste0("'", final_payload$item_id, "'", collapse = ",")
+    dbExecute(con, sprintf("DELETE FROM llm_listing_metadata WHERE item_id IN (%s)", item_id_list))
+    dbWriteTable(con, "llm_listing_metadata", final_payload, append = TRUE)
+  }
+  print("✨ Sync complete.")
+}
+
+# ==========================================
+# FETCH DASHBOARD DATA
+# ==========================================
 # Fetch Core Data
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
 past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
 
 # Pull 90-day history
-hist_data <- dbGetQuery(con, "
-  SELECT tcgplayer_id, pull_date, market_price 
-  FROM justtcg_prices 
-  WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'
-")
+hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'")
 
-# Optimized Chronos pull
-chronos_pred <- dbGetQuery(con, "
-  WITH recent_runs AS (SELECT DISTINCT run_id FROM chronos_predictions ORDER BY run_id DESC LIMIT 30)
-  SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id 
-  FROM chronos_predictions WHERE run_id IN (SELECT run_id FROM recent_runs)
-")
-
-# Optimized GRU pull
-gru_pred <- dbGetQuery(con, "
-  WITH recent_runs AS (SELECT DISTINCT run_id FROM gru_predictions ORDER BY run_id DESC LIMIT 30)
-  SELECT card_id as tcgplayer_id, target_date, pred_price, run_id 
-  FROM gru_predictions WHERE run_id IN (SELECT run_id FROM recent_runs)
-")
+# Optimized Model pulls (Latest Run Only)
+chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)")
+gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)")
 
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 
-# Fetch backtest metrics
-backtest_metrics <- tryCatch(
-  dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"),
-  error = function(e) data.frame()
-)
+backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
 
 # ==========================================
-# Fetch eBay Data (Memory Optimized)
+# Fetch eBay Data (Extended to 40 Days for 30D Median Trends)
 # ==========================================
-# DuckDB valid regex filtering and full auction blocks applied here
 ebay_ts_query <- "
   SELECT 
     a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled,
@@ -99,14 +250,12 @@ ebay_ts_query <- "
   WHERE l.is_valid IS TRUE
     AND a.price_val IS NOT NULL 
     AND a.price_val > 0
-    AND a.date_pulled >= CURRENT_DATE - INTERVAL '30 days'
+    AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days'
     AND a.listing_type NOT ILIKE '%AUCTION%'
     AND a.listing_title IS NOT NULL
-    AND NOT regexp_matches(a.listing_title, '(legendary|proxy|custom|oversized|jumbo)', 'i')
 "
 raw_ebay_sql <- tryCatch(dbGetQuery(con, ebay_ts_query), error = function(e) data.frame())
 
-# Fetch TARGETED dictionary of titles 
 ebay_titles_query <- "
   SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title
   FROM lorcana_active_listings a
@@ -117,7 +266,6 @@ ebay_titles_query <- "
     AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
     AND a.listing_type NOT ILIKE '%AUCTION%'
     AND a.listing_title IS NOT NULL
-    AND NOT regexp_matches(a.listing_title, '(legendary|proxy|custom|oversized|jumbo)', 'i')
 "
 raw_ebay_titles <- tryCatch(dbGetQuery(con, ebay_titles_query), error = function(e) data.frame(item_id=character(), listing_title=character()))
 
@@ -140,12 +288,9 @@ if(nrow(momentum) > 0) {
 }
 
 # --- Process Forecasts & History ---
-max_c_run <- if(nrow(chronos_pred) > 0) max(chronos_pred$run_id, na.rm=TRUE) else 0
-max_g_run <- if(nrow(gru_pred) > 0) max(gru_pred$run_id, na.rm=TRUE) else 0
-
 forecast_flat <- bind_rows(
-  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos", is_shadow = ifelse(run_id == max_c_run, FALSE, TRUE)) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id),
-  gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", is_shadow = ifelse(run_id == max_g_run, FALSE, TRUE), conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, is_shadow, run_id)
+  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos") %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id),
+  gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id)
 ) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 
 hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
@@ -260,6 +405,12 @@ ojs_define(
   .modal-checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; max-height: 85px; overflow-y: auto; padding: 5px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 6px; }
   .modal-checkbox-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-main); cursor: pointer; padding: 2px 6px; background: var(--bg-base); border-radius: 4px; }
   .filter-span-2 { grid-column: span 2; }
+
+  /* Modal Summary Header Metrics Grid */
+  .modal-metrics-summary-row { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 12px; }
+  .modal-metric-card { background: var(--bg-base); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border-subtle); min-width: 175px; flex: 1; }
+  .modal-metric-card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+  .modal-metric-card-value { font-size: 18px; font-weight: 800; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; }
 
   /* 📱 RESPONSIVENESS TWEAKS 📱 */
   @media (max-width: 1024px) {
@@ -430,8 +581,8 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     // Forecasts
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
     const cur_price = d.current_price || 0;
-    const live_c = c_fcst.filter(f => f.model === "Chronos" && !f.is_shadow).sort((a,b)=>a.date-b.date);
-    const live_g = c_fcst.filter(f => f.model === "GRU" && !f.is_shadow).sort((a,b)=>a.date-b.date);
+    const live_c = c_fcst.filter(f => f.model === "Chronos").sort((a,b)=>a.date-b.date);
+    const live_g = c_fcst.filter(f => f.model === "GRU").sort((a,b)=>a.date-b.date);
     const c_pred = live_c.length > 0 ? live_c[live_c.length - 1].price : null;
     const g_pred = live_g.length > 0 ? live_g[live_g.length - 1].price : null;
     const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
@@ -612,40 +763,102 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const cardname = tr.dataset.cardname;
     const card_info = unified_data.find(d => d.cardname === cardname);
     
-    // Header
+    // Extract Traces for Main Plotly
+    const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
+    const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
+    const live_c = c_fcst.filter(d => d.model === "Chronos");
+    const live_g = c_fcst.filter(d => d.model === "GRU");
+
+    // Dynamic 30-Day Calculations for Header Cards
+    let tcg_pct_30d = null;
+    if (c_hist.length > 0 && card_info.current_price) {
+      const current_tcg = card_info.current_price;
+      const latest_date_ms = c_hist[c_hist.length - 1].date.getTime();
+      const target_past_ms = latest_date_ms - (30 * 24 * 60 * 60 * 1000);
+      let closest_past_record = c_hist.reduce((closest, curr) => {
+        return Math.abs(curr.date.getTime() - target_past_ms) < Math.abs(closest.date.getTime() - target_past_ms) ? curr : closest;
+      });
+      if (closest_past_record && Math.abs(closest_past_record.date.getTime() - target_past_ms) < (4 * 24 * 60 * 60 * 1000)) {
+        tcg_pct_30d = ((current_tcg - closest_past_record.price) / closest_past_record.price) * 100;
+      }
+    }
+
+    let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
+    let raw_dates = masterCardListings.map(d => new Date(d.date_pulled + "T12:00:00").getTime());
+    let cur_eb_ungraded = card_info.recent_ebay_med;
+    let cur_eb_psa10 = card_info.psa_10_med;
+    let eb_ung_pct = null, eb_psa_pct = null;
+
+    if (raw_dates.length > 0) {
+      const current_end = Math.max(...raw_dates);
+      const past_end = current_end - (30 * 24 * 60 * 60 * 1000);
+      
+      function get7DayMedianAtTime(listings, end_timestamp) {
+         const start_timestamp = end_timestamp - (7 * 24 * 60 * 60 * 1000);
+         let window_listings = listings.filter(e => {
+            const d_ms = new Date(e.date_pulled + "T12:00:00").getTime();
+            return d_ms >= start_timestamp && d_ms <= end_timestamp;
+         });
+         let prices = window_listings.map(e => e.clean_price).sort((a,b) => a - b);
+         if (prices.length === 0) return null;
+         if (prices.length < 4) return prices[Math.floor(prices.length/2)];
+         let q1 = prices[Math.floor(prices.length * 0.25)], q3 = prices[Math.floor(prices.length * 0.75)];
+         let filtered = prices.filter(p => p >= q1 && p <= q3);
+         return filtered.length > 0 ? filtered[Math.floor(filtered.length/2)] : prices[Math.floor(prices.length/2)];
+      }
+      
+      const past_eb_ungraded = get7DayMedianAtTime(masterCardListings.filter(d => d.label === "Ungraded"), past_end);
+      const past_eb_psa10 = get7DayMedianAtTime(masterCardListings.filter(d => d.label === "PSA 10"), past_end);
+      
+      if (cur_eb_ungraded && past_eb_ungraded) eb_ung_pct = ((cur_eb_ungraded - past_eb_ungraded) / past_eb_ungraded) * 100;
+      if (cur_eb_psa10 && past_eb_psa10) eb_psa_pct = ((cur_eb_psa10 - past_eb_psa10) / past_eb_psa10) * 100;
+    }
+
+    const formatHeaderIndicator = (pct) => {
+       if (pct === null || pct === undefined || isNaN(pct)) return '<span style="font-size:11px; color:var(--text-muted); font-weight:400; margin-left:4px;">(--)</span>';
+       const color = pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+       const sign = pct >= 0 ? '▲ +' : '▼ ';
+       return `<span style="font-size:11px; color:${color}; font-weight:700; margin-left:4px;">${sign}${pct.toFixed(1)}%</span>`;
+    };
+
+    // Header Construction
     const t_p = card_info.current_price ? `$${card_info.current_price.toFixed(2)}` : 'N/A';
-    const e_p = card_info.recent_ebay_med ? `$${card_info.recent_ebay_med.toFixed(2)}` : 'N/A';
+    const e_p = cur_eb_ungraded ? `$${cur_eb_ungraded.toFixed(2)}` : 'N/A';
+    const p_p = cur_eb_psa10 ? `$${cur_eb_psa10.toFixed(2)}` : 'N/A';
+
     document.getElementById('modal-header').innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
-        <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
-          <img src="${card_info.image_path}" style="height: 180px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-          <div>
-            <div style="font-size: 22px; font-weight: 800; color: var(--text-main); margin-bottom: 5px;">${cardname}</div>
-            <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 10px;">Set: <span style="color:var(--text-main);">${card_info.set_name}</span> | Rarity: <span style="color:var(--accent-cyan);">${card_info.rarity}</span></div>
-            <div style="font-size: 15px; color: var(--text-muted); background: var(--bg-base); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-subtle); display: inline-block;">
-               TCG Market: <span style="font-weight:700; color:var(--accent-yellow); margin-right: 15px;">${t_p}</span> 
-               eBay (7D): <span style="font-weight:700; color:var(--accent-blue);">${e_p}</span>
+        <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap; width: 100%;">
+          <img src="${card_info.image_path}" style="height: 140px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+          <div style="flex: 1; min-width: 280px;">
+            <div style="font-size: 22px; font-weight: 800; color: var(--text-main); margin-bottom: 2px;">${cardname}</div>
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Set: <span style="color:var(--text-main);">${card_info.set_name}</span> | Rarity: <span style="color:var(--accent-cyan);">${card_info.rarity}</span></div>
+            
+            <div class="modal-metrics-summary-row">
+               <div class="modal-metric-card">
+                  <div class="modal-metric-card-label">TCG Market</div>
+                  <div class="modal-metric-card-value"><span style="color:var(--accent-yellow);">${t_p}</span>${formatHeaderIndicator(tcg_pct_30d)}</div>
+               </div>
+               <div class="modal-metric-card">
+                  <div class="modal-metric-card-label">eBay Ungraded (7D)</div>
+                  <div class="modal-metric-card-value"><span style="color:var(--accent-blue);">${e_p}</span>${formatHeaderIndicator(eb_ung_pct)}</div>
+               </div>
+               <div class="modal-metric-card">
+                  <div class="modal-metric-card-label">PSA 10 Median (7D)</div>
+                  <div class="modal-metric-card-value"><span style="color:var(--text-main);">${p_p}</span>${formatHeaderIndicator(eb_psa_pct)}</div>
+               </div>
             </div>
           </div>
         </div>
       </div>
     `;
 
-    // Extract Traces for Main Plotly
-    const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
-    const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
-    const live_c = c_fcst.filter(d => d.model === "Chronos" && !d.is_shadow);
-    const live_g = c_fcst.filter(d => d.model === "GRU" && !d.is_shadow);
-    const shadow = c_fcst.filter(d => d.is_shadow);
-
     const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'TCGplayer', line: {color: '#f8fafc', width: 3}, hovertemplate: 'TCG: $%{y:.2f}<extra></extra>' };
     const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
     const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
     
     // Calculate Daily eBay Median specifically for the unified graph
-    let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
     let raw_ungraded = masterCardListings.filter(d => d.label === "Ungraded");
-    
     let grouped = {};
     raw_ungraded.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
     let eb_dates = Object.keys(grouped).sort();
@@ -658,24 +871,15 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const trace_ebay_med = { x: eb_dates, y: eb_meds, mode: 'lines+markers', name: 'eBay Median', line: {color: '#c084fc', width: 2}, marker: {size: 6}, hovertemplate: 'eBay Med: $%{y:.2f}<extra></extra>' };
     const trace_ebay_vol = { x: eb_dates, y: eb_vols, type: 'bar', name: 'eBay Vol', yaxis: 'y2', opacity: 0.15, marker: {color: '#c084fc'}, hovertemplate: 'Vol: %{y}<extra></extra>', showlegend: false };
 
-    const shadow_traces = Array.from(new Set(shadow.map(d => d.run_id))).map(rid => {
-      const rd = shadow.filter(d => d.run_id === rid);
-      if(rd.length === 0) return null;
-      return { x: rd.map(d => d.date), y: rd.map(d => d.price), mode: 'lines', line: {color: rd[0].model === 'Chronos' ? '#fbbf24' : '#22d3ee', width: 1}, opacity: 0.15, showlegend: false, hoverinfo: 'skip' };
-    }).filter(d => d !== null);
+    const all_traces = [trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
 
-    const all_traces = [...shadow_traces, trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
-
-    // Added mobile scaling logic + locked axes
     const layout_graph = {
       dragmode: false,
-      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', 
-      font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 10 : 12 },
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 10 : 12 },
       xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
       yaxis: { title: {text: 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
       yaxis2: { title: '', overlaying: 'y', side: 'right', showgrid: false, fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-      margin: { l: isMobile ? 45 : 60, r: isMobile ? 25 : 40, t: isMobile ? 60 : 30, b: isMobile ? 35 : 40 }, 
-      hovermode: 'x unified',
+      margin: { l: 50, r: 40, t: 20, b: 40 }, hovermode: 'x unified',
       hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 12 : 14 } },
       legend: { orientation: 'h', y: isMobile ? 1.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
     };
@@ -868,7 +1072,7 @@ The dashboard updates with fresh prices and new 30-day forecasts every single mo
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-  <a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+  <a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
     <span style="font-size: 18px;">☕ Support on Ko-fi</span>
   </a>
 </div>
