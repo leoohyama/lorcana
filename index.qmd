@@ -17,74 +17,23 @@ resources:
 #| context: setup
 #| include: false
 #| message: false
-# ==========================================
-# R Data Processing (Runs Once at Build)
-# ==========================================
+# ==============================================================================
+# SECTION 1: R BACKEND DATA PIPELINE & PRE-FILTERING (Runs Once at Build)
+# ==============================================================================
+
 library(tidyverse)
 library(jsonlite)
 library(httr)
 library(DBI)
 library(duckdb)
 
-# 1. Pull token from the environment
+# --- 1.1 Environment Variable & Auth Guard ---
 md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
-
 if (md_token == "") {
   stop("MotherDuck token missing! The dashboard cannot fetch current data.")
 }
 
-# ==========================================
-# THE GEMMA JSON FUNCTION (SEQUENTIAL)
-# ==========================================
-ask_gemma_json <- function(target_card, ebay_title) {
-  prompt_text <- paste0(
-    "You are a strict data extraction assistant for Disney Lorcana TCG. ",
-    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic' or 'Enchanted'.\n\n",
-    "RULES:\n",
-    "1. 'validity': Output 'Match' or 'No Match'.\n",
-    "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match' (e.g. they are selling the standard non-rare version but stuffing the title with keywords).\n",
-    "3. OMITTED NUMBERS ARE OKAY: Sellers frequently omit the exact card number. If the title omits the number, but exactly matches the Character Name, Subtitle, and lacks conflicting rarity words (like 'Cold Foil'), it is a 'Match'. You do not need the number to be present to validate it.\n",
-    "4. 'is_graded': true or false. Set to false if the title implies the card *could* be graded but isn't currently (e.g., 'worthy', 'ready', 'candidate').\n",
-    "5. 'grading_company': Extract ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
-    "6. 'grade_value': Extract numeric grade. Output 'NA' if ungraded.\n\n",
-    "Target Card: ", target_card, "\n",
-    "eBay Title: ", ebay_title, "\n",
-    "JSON Output:"
-  )
-  
-  res <- tryCatch({
-    POST(
-      url = "http://localhost:11434/api/generate",
-      body = list(
-        model = "gemma4:e2b", 
-        prompt = prompt_text,
-        stream = FALSE,
-        format = "json",
-        options = list(temperature = 0.0) 
-      ),
-      encode = "json",
-      timeout(10) 
-    )
-  }, error = function(e) return(NULL))
-  
-  fallback <- list(validity="ERROR", is_graded=FALSE, grading_company="NA", grade_value="NA")
-  
-  if (!is.null(res) && status_code(res) == 200) {
-    unpacked <- tryCatch({
-      raw_text <- content(res, "text", encoding = "UTF-8")
-      parsed <- fromJSON(raw_text)
-      fromJSON(parsed$response)
-    }, error = function(e) return(fallback))
-    return(unpacked)
-  } else {
-    return(fallback)
-  }
-}
-
-# ==========================================
-# DICTIONARY & DB SETUP
-# ==========================================
-print("📂 Loading local master dictionary...")
+# --- 1.2 Target Roster Dictionary Prep ---
 master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id), 
@@ -96,12 +45,12 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
   ) %>%
   distinct(id, .keep_all = TRUE)
 
-print("🚀 Connecting to MotherDuck...")
+# --- 1.3 MotherDuck Engine Attachment ---
 Sys.setenv(motherduck_token = md_token)
 con <- dbConnect(duckdb::duckdb())
 dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
 
-# Create tracking table if it doesn't exist yet
+# --- 1.4 Persistent Tracking Metadata Schema Initialization ---
 create_table_query <- "
   CREATE TABLE IF NOT EXISTS llm_listing_metadata (
     item_id VARCHAR PRIMARY KEY,
@@ -115,9 +64,14 @@ create_table_query <- "
 "
 dbExecute(con, create_table_query)
 
-# ==========================================
-# FETCH UNIQUE ITEM IDs QUEUE
-# ==========================================
+# --- 1.5 Database Full Rerun Flag Toggle ---
+force_full_rerun <- FALSE
+if(force_full_rerun) {
+  print("⚠️ WARNING: Truncating table for a full LLM rerun over all data...")
+  dbExecute(con, "TRUNCATE TABLE llm_listing_metadata;")
+}
+
+# --- 1.6 Uncatalogued Scraping Queue Generation ---
 print("📥 Fetching processing queue...")
 query <- "
   SELECT DISTINCT a.item_id, a.id, a.listing_title 
@@ -127,15 +81,13 @@ query <- "
 "
 processing_queue <- dbGetQuery(con, query)
 
+# --- 1.7 Incremental Evaluation Pipeline ---
 if(nrow(processing_queue) > 0) {
-  
-  # Join dictionary and clean text patterns
   processing_queue <- processing_queue %>%
     left_join(master_dict, by = "id") %>%
     drop_na(cardname, listing_title) %>%
     mutate(
       title_lower = str_to_lower(listing_title),
-      # Language labeling logic
       card_language = case_when(
         str_detect(title_lower, "\\b(jap|japanese|jp|jpn|ja)\\b") ~ "Japanese",
         str_detect(title_lower, "\\b(german|deutsch|de)\\b")      ~ "German",
@@ -144,39 +96,55 @@ if(nrow(processing_queue) > 0) {
         str_detect(title_lower, "\\b(spanish|español|espanol|es)\\b") ~ "Spanish",
         TRUE ~ "English"
       ),
-      # INSTANT FAIL FILTER: Flag titles containing forbidden words natively in R
-      has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo)\\b")
+      has_forbidden_words = str_detect(title_lower, "\\b(legendary|promo|proxy|custom|oversized|jumbo|championship|cold foil|keychain)\\b")
     )
   
-  # Separate clear deterministic mismatches from ambiguous ones needing the LLM
-  print("⚡ Splitting dataset via deterministic regex short-circuit...")
+  # Deterministic Native Short-Circuit (Saves Local Compute Time)
   deterministic_mismatches <- processing_queue %>%
     filter(has_forbidden_words) %>%
-    mutate(
-      is_valid = FALSE,
-      is_graded = FALSE,
-      grading_company = NA_character_,
-      grade_val = NA_character_
-    ) %>%
+    mutate(is_valid = FALSE, is_graded = FALSE, grading_company = NA_character_, grade_val = NA_character_) %>%
     select(item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
   
-  llm_queue <- processing_queue %>%
-    filter(!has_forbidden_words)
+  llm_queue <- processing_queue %>% filter(!has_forbidden_words)
+  print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM...", nrow(deterministic_mismatches), nrow(llm_queue)))
   
-  print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM sequentially...", 
-                nrow(deterministic_mismatches), nrow(llm_queue)))
-  
-  # ==========================================
-  # SEQUENTIAL LLM PROCESSING
-  # ==========================================
+  # Sequential Local Model Evaluation Block
   llm_results_list <- list()
-  
   if(nrow(llm_queue) > 0) {
-    print("🧠 Running sequential LLM processing...")
+    
+    ask_gemma_json <- function(target_card, ebay_title) {
+      prompt_text <- paste0(
+        "You are a strict data extraction assistant for Disney Lorcana TCG. ",
+        "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic' or 'Enchanted'.\n\n",
+        "RULES:\n",
+        "1. 'validity': Output 'Match' or 'No Match'.\n",
+        "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match' (e.g. they are selling the standard non-rare version but stuffing the title with keywords).\n",
+        "3. OMITTED NUMBERS ARE OKAY: Sellers frequently omit the exact card number. If the title omits the number, but exactly matches the Character Name, Subtitle, and lacks conflicting rarity words (like 'Cold Foil'), it is a 'Match'. You do not need the number to be present to validate it.\n",
+        "4. 'is_graded': true or false. Set to false if the title implies the card *could* be graded but isn't currently (e.g., 'worthy', 'ready', 'candidate').\n",
+        "5. 'grading_company': Extract ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
+        "6. 'grade_value': Extract numeric grade. Output 'NA' if ungraded.\n\n",
+        "Target Card: ", target_card, "\n",
+        "eBay Title: ", ebay_title, "\n",
+        "JSON Output:"
+      )
+      res <- tryCatch({
+        POST(url = "http://localhost:11434/api/generate", body = list(model = "gemma4:e2b", prompt = prompt_text, stream = FALSE, format = "json", options = list(temperature = 0.0)), encode = "json", timeout(10))
+      }, error = function(e) return(NULL))
+      fallback <- list(validity="ERROR", is_graded=FALSE, grading_company="NA", grade_value="NA")
+      if (!is.null(res) && status_code(res) == 200) {
+        unpacked <- tryCatch({
+          raw_text <- content(res, "text", encoding = "UTF-8")
+          parsed <- fromJSON(raw_text)
+          fromJSON(parsed$response)
+        }, error = function(e) return(fallback))
+        return(unpacked)
+      } else {
+        return(fallback)
+      }
+    }
     
     for (i in 1:nrow(llm_queue)) {
       cat(sprintf("\rProcessing %d of %d...", i, nrow(llm_queue)))
-      
       res <- ask_gemma_json(llm_queue$cardname[i], llm_queue$listing_title[i])
       
       is_valid_flag <- ifelse(res$validity == "Match", TRUE, FALSE)
@@ -185,20 +153,13 @@ if(nrow(processing_queue) > 0) {
       g_val <- ifelse(res$grade_value %in% c("NA", "ERROR") || is.na(res$grade_value), NA_character_, as.character(res$grade_value))
       
       if (is.na(comp_val) || trimws(comp_val) == "") {
-        is_graded_flag <- FALSE
-        comp_val <- NA_character_
-        g_val <- NA_character_
+        is_graded_flag <- FALSE; comp_val <- NA_character_; g_val <- NA_character_
       }
       if(!is.na(comp_val) && toupper(comp_val) == "BECKETT") comp_val <- "BGS"
       
       llm_results_list[[i]] <- tibble(
-        item_id = llm_queue$item_id[i],
-        id = llm_queue$id[i],
-        is_valid = is_valid_flag,
-        is_graded = is_graded_flag,
-        grading_company = comp_val,
-        grade_val = g_val,
-        card_language = llm_queue$card_language[i]
+        item_id = llm_queue$item_id[i], id = llm_queue$id[i], is_valid = is_valid_flag,
+        is_graded = is_graded_flag, grading_company = comp_val, grade_val = g_val, card_language = llm_queue$card_language[i]
       )
     }
     cat("\n") 
@@ -208,129 +169,49 @@ if(nrow(processing_queue) > 0) {
     final_payload <- deterministic_mismatches
   }
   
-  # ==========================================
-  # CHUNKED BULK DB WRITE
-  # ==========================================
+  # Memory Chunked Bulk Writing Operations
   if(nrow(final_payload) > 0) {
     print("💾 Committing payloads to MotherDuck in a single chunk...")
     item_id_list <- paste0("'", final_payload$item_id, "'", collapse = ",")
     dbExecute(con, sprintf("DELETE FROM llm_listing_metadata WHERE item_id IN (%s)", item_id_list))
     dbWriteTable(con, "llm_listing_metadata", final_payload, append = TRUE)
   }
-  print("✨ Sync complete.")
 }
 
-# ==========================================
-# FETCH DASHBOARD DATA
-# ==========================================
-# Fetch Core Data
+# --- 1.8 Fetch Core Dashboard Data (Latest Production Inferences Only) ---
 latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
 past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
-
-# Pull 90-day history
 hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'")
-
-# Optimized Model pulls (Latest Run Only)
 chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)")
 gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)")
-
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
-
 backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
 
-# ==========================================
-# Fetch eBay Data (Extended to 40 Days for 30D Median Trends)
-# ==========================================
-ebay_ts_query <- "
-  SELECT 
-    a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled,
-    l.id, l.grading_company, l.grade_val, l.card_language
-  FROM lorcana_active_listings a
-  INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id
-  WHERE l.is_valid IS TRUE
-    AND a.price_val IS NOT NULL 
-    AND a.price_val > 0
-    AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days'
-    AND a.listing_type NOT ILIKE '%AUCTION%'
-    AND a.listing_title IS NOT NULL
-"
-raw_ebay_sql <- tryCatch(dbGetQuery(con, ebay_ts_query), error = function(e) data.frame())
-
-ebay_titles_query <- "
-  SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title
-  FROM lorcana_active_listings a
-  INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id
-  WHERE l.is_valid IS TRUE
-    AND a.price_val IS NOT NULL 
-    AND a.price_val > 0
-    AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days'
-    AND a.listing_type NOT ILIKE '%AUCTION%'
-    AND a.listing_title IS NOT NULL
-"
-raw_ebay_titles <- tryCatch(dbGetQuery(con, ebay_titles_query), error = function(e) data.frame(item_id=character(), listing_title=character()))
+# --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
+raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
+raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
 
 dbDisconnect(con)
 
-# --- Process Momentum ---
-momentum <- latest_prices %>% 
-  inner_join(past_prices, by = "tcgplayer_id", suffix = c("_cur", "_past")) %>% 
-  mutate(pct = (market_price_cur - market_price_past)/market_price_past * 100, abs = market_price_cur - market_price_past) %>% 
-  left_join(master_dict, by = "tcgplayer_id") %>% drop_na(cardname)
-
+# --- 1.10 Shape Final Structs & Flatten Matrices ---
+momentum <- latest_prices %>% inner_join(past_prices, by = "tcgplayer_id", suffix = c("_cur", "_past")) %>% mutate(pct = (market_price_cur - market_price_past)/market_price_past * 100, abs = market_price_cur - market_price_past) %>% left_join(master_dict, by = "tcgplayer_id") %>% drop_na(cardname)
 if(nrow(momentum) > 0) {
-  top_pct_g <- momentum %>% arrange(desc(pct)) %>% slice(1) %>% mutate(Category = "Top % Gainer")
-  top_pct_l <- momentum %>% arrange(pct) %>% slice(1) %>% mutate(Category = "Top % Loser")
-  top_abs_g <- momentum %>% arrange(desc(abs)) %>% slice(1) %>% mutate(Category = "Top $ Gainer")
-  top_abs_l <- momentum %>% arrange(abs) %>% slice(1) %>% mutate(Category = "Top $ Loser")
-  movers <- bind_rows(top_pct_g, top_pct_l, top_abs_g, top_abs_l)
-} else {
-  movers <- data.frame()
-}
+  movers <- bind_rows(momentum %>% arrange(desc(pct)) %>% slice(1) %>% mutate(Category = "Top % Gainer"), momentum %>% arrange(pct) %>% slice(1) %>% mutate(Category = "Top % Loser"), momentum %>% arrange(desc(abs)) %>% slice(1) %>% mutate(Category = "Top $Gainer"), momentum %>% arrange(abs) %>% slice(1) %>% mutate(Category = "Top$ Loser"))
+} else { movers <- data.frame() }
 
-# --- Process Forecasts & History ---
-forecast_flat <- bind_rows(
-  chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos") %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id),
-  gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id)
-) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
-
+forecast_flat <- bind_rows(chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos") %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id), gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id)) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
-
-# --- Process Unified Info ---
 if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
-unified <- master_dict %>% 
-  left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>%
-  left_join(metrics_df, by="tcgplayer_id")
+unified <- master_dict %>% left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>% left_join(metrics_df, by="tcgplayer_id")
 
-# --- Process eBay Listings ---
 if(nrow(raw_ebay_sql) > 0) {
-  ebay_master <- raw_ebay_sql %>%
-    mutate(id = as.character(id)) %>%
-    inner_join(master_dict %>% select(id, cardname), by = "id") %>%
-    mutate(
-      grade_val = replace_na(as.character(grade_val), "UNG"),
-      grading_company = replace_na(as.character(grading_company), "UNG"),
-      card_language = replace_na(as.character(card_language), "English"),
-      date_pulled = as.character(date_pulled),
-      price_val = round(as.numeric(price_val), 2),
-      item_id = as.character(item_id)
-    ) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language)
-} else {
-  ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character())
-}
+  ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id)) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language)
+} else { ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character()) }
 
-# --- Process Titles Dictionary ---
-if(nrow(raw_ebay_titles) > 0) {
-  ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title"))
-} else {
-  ebay_title_dict <- data.frame(item_id=character(), listing_title=character())
-}
+if(nrow(raw_ebay_titles) > 0) { ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title")) } else { ebay_title_dict <- data.frame(item_id=character(), listing_title=character()) }
 
-# Transfer to JavaScript
-ojs_define(
-  ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, 
-  ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict,
-  ojs_metrics = backtest_metrics
-)
+# Broadcast In-Memory Data Structures to OJS Space
+ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics)
 ```
 
 ```{=html}
@@ -358,7 +239,7 @@ ojs_define(
   .green-text { color: var(--accent-green); font-weight: 700; }
   .red-text { color: var(--accent-red); font-weight: 700; }
   
-  /* Flex wrappers and cards */
+  /* Flex wrappers and structural grid definitions */
   .flip-card-wrapper { display: flex; flex-direction: column; align-items: center; width: 260px; text-align: center; margin: 10px; }
   .flip-card { perspective: 1000px; cursor: pointer; width: 100%; height: 380px; }
   .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; }
@@ -366,7 +247,7 @@ ojs_define(
   .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; }
   .flip-card-back { transform: rotateY(180deg); background-color: var(--bg-base); border: 2px solid var(--accent-blue); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
 
-  /* Main Info Table styling */
+  /* Main Core Table Typography & Scroll Margins */
   .hover-table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 14px; text-align: left; }
   .hover-table th { background-color: var(--bg-card); padding: 14px 12px; border-bottom: 2px solid var(--accent-blue); position: sticky; top: 0; z-index: 10; transition: background 0.2s; user-select: none; white-space: nowrap; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 12px;}
   .hover-table th:hover { background-color: var(--bg-hover); }
@@ -378,13 +259,13 @@ ojs_define(
 
   .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
 
-  /* Master Modal Overlay */
+  /* Master Interlinked Modal Positioning */
   .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); overflow-y: auto; padding: 4vh 20px; box-sizing: border-box; }
   .modal-content { background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; width: 100%; max-width: 1400px; padding: 24px; position: relative; margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
   .close-btn { color: var(--text-muted); position: absolute; top: 12px; right: 24px; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99; }
   .close-btn:hover { color: var(--accent-red); }
 
-  /* Dynamic Graph Heights & Layouts for Responsiveness */
+  /* Graph Boundaries & Canvas Scales */
   .modal-graph-main { width: 100%; height: 400px; min-height: 400px; overflow: hidden; }
   .modal-graph-err { width: 100%; height: 350px; overflow: hidden; }
   .modal-graph-ebay { width: 100%; height: 350px; overflow: hidden; margin-bottom: 25px; }
@@ -393,26 +274,23 @@ ojs_define(
   .card-text-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .card-name-text { font-weight: 600; white-space: normal; line-height: 1.2; display: block; word-break: break-word; }
 
-  /* CSS Grids inside Modal */
   .modal-top-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
   .modal-panel { background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); display:flex; flex-direction:column; }
   .panel-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; }
   
+  /* Inline Metric Filter Elements Grid */
   .modal-controls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; background: var(--bg-base); padding: 15px; border-radius: 10px; border: 1px solid var(--border-subtle); margin-bottom: 20px; }
   .modal-filter-box { display: flex; flex-direction: column; gap: 5px; }
   .modal-filter-box label { font-size: 11px; font-weight: 700; color: var(--accent-blue); text-transform: uppercase; letter-spacing: 0.5px; }
   .modal-filter-box select { padding: 8px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: 'Inter', sans-serif; cursor: pointer; }
-  .modal-checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; max-height: 85px; overflow-y: auto; padding: 5px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 6px; }
-  .modal-checkbox-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-main); cursor: pointer; padding: 2px 6px; background: var(--bg-base); border-radius: 4px; }
-  .filter-span-2 { grid-column: span 2; }
 
-  /* Modal Summary Header Metrics Grid */
+  /* Summary Cards Component Framework */
   .modal-metrics-summary-row { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 12px; }
   .modal-metric-card { background: var(--bg-base); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border-subtle); min-width: 175px; flex: 1; }
   .modal-metric-card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
   .modal-metric-card-value { font-size: 18px; font-weight: 800; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; }
 
-  /* 📱 RESPONSIVENESS TWEAKS 📱 */
+  /* Responsive Screen State Changes */
   @media (max-width: 1024px) {
     .modal-top-grid { grid-template-columns: 1fr !important; }
   }
@@ -421,20 +299,12 @@ ojs_define(
     .momentum-box { font-size: 13px !important; padding: 12px !important; }
     .modal-content { padding: 15px !important; border-radius: 8px !important; }
     .hide-on-mobile { display: none !important; } 
-    
-    /* Fixing the Cutoff Table Texts */
     .card-id-wrapper { min-width: 180px !important; max-width: 60vw; gap: 10px; }
     .card-name-text { font-size: 13px; }
-
-    /* Fixing the Filter Form Blowout */
     .modal-controls-grid { grid-template-columns: 1fr !important; }
-    .filter-span-2 { grid-column: span 1 !important; }
-
-    /* Shrinking the extremely tall charts gracefully on smaller devices */
-    .modal-graph-main { height: 280px !important; min-height: 280px !important; margin-bottom: 10px !important; }
+    .modal-graph-main { height: 320px !important; min-height: 320px !important; margin-bottom: 25px !important; }
     .modal-graph-err { height: 250px !important; }
     .modal-graph-ebay { height: 250px !important; margin-bottom: 15px !important; }
-    
     #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
     #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
     #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
@@ -457,10 +327,14 @@ ojs_define(
 ```{ojs}
 //| echo: false
 //| output: false
+// ==============================================================================
+// SECTION 2: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
+// ==============================================================================
+
 movers_data = transpose(ojs_movers)
 Plotly = require("plotly.js-dist-min@2.30.0")
 
-// Build eBay Map & Clean Master array immediately
+// Reconstruct incoming title pairs directly for linear search dictionary
 ebay_title_map = {
   const map = new Map();
   if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
@@ -473,6 +347,7 @@ ebay_title_map = {
   return map;
 }
 
+// Global programmatic data sanitization step for raw listing objects
 clean_ebay_master = transpose(ojs_ebay).map(d => {
   let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
   let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
@@ -502,6 +377,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 
 ```{ojs}
 //| echo: false
+// Render UI Top Flip Cards 
 {
   if (movers_data.length === 0) return html`<div style='color:var(--text-muted); text-align:center;'>Not enough data.</div>`;
   const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
@@ -547,6 +423,9 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 
 ```{ojs}
 //| echo: false
+// ==============================================================================
+// SECTION 3: UNIFIED INTERACTIVE GRID ENGINE & MASTER MODAL DISPATCHER
+// ==============================================================================
 {
   const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
@@ -555,7 +434,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  // Helper for eBay Medians
+  // Structural pricing calculator
   function getMedianAndCount(listings) {
       if(listings.length === 0) return { median: null, count: 0 };
       let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
@@ -576,9 +455,8 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
       return { median: filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2, count: count };
   }
 
-  // Build the MASTER unified dataset
+  // Construct Primary Master Core table rows data mapping
   let unified_data = transpose(ojs_info).map(d => {
-    // Forecasts
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
     const cur_price = d.current_price || 0;
     const live_c = c_fcst.filter(f => f.model === "Chronos").sort((a,b)=>a.date-b.date);
@@ -588,12 +466,10 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
     const g_pct = (g_pred !== null && cur_price > 0) ? ((g_pred - cur_price) / cur_price) * 100 : null;
     
-    // Backtest Error
     const card_metrics = all_metrics.filter(m => m.tcgplayer_id === d.tcgplayer_id && m.horizon === 30);
     const c_err = card_metrics.find(m => m.model === "Chronos");
     const g_err = card_metrics.find(m => m.model === "GRU");
 
-    // eBay Stats
     let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded");
     let raw_stats = getMedianAndCount(card_ebay_raw);
     let psa_stats = getMedianAndCount(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10"));
@@ -610,10 +486,10 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
   let existingModal = document.getElementById('unified-master-modal');
   if(existingModal) existingModal.remove();
 
-  const modal = document.createElement("div");
-  modal.id = "unified-master-modal";
-  modal.className = "modal-overlay";
-  modal.innerHTML = `
+  const initialModal = document.createElement("div");
+  initialModal.id = "unified-master-modal";
+  initialModal.className = "modal-overlay";
+  initialModal.innerHTML = `
     <div class="modal-content">
       <span class="close-btn" onclick="document.getElementById('unified-master-modal').style.display='none'">&times;</span>
       <div id="modal-header" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 15px;"></div>
@@ -640,8 +516,8 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+  document.body.appendChild(initialModal);
+  initialModal.addEventListener("click", (e) => { if (e.target === initialModal) initialModal.style.display = "none"; });
 
   const page_wrapper = document.createElement("div");
   page_wrapper.style.width = "100%"; page_wrapper.style.display = "flex"; page_wrapper.style.flexDirection = "column";
@@ -752,24 +628,22 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     renderTable();
   });
 
-  // ====== MASTER MODAL LOGIC ======
+  // ====== MASTER MODAL CLICK INTERACTION ENGINE ======
   container.addEventListener("click", (e) => {
     const tr = e.target.closest("tr.card-row");
     if(!tr) return;
 
-    // Responsive Mobile Checks for Plotly
     const isMobile = window.innerWidth <= 768;
-    
     const cardname = tr.dataset.cardname;
     const card_info = unified_data.find(d => d.cardname === cardname);
     
-    // Extract Traces for Main Plotly
+    // FIX: Extract historical arrays immediately at opening execution so they are fully initialized before lookup math routines execute!
     const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
     const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
     const live_c = c_fcst.filter(d => d.model === "Chronos");
     const live_g = c_fcst.filter(d => d.model === "GRU");
 
-    // Dynamic 30-Day Calculations for Header Cards
+    // Calculate TCGplayer rolling 30D baseline shift values
     let tcg_pct_30d = null;
     if (c_hist.length > 0 && card_info.current_price) {
       const current_tcg = card_info.current_price;
@@ -783,6 +657,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
       }
     }
 
+    // Calculate historical rolling 30D eBay data splits
     let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
     let raw_dates = masterCardListings.map(d => new Date(d.date_pulled + "T12:00:00").getTime());
     let cur_eb_ungraded = card_info.recent_ebay_med;
@@ -821,11 +696,11 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
        return `<span style="font-size:11px; color:${color}; font-weight:700; margin-left:4px;">${sign}${pct.toFixed(1)}%</span>`;
     };
 
-    // Header Construction
     const t_p = card_info.current_price ? `$${card_info.current_price.toFixed(2)}` : 'N/A';
     const e_p = cur_eb_ungraded ? `$${cur_eb_ungraded.toFixed(2)}` : 'N/A';
     const p_p = cur_eb_psa10 ? `$${cur_eb_psa10.toFixed(2)}` : 'N/A';
 
+    // Inject Summary Metrics Header UI Elements Natively
     document.getElementById('modal-header').innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
         <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap; width: 100%;">
@@ -874,17 +749,17 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const all_traces = [trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
 
     const layout_graph = {
-      dragmode: false,
-      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 10 : 12 },
+      dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 9 : 12 },
       xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-      yaxis: { title: {text: 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+      yaxis: { title: {text: isMobile ? '' : 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
       yaxis2: { title: '', overlaying: 'y', side: 'right', showgrid: false, fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-      margin: { l: 50, r: 40, t: 20, b: 40 }, hovermode: 'x unified',
-      hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 12 : 14 } },
-      legend: { orientation: 'h', y: isMobile ? 1.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
+      margin: { l: 50, r: 40, t: 20, b: 80 },
+      hovermode: 'x unified',
+      hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 11 : 14 } },
+      legend: { orientation: 'h', y: isMobile ? -0.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
     };
 
-    // Error Bar Chart
+    // Error Diagnostics Chart
     const metrics_data = all_metrics.filter(d => d.tcgplayer_id === card_info.tcgplayer_id);
     let err_c = metrics_data.filter(d => d.model === "Chronos").sort((a,b)=>a.horizon - b.horizon);
     let err_g = metrics_data.filter(d => d.model === "GRU").sort((a,b)=>a.horizon - b.horizon);
@@ -894,74 +769,72 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Err', marker: {color: '#22d3ee'} };
 
     const layout_err = { 
-      dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', 
-      font: {color: '#f8fafc', family:'Inter', size: isMobile ? 10 : 12}, 
-      xaxis: {title: {text:'Days (Horizon)', font:{size: isMobile ? 11 : 14}}, gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-      yaxis: {title: {text:'MdAPE Error', font:{size: isMobile ? 11 : 14}}, gridcolor: '#334155', tickformat: '.0%', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-      margin: {l: isMobile ? 40 : 50, r: isMobile ? 15 : 20, t: isMobile ? 50 : 10, b: isMobile ? 40 : 40}, 
-      barmode: 'group', showlegend: true, 
-      legend: {orientation: 'h', y: isMobile ? 1.25 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30}
+      dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 9 : 12}, 
+      xaxis: {title: {text:'Days (Horizon)', font:{size: isMobile ? 10 : 14}}, gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+      yaxis: {title: {text: isMobile ? '' : 'MdAPE Error', font:{size: isMobile ? 10 : 14}}, gridcolor: '#334155', tickformat: '.0%', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+      margin: {l: isMobile ? 35 : 50, r: isMobile ? 15 : 20, t: isMobile ? 10 : 10, b: isMobile ? 70 : 40}, barmode: 'group', showlegend: true, 
+      legend: {orientation: 'h', y: isMobile ? -0.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30}
     };
 
-    // Set up Detailed eBay Filters inside Modal
+    // Extract dynamic dropdown criteria unique to specific selected card
     let modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
     let modalCompanies = ["All", ...new Set(masterCardListings.map(d => d.grading_company))].sort();
-    let modalGrades = [...new Set(masterCardListings.map(d => d.grade_val))].sort((a,b) => {
-       if(a === "UNG") return -1; if(b === "UNG") return 1; return parseFloat(a) - parseFloat(b);
-    });
 
+    // Re-inject updated inline input form handles
     const filterAnchor = document.getElementById('modal-filter-anchor');
     filterAnchor.innerHTML = `
       <div class="modal-filter-box"><label>Language</label><select id="m-lang">${modalLanguages.map(l => '<option value="'+l+'" '+(l==='English'?'selected':'')+'>'+l+'</option>').join('')}</select></div>
-      <div class="modal-filter-box"><label>Grading Service</label><select id="m-comp">${modalCompanies.map(c => '<option value="'+c+'" '+(c==='UNG'?'selected':'')+'>'+c+'</option>').join('')}</select></div>
-      <div class="modal-filter-box filter-span-2">
-        <label>Condition Selection</label>
-        <div class="modal-checkbox-group" id="m-grade-box">${modalGrades.map(g => `<label class="modal-checkbox-label"><input type="checkbox" value="${g}" checked> ${g}</label>`).join('')}</div>
-      </div>
+      <div class="modal-filter-box"><label>Grading Service</label><select id="m-comp">${modalCompanies.map(c => '<option value="'+c+'" '+(c==='All'?'selected':'')+'>'+c+'</option>').join('')}</select></div>
     `;
 
+    // ====== RENDER HIGH THROUGHPUT EBAY SUPPLY PLOTS ======
     function renderEbayDetails() {
       const selLang = filterAnchor.querySelector('#m-lang').value;
       const selComp = filterAnchor.querySelector('#m-comp').value;
-      const checkedGrades = Array.from(filterAnchor.querySelectorAll('#m-grade-box input:checked')).map(i => i.value);
 
-      let scopedListings = masterCardListings.filter(d => (selLang === "All" || d.card_language === selLang) && (selComp === "All" || d.grading_company === selComp) && (checkedGrades.includes(d.grade_val)));
-
-      const active_labels = [...new Set(scopedListings.map(d => d.label))].sort();
-      const color_map = {}; ['#38bdf8', '#fbbf24', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#60a5fa'].forEach((c, i) => color_map[active_labels[i]] = c);
-
-      let clean_bin_data = [];
-      active_labels.forEach(lbl => {
-        let subset = scopedListings.filter(d => d.label === lbl);
-        if(subset.length < 4) { clean_bin_data.push(...subset); return; }
-        let prices = subset.map(d => d.clean_price).sort((a,b) => a - b);
-        let q1 = prices[Math.floor(prices.length * 0.25)], q3 = prices[Math.floor(prices.length * 0.75)], iqr = q3 - q1;
-        clean_bin_data.push(...subset.filter(d => d.clean_price >= Math.max(0, q1 - 1.5 * iqr) && d.clean_price <= q3 + 1.5 * iqr));
-      });
+      // Scoped execution pass matching drop down rules
+      let scopedListings = masterCardListings.filter(d => 
+        (selLang === "All" || d.card_language === selLang) && 
+        (selComp === "All" || d.grading_company === selComp)
+      );
 
       const bin_target = document.getElementById('ebay-modal-bin-target');
-      if(clean_bin_data.length === 0) {
+      if(scopedListings.length === 0) {
         bin_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted);'>No inventory matches filters.</div>";
       } else {
         bin_target.innerHTML = "";
-        let t_bin = [];
-        active_labels.forEach(lbl => {
-          let subset = clean_bin_data.filter(d => d.label === lbl).sort((a,b) => new Date(a.date_pulled) - new Date(b.date_pulled));
-          if(subset.length === 0) return;
-          t_bin.push({ x: subset.map(d => d.date_pulled), y: subset.map(d => d.clean_price), mode: 'markers', name: lbl, marker: {color: color_map[lbl], size: 6, opacity: 0.6}, text: subset.map(d => d.hover_text), hoverinfo: 'text' });
+        
+        // Isolate precise dates and distinct grading firms
+        let uniqueDates = [...new Set(scopedListings.map(d => d.date_pulled))].sort();
+        let activeCompanies = [...new Set(scopedListings.map(d => d.grading_company))].sort();
+        
+        // Deterministic hexadecimal colors for grading services mapping
+        const color_map = { 'UNG': '#38bdf8', 'PSA': '#c084fc', 'CGC': '#34d399', 'BGS': '#fbbf24', 'SGC': '#a78bfa' };
+        
+        // Group and map item supply parameters by corporate metrics
+        let barTraces = activeCompanies.map(company => {
+           let dailyCounts = uniqueDates.map(date => scopedListings.filter(d => d.date_pulled === date && d.grading_company === company).length);
+           return {
+              x: uniqueDates, y: dailyCounts, type: 'bar',
+              name: company === 'UNG' ? 'Ungraded' : company,
+              marker: { color: color_map[company] || '#475569' },
+              hovertemplate: `<b>${company === 'UNG' ? 'Ungraded' : company}</b><br>Date: %{x}<br>Active Supply: %{y}<extra></extra>`
+           };
         });
-        Plotly.newPlot(bin_target, t_bin, { 
-          dragmode: false, 
-          title: {text: 'Daily Listing Scatter', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 12 : 14}, x: 0.02, y: 0.98}, 
-          paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 10 : 12}, 
+
+        // Fire rendering pipeline with strict locked boundaries
+        Plotly.newPlot(bin_target, barTraces, { 
+          dragmode: false, barmode: 'stack',
+          title: {text: 'Active Supply Volume (7-Day Rolling Inventory)', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 11 : 14}, x: 0.02, y: 0.98}, 
+          paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 9 : 12}, 
           xaxis: {gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-          yaxis: {gridcolor: '#334155', tickprefix: '$', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-          margin: {l: isMobile ? 45 : 50, r: isMobile ? 15 : 20, t: isMobile ? 45 : 40, b: isMobile ? 35 : 30}, 
-          legend: {orientation: 'h', y: -0.2, font: {size: isMobile ? 9 : 12}, itemwidth: 30} 
+          yaxis: {title: {text: isMobile ? '' : 'Available Items Count', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
+          margin: {l: isMobile ? 30 : 50, r: isMobile ? 15 : 20, t: isMobile ? 40 : 40, b: isMobile ? 70 : 30}, 
+          legend: {orientation: 'h', y: isMobile ? -0.3 : -0.2, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30} 
         }, {responsive: true, displayModeBar: false});
       }
 
-      // Title Rendering (Unique listings from last 7 days)
+      // Live 7-Day Component Titles Listing Generation
       let max_date_ms = new Date(scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01")).getTime();
       let r_7d = scopedListings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7*24*60*60*1000));
       
@@ -981,12 +854,13 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
       document.getElementById('ebay-modal-listings-target').innerHTML = buildListHTML("Ungraded 7-Day Titles", "Ungraded") + buildListHTML("PSA 10 7-Day Titles", "PSA 10");
     }
 
+    // Bind event hooks directly to input filters inside modal framework
     filterAnchor.querySelector('#m-lang').addEventListener("change", renderEbayDetails);
     filterAnchor.querySelector('#m-comp').addEventListener("change", renderEbayDetails);
-    filterAnchor.querySelectorAll('#m-grade-box input').forEach(i => i.addEventListener("change", renderEbayDetails));
 
-    // Show Modal and Render Plots
-    modal.style.display = "block"; 
+    // FIX: Grab element explicitly via native DOM token selector rather than variable closure handles to protect reactive pipelines
+    const targetModal = document.getElementById('unified-master-modal');
+    targetModal.style.display = "block"; 
     
     setTimeout(() => {
       Plotly.newPlot(document.getElementById('modal-graph-target'), all_traces, layout_graph, {responsive: true, displayModeBar: false});
