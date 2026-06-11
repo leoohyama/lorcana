@@ -50,7 +50,11 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
 # --- 1.3 MotherDuck Engine Attachment ---
 Sys.setenv(motherduck_token = md_token)
 con <- dbConnect(duckdb::duckdb())
-dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
+
+# Install and load required extensions for the fresh GitHub runner
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+dbExecute(con, "INSTALL icu; LOAD icu;") 
+dbExecute(con, "ATTACH 'md:'; USE my_db;")
 
 # --- 1.4 Persistent Tracking Metadata Schema Initialization ---
 create_table_query <- "
