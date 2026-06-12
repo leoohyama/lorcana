@@ -140,7 +140,7 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
     raw_v_keys <- str_split(tolower(str_replace_all(version, "[[:punct:]]", " ")), "\\s+")[[1]]
     version_keys <- raw_v_keys[nchar(raw_v_keys) > 3] 
 
-    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship|legendary|artwork"
+    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship|legendary|artwork|keychain|pin"
 
     final_df <- combined_unique %>% 
       mutate(lower_title = tolower(listing_title)) %>%
