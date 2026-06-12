@@ -46,6 +46,8 @@ This repository houses my personal data pipeline and forecasting experiments for
 
 Trading card games (TCGs) have incredibly speculative and volatile secondary markets. The main goal of this project is to clean up inherently messy secondary market data as much as possible before feeding it into predictive models, ultimately providing stable forecasts and market health metrics.
 
+This project also blends both Python and R using Positron, an IDE that runs both pretty well. All of this is packaged up using quarto and JavaScript. IMPORTANT DISCLOSURE: AI has been used to help develop the JS and clean up code. However, the business logic, context, domain knowledge, modelling logic/context was all developed by me, myself, and I. 
+
 ---
 
 ## Context
