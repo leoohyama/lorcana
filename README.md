@@ -23,7 +23,7 @@
 
 > **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested. 
 
-🚀 **UPDATE: Lorecaster is up!**
+🚀 **UPDATE: Lorecaster is up and is also mobile friendly!**
 
 [![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/5890e5b9-3c4a-43de-b9ef-a480722ce660)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
@@ -110,7 +110,7 @@ graph LR
     A([eBay])
     B([JustTCG])
     C[Downloads via<br>GitHub Actions]
-    D[(NEONdb for storage)]
+    D[(MotherDuck for storage)]
     E[Macbook runner via<br>GitHub Actions: runs MLOps<br>and saves ML data]
     F[Lorecaster.ink<br>Quarto Document via GitHub Actions<br>pulls data and renders<br>static HTML dashboard daily]
 
@@ -191,7 +191,10 @@ To bridge the gap between academic model evaluation and real-world deployment, t
 - [ ] **Blue Chip Index:** Develop a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
 - [ ] **Modularize index.qmd
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
+- [ ] **rework landing page to include more interesting statistics
+- [ ] **Possibly develop a "buy" vs "sell" decision maker leveraging models and data
 
 ## Project changelog (significant change logs)
+- I have switched databases from neonDB to motherduck, realized that my use didn't require some of their features (June-12-2026)
 - I have removed the digitial ocean/docker approach as I realized that an html page could better support web traffic but also show daily data and market changes
 - The shiny app code is still available in the repo but is not being actively used and is out-of-date
