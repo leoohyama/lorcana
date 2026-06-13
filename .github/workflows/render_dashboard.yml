@@ -3,7 +3,7 @@ name: Daily Dashboard Render
 on:  
   workflow_run:    
     # This listens for your MacBook to finish its ML job!    
-    workflows: ["Daily Lorcana Market Inference"]    
+    workflows: ["eBay Daily Market Float (Cloud + Local AI)"]    
     types:      
       - completed    
   # Keep the manual button just in case  
