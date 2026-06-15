@@ -2,7 +2,7 @@ name: Weekly Lorcana Training & Diagnostics
 
 on:
   schedule:
-    - cron: '0 8 * * 0' # Runs at 08:00 UTC every Sunday
+    - cron: '26 4 * * 0' # Runs at 04:26 UTC every Sunday
   workflow_dispatch: 
 
 jobs:

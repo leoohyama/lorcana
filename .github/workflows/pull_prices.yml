@@ -2,7 +2,7 @@ name: JustTCG Daily Price Pull (Cloud Edition)
 
 on:
   schedule:
-    - cron: '0 5 * * *'
+    - cron: '23 4 * * *'
   workflow_dispatch: 
 
 jobs:
