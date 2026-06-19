@@ -28,14 +28,15 @@ jobs:
         with:          
           use-public-rspm: true        
 
-      - name: 📦 Install R Packages        
-        run: |
-          # Install pak using the default RSPM repo setup by the previous step
-          install.packages("pak")
-          
-          # Use pak directly to bypass lockfile bugs, dodge the cache, and grab the latest fast binaries
-          pak::pkg_install(c("tidyverse", "DBI", "duckdb"))
-        shell: Rscript {0}      
+      - name: 📦 Install R Packages
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          # Using 'packages' instead of 'extra-packages' prevents it from scanning 
+          # your entire repository and only installs exactly what Quarto needs.
+          packages: |
+            any::tidyverse
+            any::DBI
+            any::duckdb
 
       - name: 📝 Setup Quarto        
         uses: quarto-dev/quarto-actions/setup@v2      
