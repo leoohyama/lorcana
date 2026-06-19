@@ -29,22 +29,20 @@ jobs:
           use-public-rspm: true        
 
       - name: 📦 Install R Packages        
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          extra-packages: |
-            any::tidyverse
-            any::httr
-            any::jsonlite
-            any::base64enc
-            any::DBI
-            duckdb@1.5.3
+        run: |
+          # Install pak using the default RSPM repo setup by the previous step
+          install.packages("pak")
+          
+          # Use pak directly to bypass lockfile bugs, dodge the cache, and grab fast binaries
+          pak::pkg_install(c("tidyverse", "DBI", "duckdb@1.5.3"))
+        shell: Rscript {0}      
 
       - name: 📝 Setup Quarto        
         uses: quarto-dev/quarto-actions/setup@v2      
 
       - name: 📊 Render Dashboard        
         env:          
-          # Give Quarto access to Neon to pull the fresh data          
+          # Give Quarto access to Neon/MotherDuck to pull the fresh data          
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
         run: quarto render index.qmd      
 
