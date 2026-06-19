@@ -27,7 +27,8 @@ jobs:
 
       - name: Install required R packages
         run: |
-          install.packages(c("DBI", "duckdb", "tidyverse", "pracma", "moments"))
+          install.packages(c("DBI", "duckdb", "tidyverse", "pracma", "moments","remotes"))
+          remotes::install_version("duckdb", version = "1.5.3")
         shell: Rscript {0}
 
       - name: Run Metrics ETL Script
