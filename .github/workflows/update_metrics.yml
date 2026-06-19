@@ -27,7 +27,7 @@ jobs:
       - name: 📦 Install R Packages
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: |
+          packages: |
             any::DBI
             any::tidyverse
             any::pracma
