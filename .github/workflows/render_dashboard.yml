@@ -33,8 +33,8 @@ jobs:
           # Install pak using the default RSPM repo setup by the previous step
           install.packages("pak")
           
-          # Use pak directly to bypass lockfile bugs, dodge the cache, and grab fast binaries
-          pak::pkg_install(c("tidyverse", "DBI", "duckdb@1.5.3"))
+          # Use pak directly to bypass lockfile bugs, dodge the cache, and grab the latest fast binaries
+          pak::pkg_install(c("tidyverse", "DBI", "duckdb"))
         shell: Rscript {0}      
 
       - name: 📝 Setup Quarto        
