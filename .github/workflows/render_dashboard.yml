@@ -26,13 +26,18 @@ jobs:
       - name: 🛠️ Setup R        
         uses: r-lib/actions/setup-r@v2        
         with:          
-          use-public-rspm: true       
+          use-public-rspm: true        
 
       - name: 📦 Install R Packages        
-        run: |
-          install.packages(c("tidyverse", "DBI", "remotes"))
-          remotes::install_version("duckdb", version = "1.5.3")
-        shell: Rscript {0}  
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::tidyverse
+            any::httr
+            any::jsonlite
+            any::base64enc
+            any::DBI
+            duckdb@1.5.3
 
       - name: 📝 Setup Quarto        
         uses: quarto-dev/quarto-actions/setup@v2      
