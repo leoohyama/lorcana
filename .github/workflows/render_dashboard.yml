@@ -29,8 +29,10 @@ jobs:
           use-public-rspm: true       
 
       - name: 📦 Install R Packages        
-        run: install.packages(c("tidyverse", "DBI", "duckdb"))        
-        shell: Rscript {0}      
+        run: |
+          install.packages(c("tidyverse", "DBI", "remotes"))
+          remotes::install_version("duckdb", version = "1.5.3")
+        shell: Rscript {0}  
 
       - name: 📝 Setup Quarto        
         uses: quarto-dev/quarto-actions/setup@v2      
