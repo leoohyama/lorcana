@@ -27,13 +27,13 @@ jobs:
       - name: 📦 Install R Packages
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          cache-version: 2
+          # Using 'packages' strictly limits the install to these 5 libraries
           packages: |
             any::DBI
             any::tidyverse
             any::pracma
             any::moments
-            duckdb@1.5.3
+            any::duckdb
 
       - name: 🚀 Run Metrics ETL Script
         env:
