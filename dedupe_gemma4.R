@@ -76,10 +76,16 @@ if (md_token == "") {
 }
 
 Sys.setenv(motherduck_token = md_token)
-con <- dbConnect(duckdb::duckdb())
-dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-dbExecute(con, "ATTACH 'md:'")
-dbExecute(con, "USE my_db;")
+
+# Connect seamlessly using the auto-loader, bypassing the strict version check
+con <- dbConnect(duckdb::duckdb(), "md:my_db")
+
+# SAFEGUARD: Ensure the upstream scraper has actually created the table
+if (!dbExistsTable(con, "lorcana_active_listings")) {
+  message("⚠️ Table 'lorcana_active_listings' not found. The upstream scraper needs to populate it first. Exiting gracefully.")
+  dbDisconnect(con, shutdown = TRUE)
+  quit(save = "no", status = 0)
+}
 
 message("📥 Downloading raw eBay identifiers...")
 raw_listings <- dbGetQuery(con, "SELECT DISTINCT item_id, id, listing_title FROM lorcana_active_listings")
@@ -154,11 +160,8 @@ message("==================================================")
 if(nrow(kill_list) > 0) {
   message(sprintf("Gemma identified %d false matches. Reconnecting to MotherDuck...", nrow(kill_list)))
   
-  # RECONNECT: Open a fresh connection just for the deletions
-  con <- dbConnect(duckdb::duckdb())
-  dbExecute(con, "LOAD motherduck;")
-  dbExecute(con, "ATTACH 'md:'")
-  dbExecute(con, "USE my_db;")
+  # RECONNECT: Use the auto-loader here too!
+  con <- dbConnect(duckdb::duckdb(), "md:my_db")
   
   for(i in 1:nrow(kill_list)) {
     # Use standard parameterized queries (safer and cleaner than glue_sql)
