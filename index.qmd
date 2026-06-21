@@ -50,23 +50,16 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
 # --- 1.3 MotherDuck Engine Attachment ---
 Sys.setenv(motherduck_token = md_token)
 
-# Connect seamlessly using the auto-loader, bypassing the strict version check
-con <- dbConnect(duckdb::duckdb(), "md:my_db")
+# Connect to a plain local duckdb session first (no "md:" shortcut)
+con <- dbConnect(duckdb::duckdb())
 
-db_list <- tryCatch(
-  dbGetQuery(con, "PRAGMA database_list;"),
-  error = function(e) data.frame(error = conditionMessage(e))
-)
-
-stop(
-  "DEBUG | duckdb version: ", as.character(packageVersion("duckdb")),
-  " | database_list: ", paste(capture.output(print(db_list)), collapse = " || ")
-)
-
-# Install and load ONLY the icu extension (MotherDuck is handled natively now)
+# Explicitly install + load motherduck — don't rely on dbdir="md:..." to autoload it
+dbExecute(con, "INSTALL motherduck;")
+dbExecute(con, "LOAD motherduck;")
 dbExecute(con, "INSTALL icu; LOAD icu;")
 
-# CRITICAL FIX: Set the active database context!
+# Explicitly attach the MotherDuck database, then switch into it
+dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
 dbExecute(con, "USE my_db;")
 
 # --- 1.8 Fetch Core Dashboard Data (Latest Production Inferences Only) ---
