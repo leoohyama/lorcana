@@ -39,10 +39,9 @@ if (md_token == "") {
 }
 
 Sys.setenv(motherduck_token = md_token)
-con <- dbConnect(duckdb::duckdb())
-dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-dbExecute(con, "ATTACH 'md:'")
-dbExecute(con, "USE my_db;")
+
+# Connect directly to my_db using the auto-loader, bypassing the strict version check
+con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
 # --- 3. FETCH HISTORICAL DATA ---
 message("Downloading JustTCG price history...")
