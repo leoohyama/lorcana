@@ -9,7 +9,7 @@ on:
 
 jobs:  
   render-site:    
-    runs-on: self-hosted    # 💻 Routes directly to your MacBook Air!
+    runs-on: self-hosted    # 💻 Routes directly to your MacBook Air
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}    
     
     steps:      
@@ -19,16 +19,12 @@ jobs:
           fetch-depth: 0
           ref: main 
 
-      # Notice we completely deleted the 15-minute R package installation steps.
-      # Your Mac already has tidyverse, duckdb, and DBI installed!
-
-      - name: 📝 Setup Quarto        
-        uses: quarto-dev/quarto-actions/setup@v2      
+      # We deleted BOTH the R setup and Quarto setup steps!
+      # It will instantly use the R and Quarto installations already living on your Mac.
 
       - name: 📊 Render Dashboard        
         env:          
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
-        # Uses your Mac's native R processing power to render the dashboard
         run: quarto render index.qmd      
 
       - name: 🚀 Commit and Push        
