@@ -151,7 +151,9 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
           str_detect(lower_title, paste0("\\b", coll_num, "\\b"))
         } else {
           FALSE
-        },
+        }
+      ) %>%
+      mutate(
         has_ver    = if (length(version_keys) > 0) {
           map_lgl(lower_title, ~ any(str_detect(.x, fixed(version_keys))))
         } else {
@@ -204,15 +206,15 @@ if (nrow(final_gold_scrape) > 0) {
   message("\nConnecting to MotherDuck...")
   
   Sys.setenv(motherduck_token = md_token)
-  con <- dbConnect(duckdb::duckdb())
   
-  dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-  dbExecute(con, "ATTACH 'md:'")
-  dbExecute(con, "USE my_db;")
+  # Connect seamlessly using the auto-loader, bypassing the strict version check
+  con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
-  # Clean out today's data to prevent duplicates on manual re-runs
+  # SAFEGUARD: Clean out today's data only if the table actually exists
   today_str <- as.character(Sys.Date())
-  dbExecute(con, paste0("DELETE FROM lorcana_active_listings WHERE date_pulled = '", today_str, "';"))
+  if (dbExistsTable(con, "lorcana_active_listings")) {
+    dbExecute(con, paste0("DELETE FROM lorcana_active_listings WHERE date_pulled = '", today_str, "';"))
+  }
   
   # Append the raw data directly using DuckDB's native data frame ingestion handler
   dbWriteTable(con, "lorcana_active_listings", final_gold_scrape, append = TRUE) 
