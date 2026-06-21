@@ -87,10 +87,10 @@ if (nrow(daily_prices_lean) > 0) {
   message("Pushing lean price data to MotherDuck...")
   
   Sys.setenv(motherduck_token = md_token)
-  con <- dbConnect(duckdb::duckdb())
   
-  dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-  dbExecute(con, "ATTACH 'md:'")
+  # Connect seamlessly using the auto-loader, bypassing the strict version check
+  con <- dbConnect(duckdb::duckdb(), "md:")
+  
   dbExecute(con, "USE my_db;")
 
   # 1. Clean out today's data to support clean daily script execution re-runs
