@@ -88,10 +88,8 @@ if (nrow(daily_prices_lean) > 0) {
   
   Sys.setenv(motherduck_token = md_token)
   
-  # Connect seamlessly using the auto-loader, bypassing the strict version check
-  con <- dbConnect(duckdb::duckdb(), "md:")
-  
-  dbExecute(con, "USE my_db;")
+  # Connect directly to my_db using the auto-loader
+  con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
   # 1. Clean out today's data to support clean daily script execution re-runs
   today_str <- as.character(Sys.Date())
