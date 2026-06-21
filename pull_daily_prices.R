@@ -92,10 +92,13 @@ if (nrow(daily_prices_lean) > 0) {
   con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
   # 1. Clean out today's data to support clean daily script execution re-runs
+  # SAFEGUARD: Only attempt to delete if the table already exists
   today_str <- as.character(Sys.Date())
-  dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", today_str, "';"))
+  if (dbExistsTable(con, "justtcg_prices")) {
+    dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", today_str, "';"))
+  }
   
-  # 2. Add the new lean data to the existing cloud table using the native DuckDB engine
+  # 2. Add the new lean data (this will automatically create the table if it's the first run)
   dbWriteTable(con, "justtcg_prices", daily_prices_lean, append = TRUE) 
   
   dbDisconnect(con, shutdown = TRUE)
