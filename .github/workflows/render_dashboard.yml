@@ -2,17 +2,14 @@ name: Daily Dashboard Render
 
 on:  
   workflow_run:    
-    # This listens for your MacBook to finish its ML job!    
     workflows: ["eBay Daily Market Float (Cloud + Local AI)"]    
     types:      
       - completed    
-  # Keep the manual button just in case  
   workflow_dispatch: 
 
 jobs:  
   render-site:    
-    runs-on: ubuntu-latest    
-    # CRITICAL: Only render if the MacBook ML pipeline succeeded    
+    runs-on: self-hosted    # 💻 Routes directly to your MacBook Air!
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}    
     
     steps:      
@@ -20,29 +17,10 @@ jobs:
         uses: actions/checkout@v4        
         with:          
           fetch-depth: 0
-          # Force checkout of the absolute latest main branch to prevent push conflicts
           ref: main 
 
-      - name: 🛠️ Setup R        
-        id: setup-r
-        uses: r-lib/actions/setup-r@v2        
-        with:          
-          use-public-rspm: true        
-
-      - name: 📦 Install R Packages
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          # We use the '@' symbol to instantly grab the pre-compiled binary 
-          # of 1.5.2, bypassing the 15-minute source compile entirely!
-          packages: |
-            any::tidyverse
-            any::DBI
-            any::httr
-            any::jsonlite
-            duckdb@1.5.2
-
-      - name: 🔍 Verify installed duckdb version
-        run: Rscript -e 'cat("duckdb version in use:", as.character(packageVersion("duckdb")), "\n")'
+      # Notice we completely deleted the 15-minute R package installation steps.
+      # Your Mac already has tidyverse, duckdb, and DBI installed!
 
       - name: 📝 Setup Quarto        
         uses: quarto-dev/quarto-actions/setup@v2      
@@ -50,6 +28,7 @@ jobs:
       - name: 📊 Render Dashboard        
         env:          
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
+        # Uses your Mac's native R processing power to render the dashboard
         run: quarto render index.qmd      
 
       - name: 🚀 Commit and Push        
