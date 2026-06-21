@@ -101,14 +101,41 @@ daily_churn <- tryCatch({
   ")
 }, error = function(e) data.frame(event_date=character(), new_listings=numeric(), disappeared_listings=numeric()))
 
-latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC")
-past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
-hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'")
-chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)")
-gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)")
-metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
-backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
+# --- Safe Data Fetching with Empty Scaffolding for Missing Tables ---
+latest_prices <- tryCatch(
+  dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices ORDER BY tcgplayer_id, pull_date DESC"), 
+  error = function(e) tibble(tcgplayer_id=integer(), market_price=numeric(), pull_date=character())
+)
 
+past_prices <- tryCatch(
+  dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC"), 
+  error = function(e) tibble(tcgplayer_id=integer(), market_price=numeric(), pull_date=character())
+)
+
+hist_data <- tryCatch(
+  dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'"), 
+  error = function(e) tibble(tcgplayer_id=integer(), pull_date=character(), market_price=numeric())
+)
+
+chronos_pred <- tryCatch(
+  dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)"), 
+  error = function(e) tibble(tcgplayer_id=integer(), target_date=character(), pred_price=numeric(), conf_low=numeric(), conf_high=numeric(), run_id=integer())
+)
+
+gru_pred <- tryCatch(
+  dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)"), 
+  error = function(e) tibble(tcgplayer_id=integer(), target_date=character(), pred_price=numeric(), run_id=integer())
+)
+
+metrics_df <- tryCatch(
+  dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), 
+  error = function(e) tibble(tcgplayer_id=integer(), samp_ent_30d=numeric(), hurst_30d=numeric(), cv_30d=numeric(), skewness_30d=numeric())
+)
+
+backtest_metrics <- tryCatch(
+  dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), 
+  error = function(e) tibble(tcgplayer_id=integer(), model=character(), horizon=integer(), mdape=numeric(), naive_mdape=numeric(), min_err=numeric(), max_err=numeric(), sample_size=integer())
+)
 # --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
 raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
 raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
