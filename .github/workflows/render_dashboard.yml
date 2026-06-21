@@ -1,57 +1,85 @@
 name: Daily Dashboard Render
+on:
+  workflow_run:
+    # This listens for your MacBook to finish its ML job!
+    workflows: ["eBay Daily Market Float (Cloud + Local AI)"]
+    types:
+      - completed
+  # Keep the manual button just in case
+  workflow_dispatch:
 
-on:  
-  workflow_run:    
-    # This listens for your MacBook to finish its ML job!    
-    workflows: ["eBay Daily Market Float (Cloud + Local AI)"]    
-    types:      
-      - completed    
-  # Keep the manual button just in case  
-  workflow_dispatch: 
+jobs:
+  render-site:
+    runs-on: ubuntu-latest
+    # CRITICAL: Only render if the MacBook ML pipeline succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
-jobs:  
-  render-site:    
-    runs-on: ubuntu-latest    
-    # CRITICAL: Only render if the MacBook ML pipeline succeeded    
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}    
-    
-    steps:      
-      - name: 📥 Checkout Repository        
-        uses: actions/checkout@v4        
-        with:          
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
           fetch-depth: 0
           # Force checkout of the absolute latest main branch to prevent push conflicts
-          ref: main 
+          ref: main
 
-      - name: 🛠️ Setup R        
-        uses: r-lib/actions/setup-r@v2        
-        with:          
-          use-public-rspm: true        
+      - name: 🛠️ Setup R
+        id: setup-r
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
 
       - name: 📦 Install R Packages
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          # Using 'packages' instead of 'extra-packages' prevents it from scanning 
+          # Using 'packages' instead of 'extra-packages' prevents it from scanning
           # your entire repository and only installs exactly what Quarto needs.
+          # NOTE: duckdb is intentionally excluded here — it's pinned and installed
+          # separately below, since MotherDuck currently rejects duckdb client
+          # versions newer than 1.5.3 and the public package mirror only serves
+          # the latest duckdb build under this resolution path.
           packages: |
             any::tidyverse
             any::DBI
-            any::duckdb@1.5.3
             any::httr
             any::jsonlite
 
-      - name: 📝 Setup Quarto        
-        uses: quarto-dev/quarto-actions/setup@v2      
+      - name: 📍 Locate R library path
+        id: r-lib-path
+        run: echo "path=$(Rscript -e 'cat(.libPaths()[1])')" >> "$GITHUB_OUTPUT"
 
-      - name: 📊 Render Dashboard        
-        env:          
-          # Give Quarto access to Neon/MotherDuck to pull the fresh data          
-          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
-        run: quarto render index.qmd      
+      - name: 💾 Cache pinned duckdb 1.5.3 build
+        id: duckdb-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.r-lib-path.outputs.path }}/duckdb
+          key: duckdb-1.5.3-${{ runner.os }}-${{ steps.setup-r.outputs.installed-r-version }}
 
-      - name: 🚀 Commit and Push        
-        # Using the exact same auto-commit action you already trust        
-        uses: stefanzweifel/git-auto-commit-action@v5        
-        with:          
-          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"          
+      - name: 🔒 Build duckdb 1.5.3 (pinned for MotherDuck compatibility)
+        # Source build only runs on a cache miss — first run takes ~10-15 min
+        # (vendored C++ compile), every run after restores from cache in seconds.
+        if: steps.duckdb-cache.outputs.cache-hit != 'true'
+        run: |
+          Rscript -e 'install.packages("remotes", repos = "https://cloud.r-project.org")'
+          Rscript -e 'remotes::install_version("duckdb", version = "1.5.3", repos = "https://cloud.r-project.org")'
+
+      - name: 🔍 Verify installed duckdb version
+        # Plain Rscript so this prints straight to the Actions log, not buried
+        # inside knitr's output buffer the way print()/message() inside the
+        # .qmd would be.
+        run: Rscript -e 'cat("duckdb version in use:", as.character(packageVersion("duckdb")), "\n")'
+
+      - name: 📝 Setup Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: 📊 Render Dashboard
+        env:
+          # Give Quarto access to Neon/MotherDuck to pull the fresh data
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+        run: quarto render index.qmd
+
+      - name: 🚀 Commit and Push
+        # Using the exact same auto-commit action you already trust
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"
           file_pattern: 'docs/*'
