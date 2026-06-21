@@ -207,8 +207,15 @@ if (nrow(final_gold_scrape) > 0) {
   
   Sys.setenv(motherduck_token = md_token)
   
-  # Connect seamlessly using the auto-loader, bypassing the strict version check
+  # Connect directly to my_db
   con <- dbConnect(duckdb::duckdb(), "md:my_db")
+
+  # 1. Load the MotherDuck extension (Perfectly safe on Mac 1.5.2!)
+  dbExecute(con, "INSTALL motherduck;")
+  dbExecute(con, "LOAD motherduck;")
+
+  # 2. CRITICAL: Force DuckDB to target the cloud catalog, not local RAM!
+  dbExecute(con, "USE my_db;")
 
   # SAFEGUARD: Clean out today's data only if the table actually exists
   today_str <- as.character(Sys.Date())

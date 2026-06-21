@@ -88,8 +88,15 @@ if (nrow(daily_prices_lean) > 0) {
   
   Sys.setenv(motherduck_token = md_token)
   
-  # Connect directly to my_db using the auto-loader
+# Connect using the auto-loader string
   con <- dbConnect(duckdb::duckdb(), "md:my_db")
+
+  # 1. Put the keys back in the ignition (Perfectly safe on Mac 1.5.2!)
+  dbExecute(con, "INSTALL motherduck;")
+  dbExecute(con, "LOAD motherduck;")
+
+  # 2. CRITICAL: Force DuckDB to target the cloud catalog
+  dbExecute(con, "USE my_db;")
 
   # 1. Clean out today's data to support clean daily script execution re-runs
   # SAFEGUARD: Only attempt to delete if the table already exists

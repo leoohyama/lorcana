@@ -1,4 +1,4 @@
-name: eBay Daily Market Float (Cloud + Local AI)
+name: eBay Daily Market Float (Local Mac Edition)
 
 on:
   schedule:
@@ -7,37 +7,23 @@ on:
 
 jobs:
   # ==========================================
-  # JOB 1: THE SCRAPER (Runs in the Cloud)
+  # JOB 1: THE SCRAPER (Runs on your Mac)
   # ==========================================
   run-ebay-scraper:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted    # 💻 Moved from ubuntu-latest to your MacBook Air
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       TZ: 'America/New_York' 
 
     steps:
-      - name: Checkout repo
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup R
-        uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: 'release'
-          use-public-rspm: true 
+      # Notice the 15-minute R setup and package installations are entirely gone!
+      # We rely on the pristine R 1.5.2 environment already living on your Mac.
 
-      - name: Install dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          extra-packages: |
-            any::tidyverse
-            any::httr
-            any::jsonlite
-            any::base64enc
-            any::DBI
-            any::duckdb
-
-      - name: Run eBay API & Push to MotherDuck
+      - name: 🚀 Run eBay API & Push to MotherDuck
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
@@ -48,20 +34,20 @@ jobs:
   # JOB 2: THE AI METADATA CLEANER (Runs on your Mac)
   # ==========================================
   run-gemma-cleaner:
-    needs: run-ebay-scraper # Crucial: Waits for the cloud scraper to finish
-    runs-on: self-hosted    # Routes to your MacBook Air
+    needs: run-ebay-scraper # Crucial: Waits for the scraper to finish
+    runs-on: self-hosted    # 💻 Routes to your MacBook Air
 
     steps:
-      - name: Checkout repo
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: Wake up Ollama
+      - name: 🧠 Wake up Ollama
         run: |
           nohup /usr/local/bin/ollama serve > ollama.log 2>&1 &
           sleep 5 
           curl -I http://localhost:11434/ || echo "Ollama failed to start"
 
-      - name: Run Gemma Cleaner
+      - name: 🧹 Run Gemma Cleaner
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript run_gemma_cleaner.R
@@ -71,19 +57,19 @@ jobs:
   # ==========================================
   run-gemma-deduper:
     needs: run-gemma-cleaner # Crucial: Waits for Job 2 so we don't overload Ollama
-    runs-on: self-hosted     # Routes to your MacBook Air
+    runs-on: self-hosted     # 💻 Routes to your MacBook Air
 
     steps:
-      - name: Checkout repo
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: Wake up Ollama
+      - name: 🧠 Wake up Ollama
         run: |
           nohup /usr/local/bin/ollama serve > ollama.log 2>&1 &
           sleep 5 
           curl -I http://localhost:11434/ || echo "Ollama failed to start"
 
-      - name: Run Gemma Deduplication
+      - name: ✂️ Run Gemma Deduplication
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript dedupe_gemma4.R
