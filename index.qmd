@@ -136,6 +136,7 @@ backtest_metrics <- tryCatch(
   dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), 
   error = function(e) tibble(tcgplayer_id=integer(), model=character(), horizon=integer(), mdape=numeric(), naive_mdape=numeric(), min_err=numeric(), max_err=numeric(), sample_size=integer())
 )
+
 # --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
 raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
 raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
@@ -165,7 +166,7 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
 ```{=html}
 <style>
-  @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap)');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
   :root {
     --bg-base: #0f172a;        
@@ -295,6 +296,18 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
 # Market Overview {orientation="rows"}
 
+```{ojs}
+//| echo: false
+//| output: false
+// 🛡️ Global safe transpose function to handle empty databases natively across all panels
+safeTranspose = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Object.keys(data).length === 0) return [];
+  try { return transpose(data) || []; } catch(e) { return []; }
+};
+```
+
 ## Row {height="content"}
 
 ```{ojs}
@@ -305,9 +318,10 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 // SECTION 2.5: GLOBAL DASHBOARD METRICS HERO BANNER
 // ==============================================================================
 {
-  if (!ojs_global_stats || !ojs_global_stats.total_ebay_listings) return html`<div style="padding: 20px;">Loading Data...</div>`;
+  const transposed_stats = safeTranspose(ojs_global_stats);
+  if (transposed_stats.length === 0 || !transposed_stats[0].total_ebay_listings) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
   
-  const stats = transpose(ojs_global_stats)[0];
+  const stats = transposed_stats[0];
   const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
   
   return html`
@@ -342,9 +356,9 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 // SECTION 2.5.5: INVENTORY VELOCITY AREA PLOT
 // ==============================================================================
 {
-  if (!ojs_churn || !ojs_churn.event_date || ojs_churn.event_date.length === 0) return html`<div style="padding: 20px;">Loading Velocity Data...</div>`;
+  const churnData = safeTranspose(ojs_churn);
+  if (churnData.length === 0 || !churnData[0].event_date) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
   
-  const churnData = transpose(ojs_churn);
   const isMobile = window.innerWidth <= 768;
 
   const traceNew = {
@@ -422,9 +436,6 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 // SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
 // ==============================================================================
 
-// 🛡️ Helper to safely unpack data from R even if the tables are completely empty
-safeTranspose = (data) => (data && Object.keys(data).length > 0) ? transpose(data) : [];
-
 movers_data = safeTranspose(ojs_movers)
 Plotly = require("plotly.js-dist-min@2.30.0")
 
@@ -442,7 +453,7 @@ ebay_title_map = {
 }
 
 // Global programmatic data sanitization step for raw listing objects
-clean_ebay_master = safeTranspose(ojs_ebay).map(d => {
+clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
   let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
   let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
   
@@ -467,14 +478,14 @@ clean_ebay_master = safeTranspose(ojs_ebay).map(d => {
     label: label, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
   };
 }).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
-
+```
 
 ```{ojs}
 //| echo: false
 // Render UI Top Flip Cards 
 {
-  if (movers_data.length === 0) return html`<div style='color:var(--text-muted); text-align:center;'>Not enough data.</div>`;
-  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  if (movers_data.length === 0) return html`<div style='color:var(--text-muted); font-style:italic; text-align:center; padding: 20px;'>Awaiting initial database sync...</div>`;
+  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
   const container = html`<div style="width: 100%; max-width: 1200px; margin: 0 auto;"><div id="cards-flex" style="display: flex; justify-content: space-around; background: var(--bg-card); padding: 25px 10px; border-radius: 12px; flex-wrap: wrap; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);"></div></div>`;
   const flex_target = container.querySelector('#cards-flex');
 
@@ -521,10 +532,9 @@ clean_ebay_master = safeTranspose(ojs_ebay).map(d => {
 // SECTION 3: UNIFIED INTERACTIVE GRID ENGINE & MASTER MODAL DISPATCHER
 // ==============================================================================
 {
-  // 🛡️ Apply safeTranspose to prevent crashes on empty databases
-  const all_hist = safeTranspose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const all_fcst = safeTranspose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const all_metrics = typeof ojs_metrics !== 'undefined' ? safeTranspose(ojs_metrics) : [];
+  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_fcst = (safeTranspose(ojs_forecast) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_metrics = typeof ojs_metrics !== 'undefined' ? (safeTranspose(ojs_metrics) || []) : [];
   
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -551,7 +561,7 @@ clean_ebay_master = safeTranspose(ojs_ebay).map(d => {
   }
 
   // Construct Primary Master Core table rows data mapping
-  let unified_data = transpose(ojs_info).map(d => {
+  let unified_data = (safeTranspose(ojs_info) || []).map(d => {
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
     const cur_price = d.current_price || 0;
     const live_c = c_fcst.filter(f => f.model === "Chronos").sort((a,b)=>a.date-b.date);
@@ -1041,7 +1051,7 @@ The dashboard updates with fresh prices and new 30-day forecasts every single mo
     Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
   </p>
 
-  <a href="[https://ko-fi.com/lorecaster](https://ko-fi.com/lorecaster)" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+  <a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
     <span style="font-size: 18px;">☕ Support on Ko-fi</span>
   </a>
 </div>
