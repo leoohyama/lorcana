@@ -52,8 +52,16 @@ Sys.setenv(motherduck_token = md_token)
 
 # Connect seamlessly using the auto-loader, bypassing the strict version check
 con <- dbConnect(duckdb::duckdb(), "md:my_db")
-message("duckdb version: ", as.character(packageVersion("duckdb")))
-message("database_list: ", paste(capture.output(print(dbGetQuery(con, "PRAGMA database_list;"))), collapse = " | "))
+
+db_list <- tryCatch(
+  dbGetQuery(con, "PRAGMA database_list;"),
+  error = function(e) data.frame(error = conditionMessage(e))
+)
+
+stop(
+  "DEBUG | duckdb version: ", as.character(packageVersion("duckdb")),
+  " | database_list: ", paste(capture.output(print(db_list)), collapse = " || ")
+)
 
 # Install and load ONLY the icu extension (MotherDuck is handled natively now)
 dbExecute(con, "INSTALL icu; LOAD icu;")
