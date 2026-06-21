@@ -49,12 +49,12 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
 
 # --- 1.3 MotherDuck Engine Attachment ---
 Sys.setenv(motherduck_token = md_token)
-con <- dbConnect(duckdb::duckdb())
 
-# Install and load required extensions for the fresh GitHub runner
-dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
-dbExecute(con, "INSTALL icu; LOAD icu;") 
-dbExecute(con, "ATTACH 'md:'; USE my_db;")
+# Connect seamlessly using the auto-loader, bypassing the strict version check
+con <- dbConnect(duckdb::duckdb(), "md:my_db")
+
+# Install and load ONLY the icu extension (MotherDuck is handled natively now)
+dbExecute(con, "INSTALL icu; LOAD icu;")
 
 # --- 1.8 Fetch Core Dashboard Data (Latest Production Inferences Only) ---
 global_stats <- tryCatch({
