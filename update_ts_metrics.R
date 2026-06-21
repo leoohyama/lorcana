@@ -45,6 +45,14 @@ con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
 # --- 3. FETCH HISTORICAL DATA ---
 message("Downloading JustTCG price history...")
+
+# SAFEGUARD: Ensure the upstream scraper has actually created the table
+if (!dbExistsTable(con, "justtcg_prices")) {
+  message("⚠️ Table 'justtcg_prices' not found. The upstream scraper needs to populate it first. Exiting gracefully.")
+  dbDisconnect(con, shutdown = TRUE)
+  quit(save = "no", status = 0)
+}
+
 df_prices <- dbGetQuery(con, "
     SELECT CAST(tcgplayer_id AS VARCHAR) as tcgplayer_id, market_price, pull_date 
     FROM justtcg_prices 
