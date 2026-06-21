@@ -422,7 +422,10 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 // SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
 // ==============================================================================
 
-movers_data = transpose(ojs_movers)
+// 🛡️ Helper to safely unpack data from R even if the tables are completely empty
+safeTranspose = (data) => (data && Object.keys(data).length > 0) ? transpose(data) : [];
+
+movers_data = safeTranspose(ojs_movers)
 Plotly = require("plotly.js-dist-min@2.30.0")
 
 // Reconstruct incoming title pairs directly for linear search dictionary
@@ -439,7 +442,7 @@ ebay_title_map = {
 }
 
 // Global programmatic data sanitization step for raw listing objects
-clean_ebay_master = transpose(ojs_ebay).map(d => {
+clean_ebay_master = safeTranspose(ojs_ebay).map(d => {
   let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
   let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
   
@@ -464,7 +467,7 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
     label: label, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
   };
 }).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
-```
+
 
 ```{ojs}
 //| echo: false
@@ -518,9 +521,10 @@ clean_ebay_master = transpose(ojs_ebay).map(d => {
 // SECTION 3: UNIFIED INTERACTIVE GRID ENGINE & MASTER MODAL DISPATCHER
 // ==============================================================================
 {
-  const all_hist = transpose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const all_fcst = transpose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const all_metrics = typeof ojs_metrics !== 'undefined' ? transpose(ojs_metrics) : [];
+  // 🛡️ Apply safeTranspose to prevent crashes on empty databases
+  const all_hist = safeTranspose(ojs_hist).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_fcst = safeTranspose(ojs_forecast).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const all_metrics = typeof ojs_metrics !== 'undefined' ? safeTranspose(ojs_metrics) : [];
   
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
