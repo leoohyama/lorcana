@@ -68,8 +68,9 @@ master_dict <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FA
 print("🚀 Connecting to MotherDuck...")
 md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
 Sys.setenv(motherduck_token = md_token)
-con <- dbConnect(duckdb::duckdb())
-dbExecute(con, "INSTALL motherduck; LOAD motherduck; ATTACH 'md:'; USE my_db;")
+
+# Connect seamlessly using the auto-loader, bypassing the strict version check
+con <- dbConnect(duckdb::duckdb(), "md:my_db")
 
 create_table_query <- "
   CREATE TABLE IF NOT EXISTS llm_listing_metadata (
@@ -98,6 +99,14 @@ if(force_full_rerun) {
 # 4. FETCH & PRE-FILTER QUEUE (THE SHORT-CIRCUIT)
 # ==========================================
 print("📥 Fetching processing queue...")
+
+# SAFEGUARD: Ensure the upstream scraper has actually created the table
+if (!dbExistsTable(con, "lorcana_active_listings")) {
+  message("⚠️ Table 'lorcana_active_listings' not found. The upstream eBay scraper needs to populate it first. Exiting gracefully.")
+  dbDisconnect(con, shutdown = TRUE)
+  quit(save = "no", status = 0)
+}
+
 query <- "
   SELECT DISTINCT a.item_id, a.id, a.listing_title 
   FROM lorcana_active_listings a
