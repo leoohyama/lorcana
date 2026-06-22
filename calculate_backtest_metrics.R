@@ -17,19 +17,24 @@ if (md_token == "") {
 
 message("Connecting to MotherDuck...")
 Sys.setenv(motherduck_token = md_token)
+
+# 1. Start with a completely blank in-memory session
 con <- dbConnect(duckdb::duckdb())
 
-# Initialize environment and core extensions
+# 2. Load the core extensions inside the session explicitly
 dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
 dbExecute(con, "INSTALL icu; LOAD icu;")
-dbExecute(con, "ATTACH 'md:'")
+
+# 3. Mount the specific cloud database database explicitly
+dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+
+# 4. Force the active session context into the cloud catalog
 dbExecute(con, "USE my_db;")
 
 # ==========================================
 # --- STEP 2: FETCH DATA ---
 # ==========================================
 message("Fetching historical actuals...")
-# Fetch 120 days to ensure we have enough history to grade recent 30-day forecasts
 hist_query <- "
   SELECT tcgplayer_id, pull_date as date, market_price as actual_price 
   FROM justtcg_prices 
@@ -39,7 +44,6 @@ hist_data <- dbGetQuery(con, hist_query) %>%
   mutate(date = as.Date(date))
 
 message("Fetching prediction runs...")
-# Fetch historical shadow runs where actual data is available to compare against
 c_preds <- dbGetQuery(con, "SELECT 'Chronos' as model, card_id as tcgplayer_id, target_date as date, pred_price, run_id FROM chronos_predictions WHERE target_date <= CURRENT_DATE")
 g_preds <- dbGetQuery(con, "SELECT 'GRU' as model, card_id as tcgplayer_id, target_date as date, pred_price, run_id FROM gru_predictions WHERE target_date <= CURRENT_DATE")
 
@@ -47,14 +51,13 @@ all_preds <- bind_rows(c_preds, g_preds) %>%
   mutate(date = as.Date(date), pred_price = as.numeric(pred_price)) %>%
   arrange(model, tcgplayer_id, run_id, date) %>%
   group_by(model, tcgplayer_id, run_id) %>%
-  mutate(horizon = row_number()) %>% # Assign day 1 to 30 for each run
+  mutate(horizon = row_number()) %>% 
   ungroup()
 
 # ==========================================
 # --- STEP 3: BACKTEST CALCULATIONS ---
 # ==========================================
 message("Calculating Anchor Prices for Naive Baseline...")
-# Find the actual price on the day BEFORE the forecast started
 run_anchors <- all_preds %>%
   mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>%
   group_by(model, tcgplayer_id, run_id) %>%
@@ -63,12 +66,11 @@ run_anchors <- all_preds %>%
   filter(date < first_date) %>%
   group_by(model, tcgplayer_id, run_id) %>%
   arrange(desc(date)) %>%
-  slice(1) %>% # Get the most recent actual price before the forecast
+  slice(1) %>% 
   select(model, tcgplayer_id, run_id, anchor_price = actual_price) %>%
   ungroup()
 
 message("Grading Forecasts...")
-# Join predictions with actuals and anchors, then calculate APE
 graded_runs <- all_preds %>%
   mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>%
   inner_join(hist_data, by = c("tcgplayer_id", "date")) %>%
@@ -80,7 +82,6 @@ graded_runs <- all_preds %>%
   )
 
 message("Aggregating into Final Metrics...")
-# Calculate the Median Absolute Percentage Error (MdAPE) for every card, model, and horizon
 final_metrics <- graded_runs %>%
   group_by(tcgplayer_id, model, horizon) %>%
   summarize(
@@ -91,16 +92,24 @@ final_metrics <- graded_runs %>%
     sample_size = n(),
     .groups = "drop"
   ) %>%
-  # Round to 4 decimal places to optimize data profiles
   mutate(across(c(mdape, naive_mdape, min_err, max_err), ~round(.x, 4)))
 
 # ==========================================
 # --- STEP 4: UPLOAD & DISCONNECT ---
 # ==========================================
-message("Uploading to MotherDuck...")
-# Overwrite the table with fresh metrics atomically
-dbWriteTable(con, "model_backtest_metrics", final_metrics, overwrite = TRUE)
-
-# Safe shutdown to commit all changes smoothly
-dbDisconnect(con, shutdown = TRUE)
-message("Success! Metrics calculated and stored in MotherDuck.")
+if (nrow(final_metrics) > 0) {
+  message("Uploading to MotherDuck...")
+  
+  # Explicitly drop the table first if it exists to ensure an atomic, clean rebuild
+  dbExecute(con, "DROP TABLE IF EXISTS model_backtest_metrics;")
+  
+  # Recreate and populate the metrics table safely
+  dbWriteTable(con, "model_backtest_metrics", final_metrics, append = TRUE)
+  
+  # Safe shutdown to commit all changes smoothly
+  dbDisconnect(con, shutdown = TRUE)
+  message("Success! Metrics calculated and stored in MotherDuck.")
+} else {
+  dbDisconnect(con, shutdown = TRUE)
+  message("No metrics calculated. Skipping database upload.")
+}
