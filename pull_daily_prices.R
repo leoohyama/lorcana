@@ -88,24 +88,26 @@ if (nrow(daily_prices_lean) > 0) {
   
   Sys.setenv(motherduck_token = md_token)
   
-# Connect using the auto-loader string
-  con <- dbConnect(duckdb::duckdb(), "md:my_db")
+  # 1. Open a blank, in-memory DuckDB session FIRST
+  con <- dbConnect(duckdb::duckdb())
 
-  # 1. Put the keys back in the ignition (Perfectly safe on Mac 1.5.2!)
+  # 2. Put the keys in the ignition (Awaken the MotherDuck plugin)
   dbExecute(con, "INSTALL motherduck;")
   dbExecute(con, "LOAD motherduck;")
 
-  # 2. CRITICAL: Force DuckDB to target the cloud catalog
+  # 3. NOW tell the active plugin to connect to the cloud
+  dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+
+  # 4. Target the cloud catalog
   dbExecute(con, "USE my_db;")
 
-  # 1. Clean out today's data to support clean daily script execution re-runs
-  # SAFEGUARD: Only attempt to delete if the table already exists
+  # SAFEGUARD: Clean out today's data to support clean daily script execution re-runs
   today_str <- as.character(Sys.Date())
   if (dbExistsTable(con, "justtcg_prices")) {
     dbExecute(con, paste0("DELETE FROM justtcg_prices WHERE pull_date = '", today_str, "';"))
   }
   
-  # 2. Add the new lean data (this will automatically create the table if it's the first run)
+  # Add the new lean data
   dbWriteTable(con, "justtcg_prices", daily_prices_lean, append = TRUE) 
   
   dbDisconnect(con, shutdown = TRUE)
