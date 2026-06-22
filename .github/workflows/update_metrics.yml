@@ -1,42 +1,25 @@
-name: Daily Time-Series Metrics ETL
+name: Update Time Series Metrics
 
 on:
-  workflow_run:
-    workflows: ["JustTCG Daily Price Pull (Cloud Edition)"] 
-    types:
-      - completed
-  
-  # Allows you to manually trigger the math script from the GitHub Actions tab if needed
+  schedule:
+    - cron: '30 4 * * *' # Or whatever time you have set
   workflow_dispatch: 
 
 jobs:
-  calculate-metrics:
-    # This prevents the script from running if the price pull failed!
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+  run-metrics:
+    runs-on: self-hosted    # 💻 Routes directly to your MacBook Air!
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: 📥 Checkout repository
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: 🛠️ Setup R
-        uses: r-lib/actions/setup-r@v2
-        with:
-          use-public-rspm: true
+      # We delete all the R setup and package installation steps!
+      # Your Mac already has 1.5.2 and all the math packages perfectly installed.
 
-      - name: 📦 Install R Packages
-        uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          # Using 'packages' strictly limits the install to these 5 libraries
-          packages: |
-            any::DBI
-            any::tidyverse
-            any::pracma
-            any::moments
-            any::duckdb
-
-      - name: 🚀 Run Metrics ETL Script
+      - name: 🧮 Run Metrics Pipeline
         env:
-          # Pulls the password securely from your GitHub Secrets
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: Rscript update_ts_metrics.R
