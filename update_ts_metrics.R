@@ -40,8 +40,18 @@ if (md_token == "") {
 
 Sys.setenv(motherduck_token = md_token)
 
-# Connect directly to my_db using the auto-loader, bypassing the strict version check
-con <- dbConnect(duckdb::duckdb(), "md:my_db")
+# 1. Start with a completely blank in-memory session
+con <- dbConnect(duckdb::duckdb())
+
+# 2. Load the core extensions inside the session explicitly
+dbExecute(con, "INSTALL motherduck; LOAD motherduck;")
+
+# 3. Mount the specific cloud database explicitly
+dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+
+# 4. Force the active session context into the cloud catalog
+dbExecute(con, "USE my_db;")
+
 
 # --- 3. FETCH HISTORICAL DATA ---
 message("Downloading JustTCG price history...")
