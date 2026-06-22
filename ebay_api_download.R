@@ -78,7 +78,11 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
         )
       )
       
-      if (status_code(res) != 200) break
+      # UNMASK REJECTIONS: Prevent silent failures by printing out errors if the API rejects the pull
+      if (status_code(res) != 200) {
+        warning(paste("eBay API Error:", status_code(res), "-", content(res, "text", encoding = "UTF-8")))
+        break
+      }
       
       data <- fromJSON(content(res, "text", encoding = "UTF-8"))
       
@@ -111,7 +115,7 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       }
       
       offset <- offset + 200
-      Sys.sleep(0.3) 
+      Sys.sleep(0.5) 
     }
     
     if (length(all_pages) == 0) return(template)
@@ -180,7 +184,8 @@ message("Starting streamlined market scrape...")
 
 final_gold_scrape <- master_target_cards %>% 
   mutate(active_listings = pmap(list(name, version, rarity, epid, collector_number), ~ {
-    Sys.sleep(0.4) 
+    # 2.5 second delay keeps requests gentle enough to preserve daily endpoint quotas
+    Sys.sleep(2.5) 
     get_ebay_active_listings(..1, ..2, ..3, ebay_token, ..5, ..4) 
   })) %>%
   unnest(active_listings) %>%
@@ -207,14 +212,17 @@ if (nrow(final_gold_scrape) > 0) {
   
   Sys.setenv(motherduck_token = md_token)
   
-  # Connect directly to my_db
-  con <- dbConnect(duckdb::duckdb(), "md:my_db")
+  # 1. Start with a completely blank in-memory session
+  con <- dbConnect(duckdb::duckdb())
 
-  # 1. Load the MotherDuck extension (Perfectly safe on Mac 1.5.2!)
+  # 2. Load the extension explicitly inside the session
   dbExecute(con, "INSTALL motherduck;")
   dbExecute(con, "LOAD motherduck;")
 
-  # 2. CRITICAL: Force DuckDB to target the cloud catalog, not local RAM!
+  # 3. Mount the actual cloud infrastructure to the session alias
+  dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+
+  # 4. Point the cursor to the catalog
   dbExecute(con, "USE my_db;")
 
   # SAFEGUARD: Clean out today's data only if the table actually exists
@@ -223,7 +231,7 @@ if (nrow(final_gold_scrape) > 0) {
     dbExecute(con, paste0("DELETE FROM lorcana_active_listings WHERE date_pulled = '", today_str, "';"))
   }
   
-  # Append the raw data directly using DuckDB's native data frame ingestion handler
+  # Append data securely into the remote production tables
   dbWriteTable(con, "lorcana_active_listings", final_gold_scrape, append = TRUE) 
   
   dbDisconnect(con, shutdown = TRUE)
