@@ -2,7 +2,7 @@ name: Daily Lorcana Market Inference
 
 on:
   workflow_run:
-    workflows: ["JustTCG Daily Price Pull (Cloud Edition)"]
+    workflows: ["JustTCG Daily Price Pull (Local Mac Edition)"]
     types:
       - completed
   workflow_dispatch: 
