@@ -2,7 +2,7 @@ name: Daily Dashboard Render
 
 on:  
   workflow_run:    
-    workflows: ["eBay Daily Market Float (Cloud + Local AI)"]    
+    workflows: ["eBay Daily Market Float (Local Mac Edition)"]    
     types:      
       - completed    
   workflow_dispatch: 
