@@ -27,16 +27,19 @@ WITH new_residuals AS (
     SELECT 
         p.card_id, 
         m.model_type,
-        CAST(p.target_date - m.run_date AS INTEGER) as horizon,
+        -- Use native date_diff instead of mathematical subtraction and cast
+        CAST(date_diff('day', CAST(m.run_date AS DATE), CAST(p.target_date AS DATE)) AS INTEGER) as horizon,
         a.market_price as actual_price,
         p.pred_price,
         ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0)), 4) as error_abs_pct,
         p.target_date,
         m.run_date
+    -- Move the cast to a CTE or do it explicitly on both sides to help the planner
     FROM gru_predictions p
-    JOIN justtcg_prices a ON p.card_id = CAST(a.tcgplayer_id AS VARCHAR) AND p.target_date = a.pull_date
+    JOIN justtcg_prices a ON CAST(p.card_id AS VARCHAR) = CAST(a.tcgplayer_id AS VARCHAR) 
+                          AND CAST(p.target_date AS DATE) = CAST(a.pull_date AS DATE)
     JOIN model_runs m ON p.run_id = m.run_id
-    WHERE p.target_date <= CURRENT_DATE
+    WHERE CAST(p.target_date AS DATE) <= CURRENT_DATE
 )
 SELECT * FROM new_residuals n
 WHERE NOT EXISTS (
@@ -57,16 +60,17 @@ WITH new_residuals AS (
     SELECT 
         p.card_id, 
         m.model_type,
-        CAST(p.target_date - m.run_date AS INTEGER) as horizon,
+        CAST(date_diff('day', CAST(m.run_date AS DATE), CAST(p.target_date AS DATE)) AS INTEGER) as horizon,
         a.market_price as actual_price,
         p.pred_price,
         ROUND((ABS(a.market_price - p.pred_price) / NULLIF(a.market_price, 0)), 4) as error_abs_pct,
         p.target_date,
         m.run_date
     FROM chronos_predictions p
-    JOIN justtcg_prices a ON p.card_id = CAST(a.tcgplayer_id AS VARCHAR) AND p.target_date = a.pull_date
+    JOIN justtcg_prices a ON CAST(p.card_id AS VARCHAR) = CAST(a.tcgplayer_id AS VARCHAR) 
+                          AND CAST(p.target_date AS DATE) = CAST(a.pull_date AS DATE)
     JOIN model_runs m ON p.run_id = m.run_id
-    WHERE p.target_date <= CURRENT_DATE
+    WHERE CAST(p.target_date AS DATE) <= CURRENT_DATE
 )
 SELECT * FROM new_residuals n
 WHERE NOT EXISTS (
