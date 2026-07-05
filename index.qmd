@@ -84,7 +84,7 @@ daily_churn <- tryCatch({
       GROUP BY item_id
     ),
     date_series AS (
-      SELECT UNNEST(generate_series(CURRENT_DATE - INTERVAL '60 days', CURRENT_DATE, INTERVAL '1 day'))::DATE AS event_date
+      SELECT UNNEST(generate_series(CURRENT_DATE - INTERVAL '7 days', CURRENT_DATE, INTERVAL '1 day'))::DATE AS event_date
     ),
     arrivals AS (
       SELECT first_seen AS event_date, COUNT(*) AS new_listings
