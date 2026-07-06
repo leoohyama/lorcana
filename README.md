@@ -14,12 +14,13 @@
   <img src="https://img.shields.io/badge/R-276DC3?style=for-the-badge&logo=r&logoColor=white" alt="R" />
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
-  <img src="https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/DuckDB-FFF000?style=for-the-badge&logo=duckdb&logoColor=black" alt="DuckDB / MotherDuck" />
+  <img src="https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white" alt="Ollama" />
   <img src="https://img.shields.io/badge/Quarto-4B9EAA?style=for-the-badge&logo=quarto&logoColor=white" alt="Quarto" />
   <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
 </p>
 
-> **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested. 
+> **Note:** This is an ongoing personal project and the README might occasionally be out of date as new features are tested.
 
 🚀 **UPDATE: Lorecaster is up and is also mobile friendly!**
 
@@ -30,30 +31,64 @@
 ---
 
 ## Table of Contents
-- [Project Overview](#project-overview)
-- [Context & Market Dynamics](#context--market-dynamics)
+
+**Getting oriented**
+- [Overview](#overview)
+- [The Live Dashboard](#the-live-dashboard)
+- [Market Context & Dynamics](#market-context--dynamics)
+
+**How it works**
+- [Architecture at a Glance](#architecture-at-a-glance)
 - [Data Pipeline & Ecosystem](#data-pipeline--ecosystem)
+- [AI Data Cleaning (Gemma + Ollama)](#ai-data-cleaning-gemma--ollama)
 - [Forecasting Models](#forecasting-models)
+- [Market Health Metrics](#market-health-metrics)
+
+**Operations**
+- [Automation & Scheduling](#automation--scheduling)
 - [Training & Inference Schedule](#training--inference-schedule)
+- [Monitoring & Health](#monitoring--health)
+
+**Reference**
+- [Repository Structure](#repository-structure)
+- [Tech Stack](#tech-stack)
 - [Project Roadmap & To-Dos](#project-roadmap--to-dos)
+- [Changelog](#changelog)
+- [Disclosure](#disclosure)
 
 ---
 
-## Brief Overview
-This repository houses my personal data pipeline and forecasting experiments for the Disney Lorcana TCG. I've set up a **Hybrid Local-Cloud Architecture** that combines cloud scraping with local **Large Language Model (LLM)** inference. 
+## Overview
 
-Trading card games (TCGs) have incredibly speculative and volatile secondary markets. The main goal of this project is to clean up inherently messy secondary market data as much as possible before feeding it into predictive models, ultimately providing stable forecasts and market health metrics.
+This repository houses my personal data pipeline and forecasting experiments for the **Disney Lorcana TCG**. It runs on a **Hybrid Local-Cloud Architecture** that pairs cloud-triggered market scraping with **local Large Language Model (LLM)** inference for data cleaning, then serves daily price forecasts and market-health metrics through a static dashboard at **[lorecaster.ink](http://lorecaster.ink)**.
 
-This project also blends both Python and R using Positron, an IDE that runs both pretty well. All of this is packaged up using quarto and JavaScript. IMPORTANT DISCLOSURE: AI has been used to help develop the JS and clean up code. However, the business logic, context, domain knowledge, modelling logic/context was all developed by me, myself, and I. 
+Trading card games have incredibly speculative and volatile secondary markets. The central goal here is to **clean up inherently messy secondary-market data** as much as possible before feeding it into predictive models, ultimately producing forecasts and market-health signals that are stable enough to be trustworthy.
+
+**Why this is hard — and interesting:**
+- Public platforms mostly rely on basic moving averages; card prices actually behave more like thinly-traded equities, complete with regime changes, buyouts, and speculative spikes.
+- Listing data is full of noise: keyword-stuffed titles, mislabeled rarities, graded/ungraded ambiguity, and duplicate listings.
+- Newly released cards have little-to-no history, so a single model architecture can't cover the whole roster.
+
+The project deliberately scopes to the **higher-end rarities (Epic, Enchanted, Iconic)** and to **ungraded** prices, where demand is driven more by collectibility than by the shifting competitive meta. See [Market Context & Dynamics](#market-context--dynamics) for the reasoning.
 
 ---
 
-## Context
-Trading cards have evolved from niche collectibles into a global asset class, yet the secondary market remains largely unmapped by advanced predictive analytics. While current public platforms rely on basic moving averages, accurately forecasting card prices presents complex challenges similar to those found in traditional stock markets. This project aims to solve that problem by developing a robust predictive analytical pipeline for trading card valuations, powered by machine learning and automated MLOps.
+## The Live Dashboard
 
-## Lorcana
+The public site at **[lorecaster.ink](http://lorecaster.ink)** is a **Quarto dashboard** (`index.qmd`) rendered to static HTML daily and served via GitHub Pages out of `docs/`. It pulls live data from MotherDuck at build time and hydrates interactive [Observable JS](https://observablehq.com/) components in the browser. The dashboard is organized into a few pages:
 
-Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. The pricing of cards is a combination of multiple factors, and to accurately forecast prices, we have to understand the specific dynamics driving this secondary market.
+| Page | What it shows |
+| --- | --- |
+| **Market Overview** | Top-line market health, daily market velocity (listing churn vs. inflow), and headline movers. |
+| **Market Explorer** | Per-card drill-down: price history, the 30-day forecast with confidence bands, and eBay listing context. |
+| **Dashboard Guide & FAQ** | Plain-language explanation of the market, how the AI cleaning works, and a glossary of the advanced risk metrics. |
+| **Support the Project!** | Project background and ways to support it. |
+
+---
+
+## Market Context & Dynamics
+
+Introduced in 2023, **Disney Lorcana** is an interesting case study because it leverages Disney's massive library of intellectual property. Card pricing is driven by a combination of factors, and forecasting it well requires understanding the specific dynamics of this secondary market.
 
 <details>
 <summary><strong>Click to read more about Lorcana Market Dynamics & Project Context</strong></summary>
@@ -64,13 +99,13 @@ Different rarities delineate whether a card is viewed primarily as a collectible
 ### 2. Artwork & Nostalgia
 Special artwork and beloved Disney characters (like Stitch, a major focus for my own collection) evoke powerful emotional connections. This creates intrinsic value and high demand among collectors that doesn't always align with a card's actual playability.
 
-### 3. Grading 
-A card's baseline value is tied to its pull rate, but the "Graded" market introduces wild price premiums. A graded card has been certified (usually on a scale of 1-10) by a third-party company (PSA, CGC, BGS) based on condition, centering, and aesthetics. 
+### 3. Grading
+A card's baseline value is tied to its pull rate, but the "Graded" market introduces wild price premiums. A graded card has been certified (usually on a scale of 1-10) by a third-party company (PSA, CGC, BGS) based on condition, centering, and aesthetics.
 
 **Note:** My models currently predict the prices of **UNGRADED** cards. Graded cards, especially higher grades (9-10), sell for much higher premiums and swing much more steeply. It is also difficult to consistently capture graded pricing data due to a lack of freely available sources.
 
 ### 4. The eBay Factor
-eBay is one of the major marketplaces for high-end TCG cards, making it a treasure trove for transaction data—especially since it permits the sale of graded cards (unlike TCGPlayer). 
+eBay is one of the major marketplaces for high-end TCG cards, making it a treasure trove for transaction data—especially since it permits the sale of graded cards (unlike TCGPlayer).
 Listing prices on eBay can act as a strong indicator of future market prices when examined alongside listing volume history. While upper-echelon listing prices (Buy It Now / Best Offer) can be outliers, they often indicate:
 1. The card is rare/new, and a market price hasn't been established.
 2. The seller is misreading the market.
@@ -100,9 +135,12 @@ Listing prices on eBay can act as a strong indicator of future market prices whe
 
 
 </details>
+
 ---
 
-## Data Pipeline & Ecosystem
+## Architecture at a Glance
+
+Lorecaster is intentionally split between the **cloud** (for triggering and coordination) and a **local MacBook Air self-hosted runner** (for the heavy lifting: scraping, LLM inference, and model training). A single **MotherDuck** (cloud DuckDB) database is the shared source of truth that ties everything together.
 
 ```mermaid
 graph LR
@@ -130,72 +168,239 @@ graph LR
     style F fill:#166a8f,stroke:#002b3d,stroke-width:2px,color:#fff,rx:10,ry:10
 ```
 
-1. **Sourcing (Cloud):** GitHub Actions (Ubuntu-latest) runs a daily scrape of **eBay** and **JustTCG**, pushing the raw, unfiltered logs to a **Neon (PostgreSQL)** database.
-2. **AI Cleaning (Local MacBook Runner):** After the cloud scrape finishes, a self-hosted runner wakes up on my local MacBook Air. It pulls new `item_ids`, runs them through **Gemma 4.0** via my local **Ollama** instance, and updates the `llm_listing_metadata` table.
-    * **Title Validation:** Gemma performs a character-and-subtitle check to verify the listing matches the target card exactly, filtering out seller "keyword stuffing."
-    * **Structured Extraction:** The model extracts structured JSON data from messy eBay listing strings to identify:
-        * **Match Validity:** (Match/No Match)
-        * **Grading Status:** (True/False)
-        * **Grading Company:** (PSA, BGS, CGC, SGC, PCG)
-        * **Grade Value:** (e.g., 10, 9.5, 9)
-    * **Incremental Processing:** To save on compute time, a "Delta-only" approach cross-references new `item_ids` against existing metadata. Each listing only goes through the AI extraction process once.
-3. **Preprocessing:** Data is preprocessed primarily in **R** to filter out items unsuitable for the deep learning process and to remove problematic data structures.
-4. **Forecasting:** Managed via **PyTorch** (detailed in the [Forecasting Models](#forecasting-models) section below).
-5. **Deployment (Quarto):** Forecasts and market metrics are presented via the Lorecaster dashboard, an html page updated daily to show the latest pricing, forecasts, and ebay data. 
+**Design choices worth calling out:**
+- **Self-hosted runner over cloud CI:** All jobs `runs-on: self-hosted`. The MacBook already has a pristine R + Python + Quarto + Ollama environment, so workflows skip the 15-minute R setup and package installs entirely — and Ollama-based LLM cleaning simply isn't feasible on a standard cloud runner.
+- **MotherDuck as the single source of truth:** Every stage reads from and writes to the same cloud DuckDB database (`md:my_db`), so scraping, cleaning, modeling, and the dashboard all agree on state.
+- **Static HTML over a live app:** The dashboard is pre-rendered daily rather than served from a live backend, which handles web traffic cheaply while still reflecting the latest data.
+
+---
+
+## Data Pipeline & Ecosystem
+
+The pipeline moves data through six stages, mirrored by the `pipeline/` folder layout (see [Repository Structure](#repository-structure)):
+
+**1. Sourcing / Ingestion** — `pipeline/ingestion/`
+- **`ebay_api_download.R`** authenticates with the eBay OAuth API and pulls active listings (price, title, URL, graded flag) for every target card, writing the raw float to the `lorcana_active_listings` table.
+- **`pull_daily_prices.R`** hits the **JustTCG** API in batches of 20 `tcgplayer_id`s (Near-Mint condition) and writes daily market prices to the `justtcg_prices` table.
+- Both scripts read the shared roster from `data/target_cards_with_epids2.csv`, keeping every stage aligned on the same set of cards.
+
+**2. AI Cleaning** — `pipeline/cleaning/` (see [AI Data Cleaning](#ai-data-cleaning-gemma--ollama) for detail)
+- **`run_gemma_cleaner.R`** validates and structures new eBay listings via a local Gemma model, updating `llm_listing_metadata`.
+- **`dedupe_gemma4.R`** performs a second LLM pass to prune mislabeled/duplicate listings.
+
+**3. Preprocessing** — `pipeline/preprocessing/`
+- **`preprocessing.R`** pulls prices for cards with **≥180 days** of history, fills temporal gaps (forward-fill across missing days), scales features, and writes the model-ready matrix to `data/pytorch/lorcana_pytorch_ready.csv`.
+- **`chronos_data_processing.R`** builds a lighter dataset for cards with **≥90 days** of history (`data/chronos_ready_prices.csv`) so newer cards can still be forecast by the zero-shot transformer.
+
+**4. Forecasting** — `pipeline/modeling/` + `pipeline/inference/`
+- Daily inference and weekly training run the PyTorch models and push predictions to the `gru_predictions` and `chronos_predictions` tables. See [Forecasting Models](#forecasting-models).
+
+**5. Post-processing** — `pipeline/postprocessing/`
+- **`update_residuals.R`** joins predictions against realized prices in-database to populate `model_residuals_live`.
+- **`calculate_backtest_metrics.R`** computes 30-day forecast errors for the dashboard.
+- **`model_diagnostics.R`** rolls up model performance history.
+- **`update_ts_metrics.R`** computes per-card market-health metrics into `card_ts_metrics` (see [Market Health Metrics](#market-health-metrics)).
+
+**6. Deployment** — `index.qmd` → `docs/`
+- The Quarto dashboard reads the latest production inferences and metrics from MotherDuck and renders a fresh static site daily.
+
+<details>
+<summary><strong>Key MotherDuck tables</strong></summary>
+
+| Table | Written by | Purpose |
+| --- | --- | --- |
+| `justtcg_prices` | `pull_daily_prices.R` | Daily market prices per card |
+| `lorcana_active_listings` | `ebay_api_download.R` | Raw eBay active-listing float |
+| `llm_listing_metadata` | `run_gemma_cleaner.R`, `dedupe_gemma4.R` | LLM match/grade metadata per listing |
+| `gru_predictions` | `daily_inference_gru.py` | 30-day GRU forecasts |
+| `chronos_predictions` | `chronos_transfer_learning.py` | 30-day Chronos forecasts |
+| `model_residuals_live` | `update_residuals.R` | Live prediction-vs-actual residuals |
+| `card_ts_metrics` | `update_ts_metrics.R` | Entropy, Hurst, skew, autocorrelation, volatility |
+| `model_performance_history` / `model_runs` | `model_diagnostics.R` | Backtest performance history |
+
+</details>
+
+---
+
+## AI Data Cleaning (Gemma + Ollama)
+
+The single biggest source of noise is eBay listing text. Sellers stuff titles with high-value keywords ("Enchanted", "Iconic", "PSA 10") to catch searches, and the same card shows up under wildly inconsistent formatting. To fix this, new listings are run through a **local Gemma model served by [Ollama](https://ollama.com/)** on the MacBook runner (`gemma4:e2b`, `temperature = 0.0` for deterministic extraction).
+
+The model does two jobs:
+
+- **Title Validation** — a strict character-and-subtitle check plus **collector-number matching** (e.g., understanding that a title reading `242/204` is an exact match for target number `242`, while a genuinely different number is a "No Match"). This filters out keyword-stuffed and mislabeled listings.
+- **Structured Extraction** — messy title strings are turned into structured JSON:
+  - **Match Validity:** `Match` / `No Match`
+  - **Grading Status:** `true` / `false`
+  - **Grading Company:** PSA, BGS/Beckett, CGC, SGC, PCG, ACE, TAG
+  - **Grade Value:** e.g. `10`, `9.5`, `9`
+
+**Incremental "delta-only" processing:** new `item_id`s are cross-referenced against existing metadata so each listing is only ever sent through the LLM once. This keeps a local model tractable over a growing dataset and is the reason cleaning can run every day on a laptop.
+
+The eBay + cleaning jobs are chained sequentially (scrape → clean → dedupe) so Ollama is never asked to serve two heavy jobs at once.
+
 ---
 
 ## Forecasting Models
 
-I'm approaching price forecasting as a multi-modal time-series problem. I am currently testing two different architectures to see what handles the volatility best:
+Price forecasting is treated as a **multi-modal time-series problem**. Two architectures run side by side, chosen for complementary strengths.
 
-### 1. Hybrid Gated Recurrent Unit (GRU)
-I built a custom **PyTorch** model that ingests both temporal data (historical prices) and static metadata (card rarity, ink color). By concatenating static embeddings with recurrent outputs, the model better contextualizes price movements (e.g., learning that an "Enchanted" card's volatility behaves differently than a "Rare" card's).
+### 1. Hybrid Gated Recurrent Unit (GRU) — the primary model
 
-**Why a Hybrid GRU?**
-Standard time-series models treat every variable identically. Our hybrid approach separates them:
-1. **Temporal Branch:** A multi-layer GRU processes sequences of normalized price data and relative days.
-2. **Static Branch:** Categorical attributes are mapped into dense vector spaces using PyTorch `nn.Embedding` layers. 
-3. **The Merge:** Sequence features and static embeddings are concatenated and passed through a final multi-layer perceptron (MLP) to generate the 30-day forecast.
+A custom **PyTorch** model that ingests both temporal data (historical prices) and static metadata (set, rarity, ink color). By concatenating static embeddings with recurrent outputs, it contextualizes price movement — learning, for example, that an "Enchanted" card's volatility behaves differently from a "Rare" card's.
 
-#### The Attention Mechanism
-To handle the erratic nature of the secondary market, I implemented an **Additive Attention Mechanism** over the GRU outputs. Instead of relying on a final hidden state to summarize a 30-day window, the attention layer calculates a dynamic weight for *every* day. This "Context Vector" allows the model to prioritize sudden price shocks or market shifts.
+1. **Temporal Branch:** a 2-feature-per-step sequence (normalized price + relative day) flows through a multi-layer GRU.
+2. **Static Branch:** categorical attributes are mapped into dense vectors via PyTorch `nn.Embedding` layers, alongside a couple of continuous static features (cost, inkwell).
+3. **The Merge:** attention-summarized sequence features and static embeddings are concatenated and passed through a final MLP to produce the 30-day forecast.
 
-**Key Features of the Training Pipeline:**
-* **Multi-Window Training:** Models are trained across different historical lookback windows (15, 30, and 45 days) to find the optimal signal-to-noise ratio, evaluated via metrics like **wMAPE** (Volume-Weighted MAPE).
-* **Rolling-Origin Backtesting:** A time-traveling validation approach that simulates past market eras to stress-test the architecture against historical regime changes and set releases.
-* **Custom "Horizon Trend" Loss Function:** Uses `SmoothL1Loss` (Huber Loss) as a base to handle extreme outliers, but adds a dynamic penalty for guessing the wrong market direction. It ignores daily pricing noise but heavily punishes missing the long-term macro destination.
-* **Residual Forecasting:** The model predicts the *delta* (change in price) from the last known data point rather than the raw absolute value, greatly improving stability.
+<details>
+<summary><strong>Architecture & training internals</strong></summary>
 
-### 2. Pre-trained Transformer (Amazon Chronos)
-I'm also experimenting with **Chronos**, a time-series forecasting framework built on language model architectures.
-* **Mechanism:** Chronos tokenizes price values and uses a transformer to predict the next tokens in the sequence. 
-* **Theory:** It provides solid zero-shot forecasting out of the box, which is incredibly helpful for newly released cards that lack the historical data required to train the GRU effectively.
+**Network (`HybridLorcanaGRU`):**
+- **GRU:** input size 2 → hidden size 128, 2 layers, dropout 0.4.
+- **Additive attention:** `Linear(128→64) → Tanh → Linear(64→1)`, softmax over the time axis to produce a weighted **context vector** — instead of relying on only the final hidden state.
+- **Embeddings:** `set → 4`, `rarity → 8`, `ink → 2` dimensions, concatenated with 2 continuous static features (16 static dims total).
+- **Head:** `Linear(hidden+16 → 64) → ReLU → Dropout(0.5) → Linear(64 → 30)`.
+- **Residual output:** the forecast is `last_price + tanh(head(...)) * 0.1` — the model predicts a **bounded delta** from the last known price rather than an absolute value, which greatly improves stability.
+
+**Training (`train_lorcana_model.py`, `model_testing_gru.py`):**
+- **Custom "Horizon Trend" loss:** `SmoothL1Loss` (Huber) as a base to absorb outliers, plus a **directional penalty** that punishes predicting the wrong market direction on *significant* moves (>2% of last price), scaled up over the horizon (a time-weighted `linspace(0→1)`, `max_penalty = 0.5`). It ignores daily noise but heavily penalizes missing the macro destination.
+- **Multi-window training:** models are trained across **15, 30, and 45-day** lookback windows to find the best signal-to-noise ratio, evaluated via **wMAPE** (volume-weighted MAPE) and directional accuracy.
+- **Rolling-origin backtesting:** 3 folds, each shifting the origin 30 days into the past, stress-testing the architecture against historical regime changes and set releases.
+- **Optimizer / regularization:** AdamW (`lr=1e-3`, `weight_decay=1e-2`), `ReduceLROnPlateau`, gradient clipping (max-norm 0.5), early stopping (patience 15), up to 100 epochs.
+- **Confidence intervals:** Monte-Carlo dropout at inference (dropout left active, 100 samples) yields a **median** forecast plus **10th/90th-percentile** bands.
+
+</details>
+
+### 2. Pre-trained Transformer (Amazon Chronos) — the cold-start model
+
+**[Chronos](https://github.com/amazon-science/chronos-forecasting)** is a time-series forecasting framework built on language-model architectures.
+- **Mechanism:** it tokenizes price values and uses a transformer to predict the next tokens in the sequence.
+- **Why it's here:** solid **zero-shot** forecasting out of the box, which is invaluable for **newly released cards** that lack the history required to train the GRU effectively (hence the 90-day preprocessing threshold vs. the GRU's 180).
+
+Running both lets the dashboard compare them and surface **model divergence** as its own signal (see [Monitoring & Health](#monitoring--health)).
+
+---
+
+## Market Health Metrics
+
+Beyond price forecasts, `update_ts_metrics.R` computes a suite of **statistical health metrics** per card over a rolling 30-day window (surfaced in the dashboard's glossary). These describe *how a card trades*, not just where its price is:
+
+| Metric | Library | What it tells you |
+| --- | --- | --- |
+| **Sample Entropy** | `pracma` | Unpredictability / structural randomness of the price series. |
+| **Hurst Exponent** | `pracma` | Momentum vs. mean-reversion. `>0.5` trends, `<0.5` reverts, `≈0.5` random walk. |
+| **Lag-1 Autocorrelation** | base R | How much today's move persists into tomorrow. |
+| **Skewness** | `moments` | Asymmetry of returns (crash-prone vs. spike-prone). |
+| **Volatility / CV** | base R | Risk profile via coefficient of variation. |
+
+All are wrapped in **safe-math guards** (minimum length, zero-variance checks, `tryCatch`) so a thin or flat series degrades to `NA` rather than crashing the daily job.
+
+> An early exploratory extension of this idea — a 21-day volume-turnover / 7-day price-movement classification dataset — lives in `exploration/softmax.R` and is not yet part of the production pipeline.
+
+---
+
+## Automation & Scheduling
+
+Everything is orchestrated by **six GitHub Actions workflows**, all on the self-hosted MacBook runner. Two daily "chains" fan out from the morning scrape, plus a weekly retrain. Times are UTC.
+
+| Workflow | Trigger | Runs |
+| --- | --- | --- |
+| **JustTCG Daily Price Pull** | daily `04:23` | `pipeline/ingestion/pull_daily_prices.R` |
+| **eBay Daily Market Float** | daily `04:23` | eBay scrape → Gemma clean → Gemma dedupe (3 chained jobs) |
+| **Update Time Series Metrics** | daily `04:30` | `pipeline/postprocessing/update_ts_metrics.R` |
+| **Daily Lorcana Market Inference** | after *JustTCG Price Pull* succeeds | preprocess → GRU + Chronos inference → residuals → backtest metrics |
+| **Daily Dashboard Render** | after *eBay Market Float* succeeds | `quarto render index.qmd`, commit to `docs/` |
+| **Weekly Lorcana Training** | Sundays `04:26` | preprocess → train GRU + Chronos backtests → diagnostics → back up weights |
+
+**Chaining:** the two daily scrapers kick off downstream work via `workflow_run: completed` triggers rather than fixed timers, so inference and dashboard rendering only fire once fresh data has actually landed. The weekly training job additionally backs up the `.pth` weights to a timestamped local folder before syncing them to git.
 
 ---
 
 ## Training & Inference Schedule
 
-To bridge the gap between academic model evaluation and real-world deployment, the GRU forecasting engine operates on a strict **Two-Script Pipeline**:
+The GRU engine follows a strict separation between **evaluation** and **production** so the model deployed to users is never quietly overfit to its own test set:
 
-1. **The Evaluator (`pipeline/modeling/model_testing_gru.py`):** Runs weekly. This acts as the "Honest Grader," performing rolling-origin backtesting across three historical eras. The most recent fold acts as an unseen holdout set, isolating real-world performance metrics and exporting them to `lorcana_global_metrics.csv` for the dashboard.
-2. **The Production Brain (`pipeline/modeling/train_lorcana_model.py`):** Runs weekly after evaluation. A lean script that trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs. This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
-3. **Daily Inference (`pipeline/inference/daily_inference_gru.py`):** Runs daily. It loads the production weights, generates the 30-day future forecast, and pushes predictions to the Neon PostgreSQL database.
+1. **The Evaluator (`pipeline/modeling/model_testing_gru.py`):** the "Honest Grader." Performs rolling-origin backtesting across three historical eras; the most recent fold acts as an unseen holdout, isolating real-world performance metrics and exporting them (`data/pytorch/lorcana_global_metrics.csv`) for the dashboard.
+2. **The Production Brain (`pipeline/modeling/train_lorcana_model.py`):** runs weekly after evaluation. Trains on **100% of the historical dataset** for a fixed "sweet spot" of epochs, producing the smartest possible `.pth` weights without locking the most recent 30 days of market momentum behind a test-set wall.
+3. **Daily Inference (`pipeline/inference/daily_inference_gru.py`):** loads the production weights, generates the 30-day forecast (with Monte-Carlo confidence bands), and pushes predictions to MotherDuck.
 
-### Monitoring & Health
-* **Model Divergence:** Tracking how wildly the Hybrid GRU and Chronos predictions differ from one another.
-* **Data Integrity:** Monitoring the "Match" rate coming out of Gemma. A sudden drop usually means eBay listing patterns or seller jargon have changed, requiring prompt adjustments.
-* **Outlier Detection:** Flagging cards where price predictions diverge significantly from the actual market, usually highlighting a data flaw or an unpredictable market buyout.
+---
+
+## Monitoring & Health
+
+- **Model Divergence:** tracking how far the Hybrid GRU and Chronos predictions drift apart — wide divergence flags uncertainty.
+- **Data Integrity:** monitoring the "Match" rate coming out of Gemma. A sudden drop usually means eBay listing patterns or seller jargon have shifted, requiring a prompt adjustment.
+- **Outlier Detection:** flagging cards whose predictions diverge sharply from realized prices, which usually points to a data flaw or an unpredictable market buyout.
+
+---
+
+## Repository Structure
+
+Scripts are grouped by pipeline stage. Anything under `pipeline/` is part of the automated flow; `exploration/` holds ad-hoc and experimental work; `archive/` holds deprecated code kept for reference.
+
+```
+lorcana/
+├── index.qmd                     # Quarto dashboard (rendered daily → docs/)
+├── _quarto.yml                   # Quarto project config (output-dir: docs)
+├── docs/                         # Rendered static site (GitHub Pages)
+├── data/                         # Model-ready CSVs, weights, images, metadata
+│   ├── pytorch/                  #   GRU/Chronos weights (.pth) & forecasts
+│   ├── enchanteds/               #   Card lists + .avif art
+│   ├── tabular/ running_data/ …  #   Intermediate datasets
+│   └── target_cards_with_epids2.csv   # Shared card roster (all stages read this)
+│
+├── pipeline/
+│   ├── ingestion/                # ebay_api_download.R, pull_daily_prices.R
+│   ├── cleaning/                 # run_gemma_cleaner.R, dedupe_gemma4.R
+│   ├── preprocessing/            # preprocessing.R, chronos_data_processing.R
+│   ├── modeling/                 # train_lorcana_model.py, model_testing_gru.py,
+│   │                             #   chronos_transfer_learning.py, chronos_backtest.py
+│   ├── inference/                # daily_inference_gru.py
+│   └── postprocessing/           # update_residuals.R, update_ts_metrics.R,
+│                                 #   calculate_backtest_metrics.R, model_diagnostics.R
+│
+├── exploration/                  # Ad-hoc analysis & experiments (softmax.R, etc.)
+├── archive/shiny_app/            # Deprecated Shiny app (kept for reference)
+└── .github/workflows/            # 6 GitHub Actions workflows (see Automation)
+```
+
+---
+
+## Tech Stack
+
+| Layer | Tools |
+| --- | --- |
+| **Languages** | R, Python (developed in [Positron](https://positron.posit.co/), which runs both) |
+| **Data / ML (Python)** | PyTorch, pandas, NumPy, Amazon Chronos, duckdb, python-dotenv |
+| **Data / stats (R)** | tidyverse, DBI + duckdb, httr, jsonlite, `pracma`, `moments`, lubridate |
+| **LLM cleaning** | Ollama serving Gemma (`gemma4:e2b`), local on the runner |
+| **Storage** | MotherDuck (cloud DuckDB) |
+| **Data sources** | eBay Browse API, JustTCG API, Lorcast (card metadata) |
+| **Dashboard** | Quarto (dashboard format) + Observable JS, deployed to GitHub Pages |
+| **Automation** | GitHub Actions on a self-hosted MacBook Air runner |
+
 ---
 
 ## Project Roadmap & To-Dos
 - [ ] **Blue Chip Index:** Develop a weighted index (e.g., tracking the Top 50 Enchanteds) to get a quick pulse on the overall health of the Lorcana market.
-- [ ] **Modularize index.qmd
+- [ ] **Modularize `index.qmd`** into smaller, maintainable components.
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
-- [ ] **rework landing page to include more interesting statistics
-- [ ] **Possibly develop a "buy" vs "sell" decision maker leveraging models and data
+- [ ] **Rework the landing page** to include more interesting statistics.
+- [ ] **Buy vs. Sell decision maker** leveraging the models and market metrics.
 
-## Project changelog (significant change logs)
-- I have switched databases from neonDB to motherduck, realized that my use didn't require some of their features (June-12-2026)
-- I have removed the digitial ocean/docker approach as I realized that an html page could better support web traffic but also show daily data and market changes
-- The shiny app code is still available in `archive/shiny_app` but is not being actively used and is out-of-date
-- Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the Data Pipeline stages above; updated all GitHub Actions workflows to the new paths (July-6-2026)
+---
+
+## Changelog
+*(significant changes only)*
+
+- **2026-07-06** — Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the data-pipeline stages above; updated all GitHub Actions workflows to the new paths.
+- **2026-06-12** — Switched storage from Neon (PostgreSQL) to **MotherDuck**, after realizing the use case didn't require Neon's features.
+- Removed the DigitalOcean/Docker approach in favor of a daily-rendered static HTML page, which better supports web traffic while still showing daily data and market changes.
+- The Shiny app code is retained in `archive/shiny_app` but is no longer actively used and is out of date.
+
+---
+
+## Disclosure
+
+This project blends R and Python, packaged with Quarto and JavaScript. **AI has been used to help develop the JS and clean up code.** However, the **business logic, market context, domain knowledge, and modeling design were all developed by me** — the author.
