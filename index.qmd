@@ -156,10 +156,35 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
     --text-muted: #94a3b8;    
     --accent-blue: #38bdf8;   
     --accent-purple: #c084fc;
-    --accent-cyan: #22d3ee;   
-    --accent-yellow: #fbbf24; 
-    --accent-red: #f87171;    
-    --accent-green: #34d399;  
+    --accent-cyan: #22d3ee;
+    --accent-yellow: #fbbf24;
+    --accent-red: #f87171;
+    --accent-green: #34d399;
+
+    /* ============================================================
+       SEMANTIC COLOR ROLES — assign color by the job it does.
+       Use these names (not raw --accent-*) so the dashboard reads
+       as one system. Status hues are RESERVED: never reuse --pos /
+       --neg for a category. CVD-validated (see grading palette).
+       ============================================================ */
+    --pos: var(--accent-green);    /* up / gain / bullish — RESERVED, ships with ▲ + label */
+    --neg: var(--accent-red);      /* down / loss / bearish — RESERVED, ships with ▼ + label */
+    --brand: var(--accent-blue);   /* primary interactive: links, borders, focus */
+    --price: var(--accent-yellow); /* monetary emphasis (headline $ values) */
+
+    /* Model-series identity — fixed, do not reassign (validated CVD-safe) */
+    --series-tcg: var(--text-main);     /* TCGplayer history — neutral reference line */
+    --series-gru: var(--accent-cyan);   /* GRU forecast */
+    --series-chronos: var(--accent-yellow); /* Chronos forecast */
+    --series-ebay: var(--accent-purple);    /* eBay median / volume */
+
+    /* Grading-firm identity — validated CVD-safe all-pairs (ΔE 16.5 deutan),
+       avoids the reserved --pos/--neg hues. UNG is neutral (the raw baseline). */
+    --grade-ung: var(--text-muted);
+    --grade-psa: #38bdf8;
+    --grade-cgc: #fb923c;
+    --grade-bgs: #fbbf24;
+    --grade-sgc: #f472b6;
   }
 
   /* Universal Font Family Enforcement */
@@ -935,7 +960,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
         let activeCompanies = [...new Set(scopedListings.map(d => d.grading_company))].sort();
         
         // Deterministic hexadecimal colors for grading services mapping
-        const color_map = { 'UNG': '#38bdf8', 'PSA': '#c084fc', 'CGC': '#34d399', 'BGS': '#fbbf24', 'SGC': '#a78bfa' };
+        // CVD-validated all-pairs (ΔE 16.5 deutan); mirrors the --grade-* tokens.
+        // UNG is neutral (raw baseline); graded firms avoid the reserved up/down hues.
+        const color_map = { 'UNG': '#94a3b8', 'PSA': '#38bdf8', 'CGC': '#fb923c', 'BGS': '#fbbf24', 'SGC': '#f472b6' };
         
         // Group and map item supply parameters by corporate metrics
         let barTraces = activeCompanies.map(company => {
@@ -943,7 +970,7 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
            return {
               x: uniqueDates, y: dailyCounts, type: 'bar',
               name: company === 'UNG' ? 'Ungraded' : company,
-              marker: { color: color_map[company] || '#475569' },
+              marker: { color: color_map[company] || '#475569', line: { color: '#0f172a', width: 1 } },
               hovertemplate: `<b>${company === 'UNG' ? 'Ungraded' : company}</b><br>Date: %{x}<br>Active Supply: %{y}<extra></extra>`
            };
         });
