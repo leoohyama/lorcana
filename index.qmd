@@ -304,6 +304,38 @@ safeTranspose = (data) => {
   const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
   const updated = stats.last_updated ? new Date(stats.last_updated + "T12:00:00").toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 
+  // --- Market-pulse aggregates (computed client-side from live forecasts & churn) ---
+  const info = safeTranspose(ojs_info) || [];
+  const fcst = safeTranspose(ojs_forecast) || [];
+  const churn = safeTranspose(ojs_churn) || [];
+
+  const priceByCard = new Map(info.filter(d => d.current_price).map(d => [d.cardname, d.current_price]));
+  const cardsTracked = priceByCard.size;
+
+  // Latest (30-day) GRU forecast per card -> bullish/bearish tally vs current price
+  const gruByCard = new Map();
+  fcst.filter(f => f.model === "GRU" && f.price != null).forEach(f => {
+    const prev = gruByCard.get(f.cardname);
+    if (!prev || f.date > prev.date) gruByCard.set(f.cardname, f);
+  });
+  let bull = 0, bear = 0;
+  gruByCard.forEach((f, name) => {
+    const cp = priceByCard.get(name);
+    if (cp) { if (f.price > cp) bull++; else if (f.price < cp) bear++; }
+  });
+  const dirTotal = bull + bear;
+  const pctBull = dirTotal ? Math.round((bull / dirTotal) * 100) : null;
+  const bullish = pctBull !== null && pctBull >= 50;
+  const outlookColor = pctBull === null ? 'var(--text-muted)' : (bullish ? 'var(--accent-green)' : 'var(--accent-red)');
+  const outlookArrow = pctBull === null ? '' : (bullish ? '▲' : '▼');
+
+  // 7-day listing velocity (supply flow): net new vs. closed listings
+  const newSum = churn.reduce((a, d) => a + (+d.new_listings || 0), 0);
+  const goneSum = churn.reduce((a, d) => a + (+d.disappeared_listings || 0), 0);
+  const netVel = newSum - goneSum;
+  const velSign = netVel > 0 ? '+' : (netVel < 0 ? '−' : '');
+  const velArrow = netVel > 0 ? '▲' : (netVel < 0 ? '▼' : '');
+
   return html`
     <div style="width: 100%;">
     <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 12px;">
@@ -311,20 +343,20 @@ safeTranspose = (data) => {
       <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Data updated: <span style="color: var(--text-main);">${updated}</span></span>
     </div>
     <div style="display: flex; gap: 20px; flex-wrap: wrap; width: 100%;">
+      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-blue); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Cards Tracked</div>
+        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(cardsTracked)}</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">High-rarity cards priced daily</div>
+      </div>
+      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid ${outlookColor}; border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">30-Day Outlook <span style="opacity:0.7;">· GRU</span></div>
+        <div style="font-size: 32px; font-weight: 800; color: ${outlookColor}; margin-top: 8px;">${pctBull === null ? '—' : outlookArrow + ' ' + pctBull + '%'}<span style="font-size: 15px; color: var(--text-muted); font-weight: 500;"> projected up</span></div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${bull} up · ${bear} down of ${dirTotal} forecast</div>
+      </div>
       <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-cyan); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Analyzed eBay Listings</div>
-        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.total_ebay_listings)}</div>
-        <div style="font-size: 12px; color: var(--accent-cyan); margin-top: 4px; font-weight: 600;">Unique Records Validated</div>
-      </div>
-      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-purple); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">eBay Market Depth</div>
-        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.ebay_days)} <span style="font-size: 16px; color: var(--text-muted); font-weight: 500;">Days</span></div>
-        <div style="font-size: 12px; color: var(--accent-purple); margin-top: 4px; font-weight: 600;">Historical Tracking</div>
-      </div>
-      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-yellow); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">TCG Market Depth</div>
-        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(stats.tcg_days)} <span style="font-size: 16px; color: var(--text-muted); font-weight: 500;">Days</span></div>
-        <div style="font-size: 12px; color: var(--accent-yellow); margin-top: 4px; font-weight: 600;">Baseline Pricing Data</div>
+        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Listing Velocity <span style="opacity:0.7;">· 7D</span></div>
+        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${velArrow} ${velSign}${formatNum(Math.abs(netVel))}<span style="font-size: 15px; color: var(--text-muted); font-weight: 500;"> net listings</span></div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${formatNum(newSum)} new · ${formatNum(goneSum)} closed</div>
       </div>
     </div>
     </div>
