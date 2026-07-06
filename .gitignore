@@ -1,3 +1,8 @@
 .env
 /.quarto/
 **/*.quarto_ipynb
+
+# Local Claude Code tooling (never share)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
