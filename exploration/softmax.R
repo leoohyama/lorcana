@@ -121,9 +121,18 @@ card_spec_summary_df <- listings_tbl %>%
   collect()
 
 
+# ==============================================================================
+# PIPELINE CONTINUATION
+# ==============================================================================
+require(tidyr)
+
+
+# ---------------------------------------------------------
+# Part 4 (Revised): Anchor the specific dates needed for the ML architecture
+# ---------------------------------------------------------
 listing_s <- listings_tbl %>%
-  filter(date_pulled >= d_21_ago) %>%
-  group_by(id) %>%
+  filter(date_pulled %in% c(d_21_ago, d_7_ago, d_today)) %>%
+  group_by(id, date_pulled) %>%
   summarise(
     total_listings = n(),
     median_price = median(price_val, na.rm = TRUE),
@@ -131,72 +140,80 @@ listing_s <- listings_tbl %>%
   ) %>%
   collect()
 
-# ---------------------------------------------------------
-# Part 4: Now get the number of unique listings added and removed over the first 14 of 21 days
-# ---------------------------------------------------------
-daily_summary_df %>%
-  group_by(id) %>%
-  # Keep the row if its date is the absolute newest OR the absolute oldest
-  filter(date_pulled == min(date_pulled) | date_pulled == max(date_pulled)) %>%
-  arrange(id, date_pulled) %>%
-  ungroup()
-
-daily_summary_df  %>% filter(id == "crd_248b8f0ae7a84f368e48086307f50ff7")
-daily_summary_df %>%
-  group_by(id) %>%
-  arrange(date_pulled) %>%
-  slice_max(date_pulled, n = 1) %>%
-  slice_min(date_pulled, n = 1) %>%
+anchor_dates_df <- listing_s %>%
+  # Assign explicit column names based on the date boundary
   mutate(
-    listings_start_14d = lag(total_listings, 12),
-    listings_end_14d = lag(total_listings, 7),
+    time_marker = case_when(
+      date_pulled == d_21_ago ~ "day_21",
+      date_pulled == d_7_ago ~ "day_7",
+      date_pulled == d_today ~ "day_0"
+    )
+  ) %>%
+  select(-date_pulled) %>%
+  pivot_wider(
+    names_from = time_marker, 
+    values_from = c(total_listings, median_price)
+  )
+
+# ---------------------------------------------------------
+# Part 5: Calculate the % Graded Volume Feature
+# ---------------------------------------------------------
+graded_feature_df <- listings_tbl %>%
+  filter(date_pulled >= d_21_ago) %>%
+  # Get only the unique listings seen over the last 3 weeks
+  distinct(id, item_id) %>% 
+  # Join to the metadata table to check condition
+  inner_join(unique_listings_tbl, by = c("id", "item_id")) %>%
+  group_by(id) %>%
+  summarise(
+    total_unique_listings = n(),
+    # Sum up the logical TRUEs for graded cards
+    graded_count = sum(ifelse(is_graded == TRUE, 1, 0), na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  arrange(desc(total_listings)) %>%
-  print(n = 20)
+  # Calculate the percentage
+  mutate(pct_graded = (graded_count / total_unique_listings) * 100) %>%
+  collect()
 
 # ---------------------------------------------------------
-# Part 4: Calculate Price Metrics & Net Volume Changes 
+# Part 6: The Final Join & Target Creation
 # ---------------------------------------------------------
-final_analytical_dataset <- daily_summary_df %>%
-  # Ensure chronological order before using lag()
-  arrange(id, date_pulled) %>% 
-  group_by(id) %>%
+final_analytical_dataset <- anchor_dates_df %>%
+  inner_join(turnover_df, by = "id") %>%
+  inner_join(graded_feature_df, by = "id") %>%
   mutate(
-    # A. 7-Day Price Metrics (d_7_ago to d_today)
-    price_initial = lag(median_price, 7),
-    price_final = median_price,
-    price_change_pct = (price_final - price_initial) / price_initial * 100,
+    # A. Feature: Prior 14-Day Net Volume Change (Day 21 to Day 7)
+    prior_14d_volume_change = total_listings_day_7 - total_listings_day_21,
     
-    # B. The 3-Tier Categorization
+    # B. Target: 7-Day Price Change % (Day 7 to Today)
+    target_price_change_pct = (median_price_day_0 - median_price_day_7) / median_price_day_7 * 100,
+    
+    # C. Target: Categorical (3-Tier)
     price_change_category = case_when(
-      price_change_pct <= -5 ~ "Down",
-      price_change_pct > -5 & price_change_pct < 5 ~ "Stagnant",
-      price_change_pct >= 5 ~ "Up"
+      target_price_change_pct <= -5 ~ "Down",
+      target_price_change_pct > -5 & target_price_change_pct < 5 ~ "Stagnant",
+      target_price_change_pct >= 5 ~ "Up"
     ),
     
-    # C. Prior 14-Day Net Volume Metrics (d_21_ago to d_7_ago)
-    listings_start_14d = lag(total_listings, 21),
-    listings_end_14d = lag(total_listings, 7),
-    listing_total_change_prior_14d = listings_end_14d - listings_start_14d
+    # D. Factorize the target for the nnet::multinom() model
+    price_change_category = factor(price_change_category, levels = c("Stagnant", "Down", "Up")),
+    #E. calculate new listing to old listing ratio
+    ratio_listing = unique_listings_added / unique_listings_removed
   ) %>%
-  # Lock in the most recent date for each card
-  slice_max(date_pulled, n = 1) %>% 
-  ungroup() %>%
-  # Ensure we have a full 21 days of history for the card
-  filter(!is.na(price_initial), !is.na(listings_start_14d)) %>%
-  
-  # ---------------------------------------------------------
-  # Part 5: Join the Turnover Metrics
-  # ---------------------------------------------------------
-  left_join(turnover_df, by = "id") %>%
-  # Clean up the final view to only show the needed modeling columns
+  # Remove any cards that didn't have data for all three time periods
+  filter(!is.na(price_change_category), !is.na(prior_14d_volume_change)) %>%
+  # Select only the features needed for the statistical model
   select(
-    id, 
-    date_pulled,
-    price_change_category, 
-    price_change_pct,
-    listing_total_change_prior_14d,
+    id,
+    price_change_category,
+    target_price_change_pct,
+    prior_14d_volume_change,
     unique_listings_added,
-    unique_listings_removed
+    unique_listings_removed,
+    pct_graded,
+    ratio_listing
   )
+
+
+ggplot(data = final_analytical_dataset) +
+  geom_boxplot(aes(x = price_change_category, y = unique_listings_added)) 
