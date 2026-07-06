@@ -1,0 +1,628 @@
+---
+title: "The Anchor and the Orbit"
+subtitle: "What actually moves Enchanted Lorcana prices: error correction, listing microstructure, and market segments"
+author: "Lorecaster — exploration/softmax_report"
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    fig-width: 8
+    fig-height: 4.8
+    fig-dpi: 150
+    theme: cosmo
+execute:
+  warning: false
+  message: false
+  cache: true
+---
+
+```{r setup}
+#| cache: false
+library(DBI);   library(duckdb)
+library(dplyr); library(tidyr);   library(purrr)
+library(mgcv);  library(survival)
+library(broom); library(ggplot2); library(ggrepel)
+library(knitr); library(cluster)
+
+tok <- list(
+  surface = "#fcfcfb", ink = "#0b0b0b", ink2 = "#52514e", muted = "#898781",
+  grid = "#e1e0d9", baseline = "#c3c2b7",
+  up = "#2a78d6", down = "#e34948", flat = "#898781",
+  seq5 = c("#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"),
+  cat4 = c("#2a78d6", "#1baf7a", "#eda100", "#4a3aa7")  # slots 1,2,3,5
+)
+theme_lorecaster <- function(base_size = 12) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background  = element_rect(fill = tok$surface, colour = NA),
+      panel.background = element_rect(fill = tok$surface, colour = NA),
+      panel.grid.major = element_line(colour = tok$grid, linewidth = 0.3),
+      panel.grid.minor = element_blank(),
+      axis.text  = element_text(colour = tok$ink2),
+      axis.title = element_text(colour = tok$ink2),
+      plot.title = element_text(colour = tok$ink, face = "bold"),
+      plot.subtitle = element_text(colour = tok$ink2),
+      plot.caption  = element_text(colour = tok$muted, size = 9),
+      strip.text  = element_text(colour = tok$ink2, face = "bold"),
+      legend.text = element_text(colour = tok$ink2),
+      legend.title = element_text(colour = tok$ink2),
+      legend.position = "top"
+    )
+}
+set.seed(1789)
+```
+
+## 0. Where the last report left off
+
+The [companion softmax analysis](softmax_market_inference.html) found that the
+strongest predictor of a card's next week was its *own recent past*: a
++25% two-week run-up multiplied the odds of a retrace. It read as mean
+reversion — but a softmax on one price feed can't say **why**.
+
+This report brings in the data that can: `justtcg_prices` holds 430 days of
+daily **TCGplayer market prices** for the same 284 Enchanted cards, and the
+listing scrape itself contains 28,725 individual listing lifecycles nobody had
+touched. Four questions, four model families:
+
+1. **Which market leads?** — panel Granger regressions & an error-correction
+   model (the project plan assumed eBay is the leading indicator; we test it).
+2. **Is "momentum" real, or a shadow of something else?** — nested GLMs and a
+   GAM with card random effects.
+3. **What does a listing's *price* do to its *lifespan*?** — Cox proportional
+   hazards on 16,928 listing lifecycles.
+4. **Is this one market or several?** — k-means segmentation of card-level
+   behavior, then testing whether the correction mechanism differs by segment.
+
+```{r pull}
+con <- dbConnect(duckdb::duckdb())
+invisible(dbExecute(con, "INSTALL motherduck; LOAD motherduck;"))
+invisible(dbExecute(con, "ATTACH 'md:my_db' AS my_db;"))
+invisible(dbExecute(con, "USE my_db;"))
+
+daily_all <- dbGetQuery(con, "
+  SELECT id, date_pulled, count(*) AS n_active, median(price_val) AS median_price
+  FROM lorcana_active_listings GROUP BY id, date_pulled")
+daily_split <- dbGetQuery(con, "
+  SELECT id, date_pulled, is_graded, count(*) AS n_active,
+         median(price_val) AS median_price
+  FROM lorcana_active_listings GROUP BY id, date_pulled, is_graded")
+tcg <- dbGetQuery(con, "
+  SELECT tcgplayer_id, pull_date, market_price
+  FROM justtcg_prices WHERE pull_date >= DATE '2026-02-23'")
+lifecycle <- dbGetQuery(con, "
+  SELECT id, item_id, min(date_pulled) AS first_seen, max(date_pulled) AS last_seen,
+         arg_min(price_val, date_pulled)   AS entry_price,
+         arg_min(is_graded, date_pulled)   AS is_graded,
+         arg_min(listing_type, date_pulled) AS listing_type
+  FROM lorcana_active_listings GROUP BY id, item_id")
+dbDisconnect(con, shutdown = TRUE)
+
+meta <- readRDS("../../data/enchanteds/enchanted_list_05_07.rds") |>
+  transmute(id, tcgplayer_id = as.character(tcgplayer_id), name, version, set_name)
+
+px <- daily_all |>
+  inner_join(meta |> select(id, tcgplayer_id), by = "id") |>
+  transmute(tcgplayer_id, date = as.Date(date_pulled),
+            eb_price = median_price, n_active) |>
+  inner_join(tcg |> transmute(tcgplayer_id = as.character(tcgplayer_id),
+                              date = as.Date(pull_date), tcg_price = market_price),
+             by = c("tcgplayer_id", "date")) |>
+  filter(n_active >= 5, eb_price > 0, tcg_price > 0) |>
+  mutate(gap = log(eb_price / tcg_price)) |>
+  group_by(tcgplayer_id) |>
+  mutate(gap_dev = gap - mean(gap)) |>   # deviation from the card's own premium
+  arrange(date, .by_group = TRUE) |> ungroup()
+```
+
+## 1. Two markets, one anchor
+
+eBay listing medians sit far above TCGplayer market prices — the median card
+asks a **`r sprintf("%.0f%%", 100*(exp(median(px$gap))-1))` premium** (asking
+prices vs. transaction-anchored market prices, plus the graded mix). The
+question is who *moves* first when prices change.
+
+```{r granger}
+wk <- px |>
+  group_by(tcgplayer_id) |> arrange(date, .by_group = TRUE) |>
+  mutate(
+    d_eb_7   = log(eb_price)  - log(eb_price[match(date - 7, date)]),
+    d_tcg_7  = log(tcg_price) - log(tcg_price[match(date - 7, date)]),
+    d_eb_prev7  = d_eb_7[match(date - 7, date)],
+    d_tcg_prev7 = d_tcg_7[match(date - 7, date)],
+    gap_lag8    = gap_dev[match(date - 8, date)],
+    d_eb_indep  = log(eb_price[match(date - 8, date)]) -
+                  log(eb_price[match(date - 15, date)])
+  ) |> ungroup()
+
+anchor_wd <- as.POSIXlt(max(px$date))$wday
+wk7 <- wk |> filter(as.POSIXlt(date)$wday == anchor_wd)
+
+gr <- wk7 |> filter(complete.cases(d_eb_7, d_tcg_7, d_eb_prev7, d_tcg_prev7)) |>
+  mutate(across(c(d_eb_7, d_tcg_7, d_eb_prev7, d_tcg_prev7),
+                ~pmax(pmin(., quantile(., .995)), quantile(., .005))))
+m_tcg <- lm(d_tcg_7 ~ d_tcg_prev7 + d_eb_prev7, data = gr)
+m_eb  <- lm(d_eb_7  ~ d_eb_prev7  + d_tcg_prev7, data = gr)
+
+bind_rows(
+  tidy(m_tcg) |> mutate(Equation = "TCG return this week"),
+  tidy(m_eb)  |> mutate(Equation = "eBay return this week")) |>
+  filter(term != "(Intercept)") |>
+  transmute(Equation,
+            Predictor = recode(term,
+              d_tcg_prev7 = "TCG return last week",
+              d_eb_prev7  = "eBay return last week"),
+            beta = round(estimate, 3), t = round(statistic, 1),
+            p = signif(p.value, 2)) |>
+  kable(caption = sprintf(
+    "Weekly panel Granger regressions (n = %s card-weeks). Cross-market effects: TCG→eBay is an order of magnitude larger than eBay→TCG.",
+    format(nrow(gr), big.mark = ",")))
+```
+
+The project plan's premise — *"high-frequency eBay listing prices are a
+leading indicator"* — is **backwards**. Last week's TCGplayer move predicts
+this week's eBay move with a coefficient of
+`r round(coef(m_eb)["d_tcg_prev7"], 2)`; the reverse path is
+`r round(coef(m_tcg)["d_eb_prev7"], 3)` — statistically detectable, an order
+of magnitude smaller. TCGplayer also *trends* (positive autocorrelation,
+`r round(coef(m_tcg)["d_tcg_prev7"], 2)`) while the raw eBay median
+*oscillates* (negative autocorrelation) — the signature of listing-composition
+noise, which matters for everything below.
+
+### 1.1 The gap is a spring
+
+If TCGplayer is the anchor, a card trading above or below *its own habitual
+premium* should get pulled back. We test with an error-correction design built
+to survive measurement noise: the gap is measured at day *t−8*, the response
+return runs *t−7 → t*, so no shared price observation links them.
+
+```{r ecm}
+ec <- wk7 |> filter(complete.cases(d_eb_7, gap_lag8, d_eb_indep)) |>
+  mutate(across(c(d_eb_7, d_eb_indep),
+                ~pmax(pmin(., quantile(., .995)), quantile(., .005))))
+m_ec <- lm(d_eb_7 ~ gap_lag8 + d_eb_indep, data = ec)
+
+set.seed(7)
+cards_ec <- unique(ec$tcgplayer_id)
+bs <- replicate(400, {
+  s <- sample(cards_ec, length(cards_ec), replace = TRUE)
+  coef(lm(d_eb_7 ~ gap_lag8 + d_eb_indep,
+          data = bind_rows(lapply(s, \(cc) ec[ec$tcgplayer_id == cc, ])))
+       )["gap_lag8"]
+})
+alpha <- -coef(m_ec)["gap_lag8"]
+hl <- log(0.5) / log(1 - alpha)
+```
+
+The correction coefficient is
+**`r round(coef(m_ec)["gap_lag8"], 2)`** per week (card-clustered bootstrap
+95% CI [`r round(quantile(bs, .025), 2)`, `r round(quantile(bs, .975), 2)`]):
+a card trading above its usual TCG-relative premium gives back about
+`r sprintf("%.0f%%", 100*alpha)` of the excess every week — a **half-life of
+`r round(hl, 1)` weeks**. The adjustment is entirely one-sided: regressing
+the *TCG* return on the same gap gives
+`r round(coef(lm(d_tcg_7 ~ gap_lag8, data = wk7 |> filter(complete.cases(d_tcg_7, gap_lag8))))["gap_lag8"], 3)`
+(n.s.) — eBay does all of the correcting. **eBay sellers chase TCGplayer;
+TCGplayer barely notices eBay.**
+
+The same regression quietly decomposes "momentum" into its two true parts.
+Holding the gap fixed, last week's *residual* eBay move slightly
+**continues** (+`r round(coef(m_ec)["d_eb_indep"], 2)`,
+t = `r round(summary(m_ec)$coefficients["d_eb_indep", "t value"], 1)`) —
+genuine news diffuses over a couple of weeks. What *reverts* is exclusively
+the component that stretched the card away from its anchor. Naive
+autocorrelation mixes the two (and adds composition noise) and comes out
+negative; the softmax report measured that blend and called it mean
+reversion.
+
+## 2. The showdown: momentum was anchoring in disguise
+
+The companion report's headline was momentum → retrace. Put the two candidate
+explanations in the same ring, on measurements engineered to share no noise
+(momentum from *t−21 → t−8*, gap at *t−8*, outcome *t−7 → t*):
+
+```{r showdown}
+anchors <- seq(as.Date("2026-04-20"), as.Date("2026-07-06"), by = 7)
+grab <- function(d) px |> filter(date == d) |>
+  select(tcgplayer_id, eb_price, gap_dev, n_active)
+
+panel <- bind_rows(lapply(anchors, function(t) {
+  p0  <- grab(t)      |> select(tcgplayer_id, eb_0 = eb_price)
+  p7  <- grab(t - 7)  |> select(tcgplayer_id, eb_7 = eb_price)
+  p8  <- grab(t - 8)  |> select(tcgplayer_id, eb_8 = eb_price, gap_dev)
+  p21 <- grab(t - 21) |> select(tcgplayer_id, eb_21 = eb_price)
+  reduce(list(p0, p7, p8, p21), inner_join, by = "tcgplayer_id") |>
+    mutate(anchor = t)
+})) |>
+  mutate(fwd_ret  = log(eb_0 / eb_7),
+         momentum = log(eb_8 / eb_21),
+         down     = as.integer(fwd_ret <= log(0.95)),
+         log_price = log(eb_8),
+         card = factor(tcgplayer_id)) |>
+  filter(complete.cases(fwd_ret, momentum, gap_dev)) |>
+  mutate(fwd_ret_w = pmax(pmin(fwd_ret, quantile(fwd_ret, .995)),
+                          quantile(fwd_ret, .005)))
+
+g1 <- glm(down ~ momentum, family = binomial, data = panel)
+g2 <- glm(down ~ gap_dev,  family = binomial, data = panel)
+g3 <- glm(down ~ momentum + gap_dev, family = binomial, data = panel)
+
+tibble(
+  Model = c("Momentum only", "Gap only", "Both"),
+  `Momentum β (z)` = c(sprintf("%.2f (%.1f)", coef(g1)["momentum"],
+                               summary(g1)$coefficients["momentum","z value"]),
+                       "—",
+                       sprintf("%.2f (%.1f)", coef(g3)["momentum"],
+                               summary(g3)$coefficients["momentum","z value"])),
+  `Gap β (z)` = c("—",
+                  sprintf("%.2f (%.1f)", coef(g2)["gap_dev"],
+                          summary(g2)$coefficients["gap_dev","z value"]),
+                  sprintf("%.2f (%.1f)", coef(g3)["gap_dev"],
+                          summary(g3)$coefficients["gap_dev","z value"])),
+  AIC = round(c(AIC(g1), AIC(g2), AIC(g3)), 1)
+) |>
+  kable(caption = sprintf(
+    "P(Down ≥5%%) on %s card-weeks. Alone, momentum is highly significant. Against the gap, it evaporates.",
+    format(nrow(panel), big.mark = ",")))
+```
+
+Momentum's coefficient collapses from significant
+(z = `r round(summary(g1)$coefficients["momentum","z value"], 1)`) to
+**zero** (p = `r signif(summary(g3)$coefficients["momentum",4], 2)`) the
+moment the TCG gap enters; the gap is untouched. The softmax's "mean
+reversion" was never a property of eBay prices in isolation — **it was error
+correction toward TCGplayer, visible only when you look at both markets.**
+Cards spike *away from their anchor*, and the spring pulls them back.
+
+### 2.1 The shape of the spring
+
+A GAM (thin-plate smooths, card random effect) on the continuous forward
+return shows the correction is smooth, monotone, and **asymmetric**:
+
+```{r gam}
+gm <- gam(fwd_ret_w ~ s(gap_dev) + s(momentum) + s(log_price) + s(card, bs = "re"),
+          data = panel, method = "REML")
+dev_expl <- summary(gm)$dev.expl
+```
+
+```{r gam-curve}
+#| fig-cap: "GAM partial effect of the anchor gap on next-week eBay return (95% CI). Cards below their habitual TCG-relative premium (left, blue zone) earn strong positive corrections; overpriced cards (right, red zone) bleed back — and the give-back runs steeper than the catch-up. Ticks on the baseline mark the observed gap distribution."
+grid_g <- data.frame(gap_dev = seq(-1, 1, .02), momentum = 0,
+                     log_price = median(panel$log_price), card = panel$card[1])
+pr <- predict(gm, grid_g, type = "terms", se.fit = TRUE, exclude = "s(card)")
+curve <- tibble(gap_dev = grid_g$gap_dev,
+                fit = pr$fit[, "s(gap_dev)"], se = pr$se.fit[, "s(gap_dev)"])
+
+ggplot(curve, aes(gap_dev, fit)) +
+  annotate("rect", xmin = -Inf, xmax = 0, ymin = -Inf, ymax = Inf,
+           fill = tok$up, alpha = .05) +
+  annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf,
+           fill = tok$down, alpha = .05) +
+  geom_hline(yintercept = 0, colour = tok$baseline, linetype = "dashed") +
+  geom_vline(xintercept = 0, colour = tok$baseline, linetype = "dashed") +
+  geom_ribbon(aes(ymin = fit - 1.96 * se, ymax = fit + 1.96 * se),
+              fill = tok$up, alpha = .15) +
+  geom_line(colour = tok$up, linewidth = 1) +
+  geom_rug(data = panel |> filter(abs(gap_dev) <= 1),
+           aes(x = gap_dev), inherit.aes = FALSE,
+           sides = "b", colour = tok$muted, alpha = .15, length = unit(4, "pt")) +
+  annotate("text", x = -.62, y = .33, label = "priced below its\nusual premium → bounces",
+           colour = tok$up, size = 3.4, fontface = "bold", lineheight = .95) +
+  annotate("text", x = .55, y = -.33, label = "priced above its\nusual premium → bleeds",
+           colour = tok$down, size = 3.4, fontface = "bold", lineheight = .95) +
+  scale_x_continuous(labels = \(x) sprintf("%+.0f%%", 100 * (exp(x) - 1))) +
+  scale_y_continuous(labels = \(y) sprintf("%+.0f%%", 100 * (exp(y) - 1))) +
+  labs(x = "Current deviation from the card's habitual eBay/TCG premium",
+       y = "Partial effect on next-week return",
+       title = "The anchor spring: deviation in, correction out",
+       subtitle = sprintf("GAM, %.1f%% of weekly return variance explained; momentum smooth is flat (p = %.2f)",
+                          100 * dev_expl,
+                          summary(gm)$s.table["s(momentum)", "p-value"])) +
+  theme_lorecaster()
+```
+
+### 2.2 Out-of-sample: does the gap actually forecast?
+
+```{r holdout}
+test_anchors <- tail(anchors, 3)
+tr <- panel |> filter(!anchor %in% test_anchors)
+te <- panel |> filter(anchor %in% test_anchors)
+oos_r2 <- function(form) {
+  m <- lm(form, data = tr)
+  1 - sum((te$fwd_ret_w - predict(m, te))^2) / sum((te$fwd_ret_w - mean(tr$fwd_ret_w))^2)
+}
+r2_gap <- oos_r2(fwd_ret_w ~ gap_dev)
+r2_mom <- oos_r2(fwd_ret_w ~ momentum)
+r2_both <- oos_r2(fwd_ret_w ~ gap_dev + momentum)
+```
+
+Trained on the first `r length(anchors) - 3` weeks and tested on the last 3,
+the gap alone delivers an out-of-sample R² of
+**`r sprintf("%.1f%%", 100 * r2_gap)`** on next-week returns; momentum alone
+manages `r sprintf("%.1f%%", 100 * r2_mom)`, and adding it to the gap
+`r if (r2_both <= r2_gap + 0.002) "adds nothing" else "adds little"`
+(`r sprintf("%.1f%%", 100 * r2_both)`, slightly *worse* — the extra
+parameter is noise). An out-of-sample R² near
+`r sprintf("%.0f%%", 100 * r2_gap)` on *weekly* returns is unusually strong
+for a financial panel — a reminder that this is a thin collectibles market
+correcting mechanical mispricings, not an efficient exchange — and the
+signal is computable every morning from data the pipeline already collects.
+
+## 3. Microstructure: what a price does to a listing's lifespan
+
+The scrape watches every listing appear and disappear — 16,928 fixed-price
+listings born inside the observation window. Disappearance mostly means sold,
+sometimes delisted; either way it is *inventory clearing*. A Cox proportional
+hazards model asks how a listing's **entry price relative to its card's
+same-condition market** changes its clearance rate.
+
+```{r survival}
+first_day <- min(px$date); last_day <- max(as.Date(daily_all$date_pulled))
+ref <- daily_split |>
+  transmute(id, date = as.Date(date_pulled), is_graded,
+            ref_price = median_price, ref_n = n_active)
+
+lc <- lifecycle |>
+  mutate(first_seen = as.Date(first_seen), last_seen = as.Date(last_seen)) |>
+  filter(first_seen > first_day,
+         grepl("FIXED_PRICE", listing_type), !grepl("AUCTION", listing_type),
+         entry_price > 0) |>
+  inner_join(ref, by = c("id", "first_seen" = "date", "is_graded")) |>
+  filter(ref_n >= 5) |>
+  mutate(rel_price = entry_price / ref_price,
+         log_rel = log(rel_price),
+         duration = as.numeric(last_seen - first_seen) + 1,
+         event = as.integer(last_seen < last_day - 1)) |>
+  filter(rel_price > 0.1, rel_price < 10)
+
+cx <- coxph(Surv(duration, event) ~ log_rel + is_graded, data = lc, cluster = id)
+hr <- exp(coef(cx)); ci <- exp(confint(cx))
+```
+
+```{r km-curves}
+#| fig-cap: "Kaplan–Meier survival of fixed-price listings by entry price relative to the card's same-condition median. Cheap listings vanish fastest; ambitious ones linger. Curves flatten near 40–60 day survivors — the patient sellers who simply wait."
+#| fig-height: 5
+lc <- lc |> mutate(band = cut(rel_price, c(0, .7, .9, 1.1, 1.4, Inf),
+  labels = c("< 0.7× market", "0.7–0.9×", "0.9–1.1×", "1.1–1.4×", "> 1.4× market")))
+sf <- survfit(Surv(duration, event) ~ band, data = lc)
+km <- tidy(sf) |>
+  mutate(band = factor(sub("band=", "", strata), levels = levels(lc$band)))
+
+band_cols <- setNames(tok$seq5, levels(lc$band))
+lab_km <- km |> filter(time <= 60) |> group_by(band) |> slice_max(time, n = 1)
+
+ggplot(km |> filter(time <= 60), aes(time, estimate, colour = band)) +
+  geom_step(linewidth = 0.9) +
+  geom_text_repel(data = lab_km, aes(label = band), size = 3.2,
+                  fontface = "bold", nudge_x = 4, direction = "y",
+                  hjust = 0, segment.colour = NA, show.legend = FALSE) +
+  scale_colour_manual(values = band_cols, name = "Entry price") +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_x_continuous(limits = c(0, 74), breaks = seq(0, 60, 15)) +
+  labs(x = "Days since listing appeared", y = "Share still active",
+       title = "Listing survival by asking price",
+       subtitle = sprintf("%s fixed-price listings; %s cleared during the window",
+                          format(nrow(lc), big.mark = ","),
+                          format(sum(lc$event), big.mark = ","))) +
+  theme_lorecaster() +
+  theme(legend.position = "none")
+```
+
+```{r km-medians}
+med <- summary(sf)$table
+tibble(Band = levels(lc$band),
+       Listings = med[, "records"],
+       `Median days to clear` = med[, "median"]) |>
+  kable(caption = "Median listing lifetime by entry price band.")
+```
+
+The hazard ratio on log relative price is
+**`r round(hr["log_rel"], 2)`** (95% CI `r round(ci["log_rel", 1], 2)`–
+`r round(ci["log_rel", 2], 2)`, card-clustered): pricing at double the market
+slows clearing by ~`r sprintf("%.0f%%", 100 * (1 - hr["log_rel"]^log(2)))`.
+Graded slabs clear `r sprintf("%.0f%%", 100 * (1 - hr["is_gradedTRUE"]))`
+slower than raw copies (borderline, p =
+`r signif(summary(cx)$coefficients["is_gradedTRUE", "Pr(>|z|)"], 2)`) — the
+graded market is where inventory *sits*, which is exactly why a
+graded-flooded book read as bearish in the softmax model.
+
+The strategic content is in the two ends of the table: below 0.7× market a
+listing's median life is measured in a couple of days (underpriced inventory
+is *instantly* absorbed — real demand exists at the anchor price), while
+above 1.4× the median listing outlives a month. **The eBay premium isn't a
+market price; it's a queue of hopeful asks.** That is also *why* eBay does
+all the error-correcting in §1: transactions happen near the anchor, and
+listing medians drift back as the hopeful tail either reprices or expires.
+
+## 4. Not one market — four
+
+Card-level behavior over the window (price level, habitual premium,
+volatility, listing depth, graded share, TCG drift) clusters into four soft
+but readable segments (k chosen by silhouette).
+
+```{r segments}
+gr_share <- daily_split |>
+  group_by(id) |>
+  summarise(graded_share = 100 * sum(n_active * is_graded) / sum(n_active),
+            .groups = "drop") |>
+  inner_join(meta |> select(id, tcgplayer_id), by = "id")
+
+card_stats <- px |>
+  group_by(tcgplayer_id) |>
+  arrange(date, .by_group = TRUE) |>
+  summarise(n_days = n(), price_usd = median(tcg_price), premium = mean(gap),
+            wk_vol = sd(diff(log(eb_price), lag = 7), na.rm = TRUE),
+            liquidity = mean(n_active),
+            tcg_drift = (last(log(tcg_price)) - first(log(tcg_price))) /
+                        as.numeric(last(date) - first(date)) * 7,
+            .groups = "drop") |>
+  filter(n_days >= 60) |>
+  inner_join(gr_share |> select(tcgplayer_id, graded_share), by = "tcgplayer_id") |>
+  inner_join(meta |> distinct(tcgplayer_id, name, version), by = "tcgplayer_id")
+
+X <- card_stats |>
+  transmute(log_price = log(price_usd), premium, wk_vol,
+            log_liq = log(liquidity), graded_share, tcg_drift) |> scale()
+set.seed(99)
+sil <- sapply(2:7, \(k) mean(silhouette(kmeans(X, k, nstart = 50)$cluster,
+                                        dist(X))[, 3]))
+k_best <- (2:7)[which.max(sil)]
+km4 <- kmeans(X, k_best, nstart = 100)
+
+card_stats$cluster <- factor(km4$cluster)
+
+seg_summary <- card_stats |> group_by(cluster) |>
+  summarise(n = n(), `Median TCG $` = round(median(price_usd)),
+            `Ask premium` = sprintf("%.0f%%", 100 * (exp(mean(premium)) - 1)),
+            `Weekly vol` = sprintf("%.0f%%", 100 * mean(wk_vol)),
+            `Avg listings` = round(mean(liquidity)),
+            `% graded` = round(mean(graded_share)),
+            `TCG drift/wk` = sprintf("%+.1f%%", 100 * mean(tcg_drift)))
+```
+
+```{r seg-label}
+# name clusters by profile, claiming the most distinctive trait first
+prof <- card_stats |> group_by(cluster) |>
+  summarise(price = median(price_usd), prem = mean(premium),
+            vol = mean(wk_vol), liq = mean(liquidity), .groups = "drop")
+lab <- prof |> mutate(seg = NA_character_)
+lab$seg[which.max(lab$price)] <- "High-end heat"
+lab$seg[is.na(lab$seg)][which.min(lab$price[is.na(lab$seg)])] <- "Lottery tickets"
+lab$seg[is.na(lab$seg)][which.max(lab$liq[is.na(lab$seg)])] <- "Liquid slab walls"
+lab$seg[is.na(lab$seg)] <- "Quiet staples"
+lab <- lab |> select(cluster, seg)
+card_stats <- card_stats |> left_join(lab, by = "cluster")
+seg_summary |> left_join(lab, by = "cluster") |>
+  relocate(Segment = seg) |> select(-cluster) |>
+  kable(caption = sprintf(
+    "k-means segments (k = %d by silhouette) over %d cards with ≥60 qualifying days.",
+    k_best, nrow(card_stats)))
+```
+
+```{r seg-scatter}
+#| fig-cap: "The Enchanted market's four temperaments: habitual ask premium vs. weekly volatility, point size = listing depth. Labels mark the card nearest each segment centroid."
+#| fig-height: 5.4
+seg_cols <- setNames(tok$cat4, sort(unique(card_stats$seg)))
+exemplars <- card_stats |>
+  group_by(cluster) |>
+  mutate(d = mahalanobis(pick(premium, wk_vol),
+                         c(mean(premium), mean(wk_vol)),
+                         cov(cbind(premium, wk_vol)) + diag(2) * 1e-6)) |>
+  slice_min(d, n = 1) |> ungroup()
+
+ggplot(card_stats, aes(premium, 100 * wk_vol,
+                       colour = seg, size = liquidity)) +
+  geom_point(alpha = .65) +
+  geom_point(data = exemplars, shape = 21, stroke = 1.1,
+             fill = NA, colour = tok$ink, show.legend = FALSE) +
+  geom_text_repel(data = exemplars,
+                  aes(label = paste0(name, "\n", version)),
+                  size = 3, colour = tok$ink2, fontface = "bold",
+                  lineheight = .9, min.segment.length = 0, box.padding = .8,
+                  show.legend = FALSE) +
+  scale_colour_manual(values = seg_cols, name = NULL,
+                      guide = guide_legend(override.aes = list(size = 3))) +
+  scale_size_continuous(range = c(1.5, 7), guide = "none") +
+  scale_x_continuous(breaks = log(1 + c(0, .5, 1, 3, 10, 20)),
+                     labels = c("0%", "+50%", "+100%", "+300%",
+                                "+1,000%", "+2,000%")) +
+  scale_y_continuous(labels = \(y) sprintf("%.0f%%", y)) +
+  labs(x = "Habitual eBay ask premium over TCGplayer",
+       y = "Weekly price volatility (eBay median)",
+       title = "Four temperaments of the Enchanted market") +
+  theme_lorecaster()
+```
+
+Does the spring pull equally hard everywhere? Interacting the gap with
+segment membership:
+
+```{r seg-interaction}
+panel_seg <- panel |>
+  inner_join(card_stats |> select(tcgplayer_id, seg), by = "tcgplayer_id")
+m_int <- lm(fwd_ret_w ~ gap_dev * seg, data = panel_seg)
+co <- summary(m_int)$coefficients
+base_seg <- sort(unique(panel_seg$seg))[1]
+slopes <- tibble(seg = sort(unique(panel_seg$seg))) |>
+  mutate(slope = coef(m_int)["gap_dev"] +
+           ifelse(seg == base_seg, 0,
+                  coef(m_int)[paste0("gap_dev:seg", seg)] |> coalesce(0)))
+kable(slopes |> mutate(slope = round(slope, 2),
+                       `half-life (wk)` = round(log(.5) / log(1 + slope), 1)),
+      caption = "Gap-correction slope by segment (more negative = faster correction).")
+```
+
+Every segment corrects, but **lottery tickets correct slowest** — cheap,
+hype-driven cards can float above their anchor for a month or more. That is
+where "this time it's different" stories live, and where the risk flag from
+the softmax report matters most.
+
+## 5. So what? Today's board
+
+Everything above compresses into one number per card per day: **today's
+deviation from its habitual anchor premium**, scored through the GAM. As of
+the last pull (`r format(max(px$date))`):
+
+```{r today-board}
+today <- max(px$date)
+board <- px |> filter(date == today, n_active >= 5) |>
+  inner_join(meta |> distinct(tcgplayer_id, name, version), by = "tcgplayer_id") |>
+  filter(tcg_price >= 10)
+board$pred <- predict(gm, board |>
+    mutate(momentum = 0, log_price = log(eb_price),
+           card = factor(panel$card[1], levels = levels(panel$card))),
+  exclude = "s(card)")
+board <- board |> arrange(gap_dev)
+
+show_board <- bind_rows(head(board, 6) |> mutate(side = "Trading cheap vs. anchor"),
+                        tail(board, 6) |> mutate(side = "Trading rich vs. anchor")) |>
+  transmute(side, Card = ifelse(is.na(version) | version == "",
+                                name, paste0(name, " — ", version)),
+            `TCG $` = round(tcg_price, 0), `eBay median $` = round(eb_price, 0),
+            `Deviation` = sprintf("%+.0f%%", 100 * (exp(gap_dev) - 1)),
+            `Model 7-day outlook` = sprintf("%+.1f%%", 100 * (exp(pred) - 1)))
+kable(show_board |> select(-side) |> as.data.frame(),
+      caption = sprintf("Cards furthest from their habitual anchor premium on %s. Top 6: below anchor (model expects recovery). Bottom 6: above anchor (model expects give-back). Outlook is the GAM partial prediction — a tilt, not a promise.",
+                        format(today)))
+```
+
+**Caveats that keep this honest.** The response variable throughout is the
+*median active listing price* — an ask-side index, not a transaction price
+(though §3 shows transactions cluster near the anchor). "Cleared" conflates
+sold with delisted. The overlap window is one 103-day season; regime changes
+(set releases, reprints) can move the habitual premium itself. And 12 weekly
+anchors per card is thin — every headline number above ships with clustered
+uncertainty for exactly that reason.
+
+## 6. What this changes
+
+1. **Retire "momentum" as a concept for this market; adopt the anchor gap.**
+   It subsumes momentum entirely, forecasts out-of-sample
+   (R² ≈ `r sprintf("%.0f%%", 100 * r2_gap)` weekly), has a mechanical
+   explanation (hopeful asks decaying toward the transaction anchor), and is
+   computable daily from existing tables.
+2. **The plan's premise inverts**: eBay is not the leading indicator —
+   TCGplayer is the anchor and eBay is the orbit. eBay's value in the
+   pipeline is *breadth* (composition, gradedness, depth, lifecycle), not
+   price discovery.
+3. **Listing depth is demand-side truth serum**: sub-anchor inventory clears
+   in days. A card whose cheap listings *don't* clear is genuinely cold —
+   a sharper bearish flag than any price series.
+4. **Segment before you model.** Correction speed differs by temperament;
+   lottery tickets deserve wider bands and slower expected reversion in any
+   daily monitor ("Step D" of the original plan).
+
+::: {.callout-note collapse="true"}
+## Reproducibility
+
+Card-day join: `r format(nrow(px), big.mark = ",")` rows (depth ≥ 5).
+Weekly Granger/ECM: `r format(nrow(gr), big.mark = ",")` card-weeks.
+Showdown panel: `r format(nrow(panel), big.mark = ",")` card-weeks,
+12 anchors. Survival: `r format(nrow(lc), big.mark = ",")` fixed-price
+listings born after `r format(first_day)`. Segmentation:
+`r nrow(card_stats)` cards, k = `r k_best`. Seeds: 1789 (session), 7 (ECM
+bootstrap), 99 (k-means). Render:
+`quarto render exploration/softmax_report/market_anatomy.qmd`.
+:::

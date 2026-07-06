@@ -1,0 +1,590 @@
+---
+title: "Market Physics of Enchanted Lorcana Cards"
+subtitle: "A pooled softmax (multinomial logistic) inference model of 7-day price movements"
+author: "Lorecaster — exploration/softmax_report"
+date: last-modified
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    fig-width: 8
+    fig-height: 4.8
+    fig-dpi: 150
+    theme: cosmo
+execute:
+  warning: false
+  message: false
+  cache: true
+---
+
+```{r setup}
+#| cache: false
+library(DBI);   library(duckdb)
+library(dplyr); library(tidyr);  library(purrr)
+library(nnet);  library(MASS,  exclude = "select")
+library(broom); library(ggplot2)
+library(knitr); library(patchwork)
+
+# ---- chart tokens (reference dataviz palette, light mode) -------------------
+tok <- list(
+  surface  = "#fcfcfb", ink = "#0b0b0b", ink2 = "#52514e", muted = "#898781",
+  grid     = "#e1e0d9", baseline = "#c3c2b7",
+  up       = "#2a78d6",   # diverging cool pole
+  down     = "#e34948",   # diverging warm pole
+  flat     = "#898781",   # neutral midpoint (mark-weight gray)
+  seq_lo   = "#cde2fb", seq_hi = "#0d366b",
+  accent2  = "#eb6834"    # categorical slot 8 (orange) for method contrast
+)
+move_cols <- c(Down = tok$down, Stagnant = tok$flat, Up = tok$up)
+
+theme_lorecaster <- function(base_size = 12) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background   = element_rect(fill = tok$surface, colour = NA),
+      panel.background  = element_rect(fill = tok$surface, colour = NA),
+      panel.grid.major  = element_line(colour = tok$grid, linewidth = 0.3),
+      panel.grid.minor  = element_blank(),
+      axis.text         = element_text(colour = tok$ink2),
+      axis.title        = element_text(colour = tok$ink2),
+      plot.title        = element_text(colour = tok$ink, face = "bold"),
+      plot.subtitle     = element_text(colour = tok$ink2),
+      plot.caption      = element_text(colour = tok$muted, size = 9),
+      strip.text        = element_text(colour = tok$ink2, face = "bold"),
+      legend.text       = element_text(colour = tok$ink2),
+      legend.title      = element_text(colour = tok$ink2),
+      legend.position   = "top"
+    )
+}
+set.seed(1789)
+```
+
+## 1. Motivation
+
+`exploration/softmax.R` lays out a plan: instead of training black-box,
+card-specific forecasters, fit **one pooled multinomial logistic (softmax)
+regression** across the whole market and read its coefficients as *market
+physics* — how listing turnover, listing composition, and supply age move the
+odds that a card's price goes **Down**, stays **Stagnant**, or goes **Up** over
+the next week. The script builds a single 21-day snapshot and stops before any
+model is fit.
+
+This report executes the plan and extends it in four ways:
+
+1. **Pooled panel, not one snapshot.** The plan's "Step C" calls for fitting
+   across *all* historical windows simultaneously. We build a panel of sliding
+   21-day windows stepped weekly across the full listing history.
+2. **A lookahead leak is closed.** The prototype computed `% graded` over the
+   window `[t-21, t]` — which overlaps the outcome period `(t-7, t]`. All
+   features here use only information available at the decision date `t-7`.
+3. **Honest uncertainty.** The same cards recur across windows, so ordinary
+   Wald standard errors are too small. We report **card-clustered bootstrap**
+   confidence intervals alongside the Wald ones.
+4. **The softmax choice is tested, not assumed.** Down/Stagnant/Up is ordered,
+   so a proportional-odds ordinal model is the parsimonious competitor. We fit
+   both and run a likelihood-ratio test of the proportional-odds restriction.
+
+One planned term dies on contact with the data: the volume-ratio × **rarity**
+interaction is unidentifiable because every tracked card is Enchanted rarity.
+We substitute a volume-ratio × **price tier** interaction (differential supply
+elasticity across price levels) and keep the supply-age control via each
+card's set release date.
+
+## 2. Data
+
+Listings are scraped daily from eBay into MotherDuck. We pull three compact
+tables: per-card daily aggregates, distinct listing presence per day (for
+turnover), and LLM-extracted listing metadata (graded vs. raw).
+
+```{r pull-data}
+con <- dbConnect(duckdb::duckdb())
+invisible(dbExecute(con, "INSTALL motherduck; LOAD motherduck;"))
+invisible(dbExecute(con, "ATTACH 'md:my_db' AS my_db;"))
+invisible(dbExecute(con, "USE my_db;"))
+
+daily_agg <- dbGetQuery(con, "
+  SELECT id, date_pulled, count(*) AS n_active, median(price_val) AS median_price
+  FROM lorcana_active_listings GROUP BY id, date_pulled")
+
+presence <- dbGetQuery(con, "
+  SELECT DISTINCT id, item_id, date_pulled FROM lorcana_active_listings")
+
+graded_meta <- dbGetQuery(con, "
+  SELECT DISTINCT id, item_id, is_graded
+  FROM llm_listing_metadata WHERE is_valid = TRUE")
+
+dbDisconnect(con, shutdown = TRUE)
+
+meta <- readRDS("../../data/enchanteds/enchanted_list_05_07.rds") |>
+  transmute(id, name, version, set_name, released_at = as.Date(released_at))
+```
+
+### 2.1 Panel construction
+
+Each observation is a *(card, anchor date)* pair. For anchor `t`:
+
+* **Feature window** `[t-21, t-7]`: listing turnover (distinct `item_id`s
+  added vs. removed), % of unique listings graded, change in active listing
+  count, price level, and prior 14-day price momentum — all knowable at `t-7`.
+* **Outcome window** `(t-7, t]`: percent change in the median listing price,
+  discretised at ±5% into **Down / Stagnant / Up** (the plan's thresholds).
+
+Anchors step backward weekly from the latest pull date, keeping only anchors
+where all three boundary dates exist.
+
+```{r build-panel}
+all_dates <- sort(unique(daily_agg$date_pulled))
+anchors <- as.Date(character())
+t <- max(all_dates)
+while (t - 21 >= min(all_dates)) {
+  if (all(c(t, t - 7, t - 21) %in% all_dates)) anchors <- c(anchors, t)
+  t <- t - 7
+}
+anchors <- sort(anchors)
+
+build_window <- function(t) {
+  t7 <- t - 7; t21 <- t - 21
+  p_start <- presence |> filter(date_pulled == t21) |> distinct(id, item_id)
+  p_end   <- presence |> filter(date_pulled == t7)  |> distinct(id, item_id)
+  turn <- full_join(mutate(p_start, was_start = 1L),
+                    mutate(p_end,   was_end   = 1L),
+                    by = c("id", "item_id")) |>
+    group_by(id) |>
+    summarise(added   = sum(is.na(was_start) & !is.na(was_end)),
+              removed = sum(!is.na(was_start) & is.na(was_end)), .groups = "drop")
+  grad <- presence |>
+    filter(date_pulled >= t21, date_pulled <= t7) |>
+    distinct(id, item_id) |>
+    inner_join(graded_meta, by = c("id", "item_id")) |>
+    group_by(id) |>
+    summarise(pct_graded = 100 * mean(is_graded, na.rm = TRUE), .groups = "drop")
+  daily_agg |>
+    filter(date_pulled %in% c(t21, t7, t)) |>
+    mutate(mark = case_when(date_pulled == t21 ~ "d21",
+                            date_pulled == t7  ~ "d7",
+                            TRUE               ~ "d0")) |>
+    dplyr::select(-date_pulled) |>
+    pivot_wider(names_from = mark, values_from = c(n_active, median_price)) |>
+    inner_join(turn, by = "id") |>
+    left_join(grad, by = "id") |>
+    mutate(anchor_date = t)
+}
+
+MIN_DEPTH <- 5   # median of <5 listings is composition noise, not price signal
+
+panel <- bind_rows(lapply(anchors, build_window)) |>
+  inner_join(meta, by = "id") |>
+  mutate(
+    target_pct = 100 * (median_price_d0 - median_price_d7) / median_price_d7
+  ) |>
+  filter(!is.na(target_pct), !is.na(pct_graded),
+         n_active_d21 >= MIN_DEPTH, n_active_d7 >= MIN_DEPTH,
+         n_active_d0  >= MIN_DEPTH) |>
+  mutate(
+    move = factor(case_when(target_pct <= -5 ~ "Down",
+                            target_pct >=  5 ~ "Up",
+                            TRUE             ~ "Stagnant"),
+                  levels = c("Stagnant", "Down", "Up")),
+    log_vol_ratio  = log((added + 1) / (removed + 1)),
+    log_active_chg = log(n_active_d7 / n_active_d21),
+    log_price      = log(median_price_d7),
+    log_momentum   = log(median_price_d7 / median_price_d21),
+    pct_graded10   = pct_graded / 10,
+    card_age_yrs   = as.numeric(anchor_date - released_at) / 365.25
+  )
+```
+
+The result: **`r nrow(panel)` observations** on **`r n_distinct(panel$id)`
+Enchanted cards** across **`r length(anchors)` weekly anchors**
+(`r format(min(anchors))` → `r format(max(anchors))`), after requiring at
+least `r MIN_DEPTH` active listings at every boundary date so the median
+price is a real market quote rather than one seller's whim.
+
+```{r class-mix}
+#| fig-cap: "Weekly mix of 7-day price moves. The market spends most weeks with a mild upward tilt, but every regime is well represented — the pooled model is not extrapolating from a one-sided sample."
+#| fig-height: 3.6
+panel |>
+  count(anchor_date, move) |>
+  group_by(anchor_date) |>
+  mutate(share = n / sum(n)) |>
+  ggplot(aes(anchor_date, share, fill = move)) +
+  geom_col(width = 5.4, colour = tok$surface, linewidth = 0.6) +
+  scale_fill_manual(values = move_cols, name = NULL) +
+  scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, .02))) +
+  scale_x_date(date_labels = "%b %d") +
+  labs(x = NULL, y = "Share of cards",
+       title = "Down / Stagnant / Up mix by anchor week") +
+  theme_lorecaster()
+```
+
+## 3. The pooled softmax model
+
+With **Stagnant** as the reference state, the model estimates, for each card
+$i$ at anchor $t$:
+
+$$
+\log \frac{P(\text{move}_{it}=k)}{P(\text{move}_{it}=\text{Stagnant})}
+= \alpha_k + \beta_{1k}\,\text{VolRatio}_{it} + \beta_{2k}\,\text{Price}_{it}
++ \beta_{3k}\,(\text{VolRatio}\times\text{Price})_{it} + \boldsymbol{\gamma}_k' \mathbf{z}_{it}
+$$
+
+for $k \in \{\text{Down}, \text{Up}\}$, where $\mathbf{z}$ holds % graded
+(per 10 pp), the log change in active listings, log 14-day momentum, and card
+age in years. Exponentiated coefficients are **relative-risk ratios**: the
+multiplicative change in the odds of state $k$ *versus staying Stagnant*.
+
+```{r fit-models}
+f <- move ~ log_vol_ratio * log_price + pct_graded10 + log_active_chg +
+            log_momentum + card_age_yrs
+
+m_multi <- multinom(f, data = panel, trace = FALSE)
+m_null  <- multinom(move ~ 1, data = panel, trace = FALSE)
+mcfadden <- 1 - as.numeric(logLik(m_multi) / logLik(m_null))
+
+wald <- tidy(m_multi, exponentiate = TRUE, conf.int = TRUE)
+```
+
+### 3.1 Is the softmax even justified? Testing the ordinal alternative
+
+Down < Stagnant < Up is an ordered scale, so the natural null model is a
+proportional-odds (ordinal logistic) regression — half the parameters, one
+slope per predictor. The multinomial model nests it, so a likelihood-ratio
+test asks whether predictors are allowed to push the *Down* and *Up* odds
+asymmetrically.
+
+```{r po-test}
+panel$move_ord <- factor(panel$move, levels = c("Down", "Stagnant", "Up"),
+                         ordered = TRUE)
+m_ord <- polr(update(f, move_ord ~ .), data = panel, Hess = TRUE)
+lr_po <- 2 * (logLik(m_multi) - logLik(m_ord))
+df_po <- attr(logLik(m_multi), "df") - attr(logLik(m_ord), "df")
+p_po  <- pchisq(as.numeric(lr_po), df_po, lower.tail = FALSE)
+
+tibble(
+  Model = c("Proportional odds (polr)", "Multinomial softmax (multinom)"),
+  Parameters = c(attr(logLik(m_ord), "df"), attr(logLik(m_multi), "df")),
+  LogLik = round(c(as.numeric(logLik(m_ord)), as.numeric(logLik(m_multi))), 1),
+  AIC = round(c(AIC(m_ord), AIC(m_multi)), 1)
+) |> kable(caption = sprintf(
+  "Proportional-odds LR test: χ² = %.1f on %d df, p = %.2g — the restriction is firmly rejected.",
+  as.numeric(lr_po), df_po, p_po))
+```
+
+The proportional-odds restriction fails decisively (p `r format.pval(p_po, digits = 2)`),
+and AIC agrees despite the softmax spending `r df_po` extra parameters. The
+market is **asymmetric**: the forces that push a card down are not mirror
+images of the forces that push it up — momentum, in particular, loads almost
+entirely on the *Down* equation (§4). The plan's choice of a softmax over a
+simpler ordinal model is vindicated by the data, not just by taste.
+
+### 3.2 Honest standard errors: card-clustered bootstrap
+
+Each card contributes up to `r length(anchors)` rows, and a card's windows
+share persistent traits, so rows are not independent. We resample **entire
+cards** with replacement (500 replicates) and refit, which preserves
+within-card dependence.
+
+```{r cluster-boot}
+B <- 500
+cards <- unique(panel$id)
+rhs <- ~ log_vol_ratio * log_price + pct_graded10 + log_active_chg +
+         log_momentum + card_age_yrs
+
+boot_coefs <- map_dfr(seq_len(B), function(b) {
+  bd <- panel[unlist(lapply(sample(cards, length(cards), replace = TRUE),
+                            function(cid) which(panel$id == cid))), ]
+  fit <- try(multinom(f, data = bd, trace = FALSE), silent = TRUE)
+  if (inherits(fit, "try-error")) return(NULL)
+  co <- coef(fit)
+  tibble(y.level = rep(rownames(co), ncol(co)),
+         term    = rep(colnames(co), each = nrow(co)),
+         estimate = as.vector(co), rep = b)
+})
+
+boot_ci <- boot_coefs |>
+  group_by(y.level, term) |>
+  summarise(conf.low  = exp(quantile(estimate, .025)),
+            conf.high = exp(quantile(estimate, .975)), .groups = "drop") |>
+  mutate(method = "Cluster bootstrap (by card)")
+
+wald_ci <- wald |>
+  dplyr::select(y.level, term, conf.low, conf.high) |>
+  mutate(method = "Wald (i.i.d. assumption)")
+
+or_plot <- wald |>
+  dplyr::select(y.level, term, estimate) |>
+  inner_join(bind_rows(boot_ci, wald_ci), by = c("y.level", "term")) |>
+  filter(term != "(Intercept)")
+```
+
+## 4. Results: what moves an Enchanted's price
+
+```{r forest}
+#| fig-cap: "Relative-risk ratios (log scale) for entering Down or Up versus staying Stagnant. Filled blue = card-clustered bootstrap 95% CI; open gray = naive Wald 95% CI. A ratio of 1 (dashed) means no effect. Clustered intervals are wider, as expected — effects whose blue interval clears 1 survive honest uncertainty."
+#| fig-height: 5.2
+term_labels <- c(
+  log_momentum     = "14-day momentum (log)",
+  log_vol_ratio    = "Listing turnover ratio (log)",
+  "log_vol_ratio:log_price" = "Turnover × price tier",
+  log_price        = "Price level (log $)",
+  pct_graded10     = "% graded (per 10 pp)",
+  log_active_chg   = "Δ active listings (log)",
+  card_age_yrs     = "Card age (years)"
+)
+or_plot |>
+  mutate(term_lab = factor(term_labels[term], levels = rev(term_labels)),
+         y.level  = factor(y.level, levels = c("Down", "Up"))) |>
+  ggplot(aes(x = estimate, y = term_lab, colour = method, shape = method)) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = tok$baseline) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 position = position_dodge(width = .65),
+                 height = 0, linewidth = 0.7) +
+  geom_point(position = position_dodge(width = .65), size = 2.4,
+             fill = tok$surface, stroke = 0.9) +
+  scale_colour_manual(values = c("Cluster bootstrap (by card)" = tok$up,
+                                 "Wald (i.i.d. assumption)"    = tok$muted),
+                      name = NULL) +
+  scale_shape_manual(values = c("Cluster bootstrap (by card)" = 16,
+                                "Wald (i.i.d. assumption)"    = 21), name = NULL) +
+  scale_x_log10() +
+  facet_wrap(~ y.level, nrow = 1,
+             labeller = as_labeller(c(Down = "→ Down (vs Stagnant)",
+                                      Up   = "→ Up (vs Stagnant)"))) +
+  labs(x = "Relative-risk ratio (log scale)", y = NULL,
+       title = "Odds-ratio estimates with naive vs. clustered uncertainty") +
+  theme_lorecaster()
+```
+
+```{r or-table}
+wald |>
+  filter(term != "(Intercept)") |>
+  left_join(boot_ci |> dplyr::select(y.level, term,
+                                     boot_low = conf.low, boot_high = conf.high),
+            by = c("y.level", "term")) |>
+  transmute(Equation = y.level, Term = term_labels[term],
+            `RRR` = round(estimate, 3),
+            `Wald 95% CI` = sprintf("[%.2f, %.2f]", conf.low, conf.high),
+            `Boot 95% CI` = sprintf("[%.2f, %.2f]", boot_low, boot_high),
+            `Wald p` = signif(p.value, 2)) |>
+  arrange(Equation) |>
+  kable(caption = "Relative-risk ratios vs. Stagnant. Bootstrap CIs are clustered by card.")
+```
+
+Three effects survive the clustered intervals; each maps onto a hypothesis in
+the original project plan.
+
+**Mean reversion is the dominant force.** A card whose median price rose over
+the prior two weeks is far more likely to give it back: one log-unit of prior
+momentum multiplies the odds of *Down* by
+`r round(wald$estimate[wald$y.level=="Down" & wald$term=="log_momentum"], 2)`
+while leaving *Up* odds slightly *below* one. Concretely, a card that gained
++25% over days 21→7 carries about
+`r round(exp(log(1.25) * log(wald$estimate[wald$y.level=="Down" & wald$term=="log_momentum"])) , 2)`×
+the Down-odds of a flat card in the following week. Spikes in thinly traded
+collectibles are largely composition and hype, and they decay.
+
+**Supply pressure suppresses rallies.** The turnover ratio — new listings per
+removed listing — cuts the odds of *Up* (RRR ≈
+`r round(wald$estimate[wald$y.level=="Up" & wald$term=="log_vol_ratio"], 2)`
+per log-unit at the average price tier). Fresh supply doesn't reliably crash a
+card, but it reliably caps it. This is the plan's core "volume dynamics"
+hypothesis, confirmed on the *Up* margin rather than the *Down* one.
+
+**A graded-heavy book is a bearish tell.** Every 10 pp of graded share raises
+Down-odds by ~`r round(100*(wald$estimate[wald$y.level=="Down" & wald$term=="pct_graded10"]-1))`%.
+The plan framed % graded as "player liquidation vs. investor speculation
+psychology" — the data sides with liquidation: when a card's shelf fills with
+slabs, sellers are cashing out.
+
+Two hypothesized effects do **not** survive:
+
+* **Differential supply elasticity** (turnover × price) is positive but its
+  clustered CI comfortably spans 1 — we cannot yet claim expensive Enchanteds
+  absorb supply differently than cheap ones.
+* **Price level** raises Down-odds under Wald, but the clustered interval
+  widens to include 1; likewise **card age** (younger cards look more
+  Down-prone, consistent with post-release supply decay, but not decisively).
+
+```{r drop-one}
+#| tbl-cap: "Drop-one likelihood-ratio tests (both equations jointly)."
+drop_terms <- c("log_momentum", "log_vol_ratio:log_price", "pct_graded10",
+                "log_active_chg", "card_age_yrs")
+lrt <- map_dfr(drop_terms, function(tm) {
+  m_red <- multinom(update(f, as.formula(paste(". ~ . -", tm))),
+                    data = panel, trace = FALSE)
+  lr <- 2 * (as.numeric(logLik(m_multi)) - as.numeric(logLik(m_red)))
+  dfd <- attr(logLik(m_multi), "df") - attr(logLik(m_red), "df")
+  tibble(Term = term_labels[tm] %||% tm, `LR χ²` = round(lr, 1), df = dfd,
+         p = signif(pchisq(lr, dfd, lower.tail = FALSE), 2))
+})
+kable(lrt)
+```
+
+### 4.1 Effect displays
+
+```{r effects-fn}
+predict_grid <- function(grid, coefs = coef(m_multi)) {
+  mm  <- model.matrix(rhs, grid)
+  eta <- mm %*% t(coefs)
+  ex  <- cbind(1, exp(eta))
+  p   <- ex / rowSums(ex)
+  colnames(p) <- c("Stagnant", rownames(coefs))
+  bind_cols(grid, as_tibble(p)) |>
+    pivot_longer(all_of(c("Stagnant", "Down", "Up")),
+                 names_to = "move", values_to = "prob") |>
+    mutate(move = factor(move, levels = c("Down", "Stagnant", "Up")))
+}
+
+boot_ribbon <- function(grid) {
+  map_dfr(unique(boot_coefs$rep), function(b) {
+    cb <- boot_coefs |> filter(rep == b)
+    co <- matrix(cb$estimate, nrow = 2,
+                 dimnames = list(unique(cb$y.level), unique(cb$term)))
+    co <- co[c("Down", "Up"), colnames(coef(m_multi)), drop = FALSE]
+    predict_grid(grid, co) |> mutate(rep = b)
+  }) |>
+    group_by(across(all_of(names(grid))), move) |>
+    summarise(lo = quantile(prob, .025), hi = quantile(prob, .975),
+              .groups = "drop")
+}
+
+at_typical <- summarise(panel,
+  log_vol_ratio = median(log_vol_ratio), log_price = median(log_price),
+  pct_graded10 = median(pct_graded10), log_active_chg = median(log_active_chg),
+  log_momentum = median(log_momentum), card_age_yrs = median(card_age_yrs))
+```
+
+```{r momentum-effect}
+#| fig-cap: "Predicted state probabilities vs. prior 14-day price momentum, other features at their medians. Ribbons are 95% card-clustered bootstrap bands. The Down curve is the mean-reversion signature: the bigger the run-up, the likelier the give-back."
+grid_m <- at_typical[rep(1, 81), ] |>
+  mutate(log_momentum = seq(log(0.5), log(2), length.out = 81))
+eff_m  <- predict_grid(grid_m)
+rib_m  <- boot_ribbon(grid_m)
+
+lab_m <- eff_m |> group_by(move) |> slice_max(log_momentum, n = 1)
+
+ggplot(eff_m, aes(exp(log_momentum) - 1, prob, colour = move)) +
+  geom_ribbon(data = rib_m |> mutate(prob = NA_real_),
+              aes(x = exp(log_momentum) - 1, ymin = lo, ymax = hi, fill = move),
+              alpha = .14, colour = NA, inherit.aes = FALSE) +
+  geom_line(linewidth = 0.9) +
+  geom_text(data = lab_m, aes(label = move), hjust = -0.12, size = 3.4,
+            fontface = "bold", show.legend = FALSE) +
+  scale_colour_manual(values = move_cols, name = NULL) +
+  scale_fill_manual(values = move_cols, guide = "none") +
+  scale_x_continuous(labels = scales::percent,
+                     expand = expansion(mult = c(.02, .14))) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, NA)) +
+  labs(x = "Price change over prior 14 days (days 21 → 7)",
+       y = "P(state next 7 days)",
+       title = "Mean reversion: prior gains forecast give-backs") +
+  theme_lorecaster()
+```
+
+```{r supply-effect}
+#| fig-cap: "Predicted probability of an Up move vs. listing turnover, at the 25th/50th/75th percentile price tiers. Supply influx suppresses rallies at every tier; the tier curves are statistically indistinguishable (the interaction's CI spans 1)."
+#| fig-height: 4.2
+price_q <- quantile(panel$log_price, c(.25, .5, .75))
+grid_s <- expand_grid(
+  log_vol_ratio = seq(-1.5, 1.5, length.out = 61),
+  log_price = price_q) |>
+  bind_cols(at_typical |> dplyr::select(-log_vol_ratio, -log_price) |>
+              slice(rep(1, 183)))
+eff_s <- predict_grid(grid_s) |>
+  filter(move == "Up") |>
+  mutate(tier = factor(paste0("~$", round(exp(log_price))),
+                       levels = paste0("~$", round(exp(price_q)))))
+
+ggplot(eff_s, aes(log_vol_ratio, prob, colour = tier)) +
+  geom_line(linewidth = 0.9) +
+  geom_text(data = eff_s |> group_by(tier) |> slice_min(log_vol_ratio, n = 1),
+            aes(label = tier), hjust = 1.1, size = 3.2, fontface = "bold",
+            show.legend = FALSE) +
+  scale_colour_manual(values = setNames(c("#86b6ef", "#2a78d6", "#0d366b"),
+                                        levels(eff_s$tier)),
+                      name = "Price tier") +
+  scale_x_continuous(expand = expansion(mult = c(.12, .04))) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, NA)) +
+  labs(x = "log( listings added / listings removed ), 14-day window",
+       y = "P(Up next 7 days)",
+       title = "Fresh supply caps rallies across price tiers") +
+  theme_lorecaster()
+```
+
+## 5. Predictive honesty
+
+The plan explicitly frames this as an inference model, and the numbers agree:
+McFadden pseudo-R² is **`r round(mcfadden, 3)`** — real structure, weak
+discrimination. A temporal holdout (train on the first
+`r length(anchors) - 3` anchors, test on the last 3) makes the point:
+
+```{r holdout}
+test_anchors <- tail(anchors, 3)
+tr <- panel |> filter(!anchor_date %in% test_anchors)
+te <- panel |> filter(anchor_date %in% test_anchors)
+m_tr  <- multinom(f, data = tr, trace = FALSE)
+pred  <- predict(m_tr, newdata = te)
+acc   <- mean(pred == te$move)
+base  <- max(table(te$move)) / nrow(te)
+```
+
+```{r confusion}
+#| fig-cap: "Temporal holdout confusion (last 3 anchor weeks). The model earns its keep on the Down class — the one the coefficients say it understands — while overall accuracy barely beats the majority baseline."
+#| fig-height: 3.8
+conf <- as.data.frame(table(pred = pred, obs = te$move))
+ggplot(conf, aes(obs, pred, fill = Freq)) +
+  geom_tile(colour = tok$surface, linewidth = 1.2) +
+  geom_text(aes(label = Freq,
+                colour = Freq > max(Freq) * .6), size = 4, fontface = "bold") +
+  scale_fill_gradient(low = tok$seq_lo, high = tok$seq_hi, name = "Count") +
+  scale_colour_manual(values = c(`TRUE` = tok$surface, `FALSE` = tok$ink),
+                      guide = "none") +
+  coord_fixed() +
+  labs(x = "Observed", y = "Predicted",
+       title = "Temporal holdout confusion",
+       subtitle = sprintf("Accuracy %.1f%% vs. majority baseline %.1f%%",
+                          100 * acc, 100 * base)) +
+  theme_lorecaster() +
+  theme(plot.title.position = "plot")
+```
+
+Per-class recall on the holdout:
+Down **`r sprintf("%.0f%%", 100 * mean(pred[te$move == "Down"] == "Down"))`**,
+Stagnant `r sprintf("%.0f%%", 100 * mean(pred[te$move == "Stagnant"] == "Stagnant"))`,
+Up `r sprintf("%.0f%%", 100 * mean(pred[te$move == "Up"] == "Up"))`.
+The asymmetry mirrors the inference: the model's confident coefficients
+(momentum, graded share) live in the *Down* equation, so *Down* is the state
+it can actually anticipate. As a **risk flag** — "this card's recent spike is
+likely to retrace" — the model is useful today; as a rally-picker it is not.
+
+## 6. Conclusions & next steps
+
+1. **The pooled softmax works as market physics.** Mean reversion (RRR ≈
+   `r round(wald$estimate[wald$y.level=="Down" & wald$term=="log_momentum"], 1)`
+   on Down-odds per log-unit momentum), supply pressure capping rallies, and
+   graded-share as a liquidation tell all survive card-clustered uncertainty.
+2. **The softmax beats the ordinal restriction** (LR p
+   `r format.pval(p_po, digits = 2)`): up-forces and down-forces are different
+   physics, which an ordinal model is structurally unable to express.
+3. **Wald p-values overstate certainty** in this panel — price level and card
+   age lose significance once clustering is respected. Any daily monitoring
+   built on this model (the plan's "Step D") should ship with the bootstrap
+   intervals, not the Wald ones.
+4. **Next:** two-way clustering (card × week) once more anchors accumulate;
+   a graded-only price index to separate slab and raw markets; and replacing
+   the ±5% fixed thresholds with card-specific volatility-scaled bands, which
+   would stop high-variance cards from monopolising the Up/Down classes.
+
+::: {.callout-note collapse="true"}
+## Reproducibility
+
+Panel: `r nrow(panel)` rows, `r n_distinct(panel$id)` cards,
+`r length(anchors)` anchors (`r format(min(anchors))` → `r format(max(anchors))`),
+depth filter ≥ `r MIN_DEPTH` active listings. Bootstrap: `r B` card-cluster
+replicates, seed 1789. Data: MotherDuck `my_db` (`lorcana_active_listings`,
+`llm_listing_metadata`), card metadata from
+`data/enchanteds/enchanted_list_05_07.rds`. Render:
+`quarto render exploration/softmax_report/softmax_market_inference.qmd`.
+:::

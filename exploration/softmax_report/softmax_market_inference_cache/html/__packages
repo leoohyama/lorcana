@@ -1,0 +1,11 @@
+DBI
+duckdb
+dplyr
+tidyr
+purrr
+nnet
+MASS
+broom
+ggplot2
+knitr
+patchwork
