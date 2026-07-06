@@ -76,48 +76,127 @@ listings_tbl <- tbl(con, "lorcana_active_listings")
 metrics_tbl <- tbl(con, "card_ts_metrics")
 unique_listings_tbl <- tbl(con, "llm_listing_metadata")
 
+# ==============================================================================
+# PIPELINE: 21-Day Volume Turnover & 7-Day Price Movement Model Dataset
+# ==============================================================================
 
-#first thing is to get 
+# ---------------------------------------------------------
+# Part 1: Define the exact boundary dates locally
+# ---------------------------------------------------------
+d_today <- Sys.Date()
+d_7_ago <- d_today - 7
+d_21_ago <- d_today - 21
 
-
-unique_listings_tbl %>% 
-  group_by(is_graded) %>%
-  summarize(count = n(), .groups = "drop") 
-
-# 2. Aggregate Volume: Get weekly listing counts per card
-weekly_volume <- listings_tbl %>%
-  mutate(week_start = date_trunc('week', posted_date)) %>%
-  group_by(tcgplayer_id, week_start) %>%
-  summarize(
-    active_listings_count = n(),
-    avg_listing_price = mean(price_val, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# 3. Aggregate Prices: Get the weekly market price and calculate week-over-week change
-weekly_prices <- prices_tbl %>%
-  mutate(week_start = date_trunc('week', pull_date)) %>%
-  group_by(tcgplayer_id, week_start) %>%
-  summarize(
-    market_price = mean(market_price, na.rm = TRUE),
+# ---------------------------------------------------------
+# Part 2: Calculate Unique Listing Turnover (In-Database)
+# Compares exact item_ids present 21 days ago vs 7 days ago
+# ---------------------------------------------------------
+turnover_df <- listings_tbl %>%
+  filter(date_pulled == d_21_ago | date_pulled == d_7_ago) %>%
+  group_by(id, item_id) %>%
+  summarise(
+    was_start = max(case_when(date_pulled == d_21_ago ~ 1, TRUE ~ 0), na.rm = TRUE),
+    was_end = max(case_when(date_pulled == d_7_ago ~ 1, TRUE ~ 0), na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  # Use window functions to get the previous week's price and next week's price
-  group_by(tcgplayer_id) %>%
-  arrange(week_start) %>%
-  mutate(
-    prev_week_price = lag(market_price, 1),
-    next_week_price = lead(market_price, 1),
-    # Calculate the future percentage change (This is what we want to predict!)
-    future_pct_change = (next_week_price - market_price) / market_price
+  group_by(id) %>%
+  summarise(
+    unique_listings_added = sum(case_when(was_start == 0 & was_end == 1 ~ 1, TRUE ~ 0), na.rm = TRUE),
+    unique_listings_removed = sum(case_when(was_start == 1 & was_end == 0 ~ 1, TRUE ~ 0), na.rm = TRUE),
+    .groups = "drop"
   ) %>%
+  collect()
+
+# ---------------------------------------------------------
+# Part 3: Get the total number of listings and median price for each card over the last 21 days
+# ---------------------------------------------------------
+card_spec_summary_df <- listings_tbl %>%
+  filter(date_pulled >= d_21_ago) %>%
+  group_by(id) %>%
+  summarise(
+    total_listings = n(),
+    median_price = median(price_val, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  collect()
+
+
+listing_s <- listings_tbl %>%
+  filter(date_pulled >= d_21_ago) %>%
+  group_by(id) %>%
+  summarise(
+    total_listings = n(),
+    median_price = median(price_val, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  collect()
+
+# ---------------------------------------------------------
+# Part 4: Now get the number of unique listings added and removed over the first 14 of 21 days
+# ---------------------------------------------------------
+daily_summary_df %>%
+  group_by(id) %>%
+  # Keep the row if its date is the absolute newest OR the absolute oldest
+  filter(date_pulled == min(date_pulled) | date_pulled == max(date_pulled)) %>%
+  arrange(id, date_pulled) %>%
   ungroup()
 
-# 4. Join Volume and Prices together
-analytical_dataset_query <- weekly_prices %>%
-  inner_join(weekly_volume, by = c("tcgplayer_id", "week_start")) %>%
-  filter(!is.na(future_pct_change), !is.na(prev_week_price))
+daily_summary_df  %>% filter(id == "crd_248b8f0ae7a84f368e48086307f50ff7")
+daily_summary_df %>%
+  group_by(id) %>%
+  arrange(date_pulled) %>%
+  slice_max(date_pulled, n = 1) %>%
+  slice_min(date_pulled, n = 1) %>%
+  mutate(
+    listings_start_14d = lag(total_listings, 12),
+    listings_end_14d = lag(total_listings, 7),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_listings)) %>%
+  print(n = 20)
 
-# 5. Execute the query in MotherDuck and pull the finalized dataset into R's memory
-# We only collect() once the data is aggregated and filtered!
-df_local <- analytical_dataset_query %>% collect()
+# ---------------------------------------------------------
+# Part 4: Calculate Price Metrics & Net Volume Changes 
+# ---------------------------------------------------------
+final_analytical_dataset <- daily_summary_df %>%
+  # Ensure chronological order before using lag()
+  arrange(id, date_pulled) %>% 
+  group_by(id) %>%
+  mutate(
+    # A. 7-Day Price Metrics (d_7_ago to d_today)
+    price_initial = lag(median_price, 7),
+    price_final = median_price,
+    price_change_pct = (price_final - price_initial) / price_initial * 100,
+    
+    # B. The 3-Tier Categorization
+    price_change_category = case_when(
+      price_change_pct <= -5 ~ "Down",
+      price_change_pct > -5 & price_change_pct < 5 ~ "Stagnant",
+      price_change_pct >= 5 ~ "Up"
+    ),
+    
+    # C. Prior 14-Day Net Volume Metrics (d_21_ago to d_7_ago)
+    listings_start_14d = lag(total_listings, 21),
+    listings_end_14d = lag(total_listings, 7),
+    listing_total_change_prior_14d = listings_end_14d - listings_start_14d
+  ) %>%
+  # Lock in the most recent date for each card
+  slice_max(date_pulled, n = 1) %>% 
+  ungroup() %>%
+  # Ensure we have a full 21 days of history for the card
+  filter(!is.na(price_initial), !is.na(listings_start_14d)) %>%
+  
+  # ---------------------------------------------------------
+  # Part 5: Join the Turnover Metrics
+  # ---------------------------------------------------------
+  left_join(turnover_df, by = "id") %>%
+  # Clean up the final view to only show the needed modeling columns
+  select(
+    id, 
+    date_pulled,
+    price_change_category, 
+    price_change_pct,
+    listing_total_change_prior_14d,
+    unique_listings_added,
+    unique_listings_removed
+  )
