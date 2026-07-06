@@ -24,23 +24,23 @@ jobs:
       - name: 📊 1. Run PyTorch Preprocessing
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript preprocessing.R
+        run: Rscript pipeline/preprocessing/preprocessing.R
 
       - name: ⏱️ 2. Run Chronos Preprocessing
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript chronos_data_processing.R
+        run: Rscript pipeline/preprocessing/chronos_data_processing.R
 
       - name: 🧠 3. Train GRU & Generate Backtests
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python train_lorcana_model.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/modeling/train_lorcana_model.py
 
       - name: ⏱️ 4. Run Chronos Backtests
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_backtest.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/modeling/chronos_backtest.py
 
       - name: 📈 5. Calculate & Push Diagnostics to MotherDuck
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript model_diagnostics.R
+        run: Rscript pipeline/postprocessing/model_diagnostics.R
 
       - name: 💾 Save Model Weights Locally
         run: |

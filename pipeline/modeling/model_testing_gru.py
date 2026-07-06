@@ -332,7 +332,7 @@ if __name__ == "__main__":
 
     # 🟢 FINAL EXPORT: Saves all collected global metrics for 15, 30, and 45-day models
     global_metrics_df = pd.DataFrame(global_metrics_rows)
-    global_metrics_path = 'shiny_app/app_data/lorcana_global_metrics.csv'
+    global_metrics_path = 'data/pytorch/lorcana_global_metrics.csv'
     os.makedirs(os.path.dirname(global_metrics_path), exist_ok=True)
     global_metrics_df.to_csv(global_metrics_path, index=False)
     print(f"🎉 pipeline complete. saved consolidated global metrics to {global_metrics_path}")

@@ -23,27 +23,27 @@ jobs:
       - name: 📊 1. Run PyTorch Preprocessing
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript preprocessing.R
+        run: Rscript pipeline/preprocessing/preprocessing.R
 
       - name: ⏱️ 2. Run Chronos Preprocessing
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript chronos_data_processing.R
+        run: Rscript pipeline/preprocessing/chronos_data_processing.R
 
       - name: 🔮 3. Run GRU Future Inference
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python daily_inference_gru.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/inference/daily_inference_gru.py
 
       - name: 🚀 4. Run Chronos Future Inference
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python chronos_transfer_learning.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/modeling/chronos_transfer_learning.py
 
       - name: 🧮 5. Calculate Live Residuals (MotherDuck)
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript update_residuals.R
+        run: Rscript pipeline/postprocessing/update_residuals.R
 
       - name: 📦 6. Sync Daily Data to GitHub
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -55,4 +55,4 @@ jobs:
       - name: 📉 7. Calculate and Upload Backtest Metrics
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript calculate_backtest_metrics.R
+        run: Rscript pipeline/postprocessing/calculate_backtest_metrics.R

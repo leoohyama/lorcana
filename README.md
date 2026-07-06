@@ -177,9 +177,9 @@ I'm also experimenting with **Chronos**, a time-series forecasting framework bui
 
 To bridge the gap between academic model evaluation and real-world deployment, the GRU forecasting engine operates on a strict **Two-Script Pipeline**:
 
-1. **The Evaluator (`model_testing_gru.py`):** Runs weekly. This acts as the "Honest Grader," performing rolling-origin backtesting across three historical eras. The most recent fold acts as an unseen holdout set, isolating real-world performance metrics and exporting them to `lorcana_global_metrics.csv` for the dashboard.
-2. **The Production Brain (`train_lorcana_model.py`):** Runs weekly after evaluation. A lean script that trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs. This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
-3. **Daily Inference (`daily_inference_gru.py`):** Runs daily. It loads the production weights, generates the 30-day future forecast, and pushes predictions to the Neon PostgreSQL database.
+1. **The Evaluator (`pipeline/modeling/model_testing_gru.py`):** Runs weekly. This acts as the "Honest Grader," performing rolling-origin backtesting across three historical eras. The most recent fold acts as an unseen holdout set, isolating real-world performance metrics and exporting them to `lorcana_global_metrics.csv` for the dashboard.
+2. **The Production Brain (`pipeline/modeling/train_lorcana_model.py`):** Runs weekly after evaluation. A lean script that trains the model on **100% of the historical dataset** for a fixed "sweet spot" of epochs. This creates the smartest possible `.pth` weights file without locking the most recent 30 days of market momentum behind a test-set wall. 
+3. **Daily Inference (`pipeline/inference/daily_inference_gru.py`):** Runs daily. It loads the production weights, generates the 30-day future forecast, and pushes predictions to the Neon PostgreSQL database.
 
 ### Monitoring & Health
 * **Model Divergence:** Tracking how wildly the Hybrid GRU and Chronos predictions differ from one another.
@@ -197,4 +197,5 @@ To bridge the gap between academic model evaluation and real-world deployment, t
 ## Project changelog (significant change logs)
 - I have switched databases from neonDB to motherduck, realized that my use didn't require some of their features (June-12-2026)
 - I have removed the digitial ocean/docker approach as I realized that an html page could better support web traffic but also show daily data and market changes
-- The shiny app code is still available in the repo but is not being actively used and is out-of-date
+- The shiny app code is still available in `archive/shiny_app` but is not being actively used and is out-of-date
+- Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the Data Pipeline stages above; updated all GitHub Actions workflows to the new paths (July-6-2026)

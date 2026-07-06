@@ -23,4 +23,4 @@ jobs:
         env:          
           JUSTTCG_API_KEY: ${{ secrets.JUSTTCG_API_KEY }}          
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
-        run: Rscript pull_daily_prices.R
+        run: Rscript pipeline/ingestion/pull_daily_prices.R

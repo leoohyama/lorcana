@@ -28,7 +28,7 @@ jobs:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript ebay_api_download.R
+        run: Rscript pipeline/ingestion/ebay_api_download.R
 
   # ==========================================
   # JOB 2: THE AI METADATA CLEANER (Runs on your Mac)
@@ -50,7 +50,7 @@ jobs:
       - name: 🧹 Run Gemma Cleaner
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript run_gemma_cleaner.R
+        run: Rscript pipeline/cleaning/run_gemma_cleaner.R
 
   # ==========================================
   # JOB 3: THE AI DEDUPER (Runs on your Mac)
@@ -72,4 +72,4 @@ jobs:
       - name: ✂️ Run Gemma Deduplication
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript dedupe_gemma4.R
+        run: Rscript pipeline/cleaning/dedupe_gemma4.R

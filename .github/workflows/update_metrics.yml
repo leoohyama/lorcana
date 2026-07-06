@@ -22,4 +22,4 @@ jobs:
       - name: 🧮 Run Metrics Pipeline
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: Rscript update_ts_metrics.R
+        run: Rscript pipeline/postprocessing/update_ts_metrics.R
