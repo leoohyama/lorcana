@@ -117,8 +117,11 @@ metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst
 backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
 
 # --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
-raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
-raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_type NOT ILIKE '%AUCTION%' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
+# NOTE: auctions are intentionally retained here (no listing_type filter). The
+# `is_auction` flag derived from listing_type in OJS EXCLUDES auctions from all
+# price/median math while INCLUDING them in listing counts and supply volumes.
+raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
+raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
 
 dbDisconnect(con)
 
@@ -134,8 +137,8 @@ if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgpla
 unified <- master_dict %>% left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>% left_join(metrics_df, by="tcgplayer_id")
 
 if(nrow(raw_ebay_sql) > 0) {
-  ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id)) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language)
-} else { ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character()) }
+  ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id), listing_type = replace_na(as.character(listing_type), "")) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language, listing_type)
+} else { ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character(), listing_type=character()) }
 
 if(nrow(raw_ebay_titles) > 0) { ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title")) } else { ebay_title_dict <- data.frame(item_id=character(), listing_title=character()) }
 
@@ -516,9 +519,13 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
   let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
   let lang = d.card_language ? d.card_language : "English";
   
+  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
+  // but excluded from all price/median math — auction current-bids are not clean price signal.
+  let is_auction = /AUCTION/i.test(d.listing_type || "");
+
   return {
     ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
-    label: label, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
   };
 }).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
 ```
@@ -604,6 +611,17 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
       return { median: filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2, count: count };
   }
 
+  // Count-only helper: unique item_ids seen in the last 7 days. Unlike getMedianAndCount
+  // this is fed the FULL listing set (all grades + auctions) so the volume figure reflects
+  // total market supply, independent of the auction-free / ungraded-only price median.
+  function count7dUnique(listings) {
+      if(listings.length === 0) return 0;
+      let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
+      let max_date_ms = new Date(max_date_str).getTime();
+      let recent = listings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000));
+      return new Set(recent.map(e => e.item_id)).size;
+  }
+
   // Construct Primary Master Core table rows data mapping
   let unified_data = (safeTranspose(ojs_info) || []).map(d => {
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
@@ -619,15 +637,18 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     const c_err = card_metrics.find(m => m.model === "Chronos");
     const g_err = card_metrics.find(m => m.model === "GRU");
 
-    let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded");
+    // Price medians: ungraded (or PSA 10), auction-free — clean price signal only.
+    let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded" && !e.is_auction);
     let raw_stats = getMedianAndCount(card_ebay_raw);
-    let psa_stats = getMedianAndCount(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10"));
+    let psa_stats = getMedianAndCount(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10" && !e.is_auction));
     let delta = (raw_stats.median !== null && d.current_price) ? Math.abs(raw_stats.median - d.current_price) : null;
-    
+    // 7D volume: ALL listings for the card — every grade + auctions — count only.
+    let totalCount = count7dUnique(clean_ebay_master.filter(e => e.cardname === d.cardname));
+
     return {
       ...d, c_pred_30d: c_pred, c_pct_30d: c_pct, g_pred_30d: g_pred, g_pct_30d: g_pct,
       c_err_30d: c_err ? c_err.mdape * 100 : null, g_err_30d: g_err ? g_err.mdape * 100 : null,
-      recent_ebay_med: raw_stats.median, totalCount: raw_stats.count, psa_10_med: psa_stats.median, delta: delta
+      recent_ebay_med: raw_stats.median, totalCount: totalCount, psa_10_med: psa_stats.median, delta: delta
     };
   });
 
@@ -731,7 +752,7 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
               ${th('c_pct_30d', 'Chronos (30D)', '', 'Projected 30-day price change from the Chronos model vs. the current market price.')}
               ${th('g_pct_30d', 'GRU (30D)', '', 'Projected 30-day price change from the Hybrid GRU model vs. the current market price.')}
               ${th('delta', 'Market Spread', 'hide-on-mobile', 'Absolute gap between the current TCG market price and the recent median ungraded eBay sale price.')}
-              ${th('totalCount', 'eBay 7D Vol', 'hide-on-mobile', 'Count of unique validated ungraded eBay listings seen in the last 7 days.')}
+              ${th('totalCount', 'eBay 7D Vol', 'hide-on-mobile', 'Count of unique validated eBay listings seen in the last 7 days — all grades and both auction and fixed-price/best-offer listings.')}
               ${th('psa_10_med', 'PSA 10 (7D)', 'hide-on-mobile', 'Median graded PSA 10 eBay price over the last 7 days.')}
               ${th('c_err_30d', 'Chronos Acc', 'hide-on-mobile', 'Backtested 30-day forecast error (MdAPE) — lower is more accurate.')}
             </tr>
@@ -810,6 +831,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
 
     // Calculate historical rolling 30D eBay data splits
     let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
+    // Auction-free view drives every price/median line; masterCardListings (incl auctions) drives volume.
+    let pricedCardListings = masterCardListings.filter(d => !d.is_auction);
     let raw_dates = masterCardListings.map(d => new Date(d.date_pulled + "T12:00:00").getTime());
     let cur_eb_ungraded = card_info.recent_ebay_med;
     let cur_eb_psa10 = card_info.psa_10_med;
@@ -833,8 +856,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
          return filtered.length > 0 ? filtered[Math.floor(filtered.length/2)] : prices[Math.floor(prices.length/2)];
       }
       
-      const past_eb_ungraded = get7DayMedianAtTime(masterCardListings.filter(d => d.label === "Ungraded"), past_end);
-      const past_eb_psa10 = get7DayMedianAtTime(masterCardListings.filter(d => d.label === "PSA 10"), past_end);
+      const past_eb_ungraded = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "Ungraded"), past_end);
+      const past_eb_psa10 = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "PSA 10"), past_end);
       
       if (cur_eb_ungraded && past_eb_ungraded) eb_ung_pct = ((cur_eb_ungraded - past_eb_ungraded) / past_eb_ungraded) * 100;
       if (cur_eb_psa10 && past_eb_psa10) eb_psa_pct = ((cur_eb_psa10 - past_eb_psa10) / past_eb_psa10) * 100;
@@ -883,8 +906,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
     const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
     
-    // Extract inline historical trendlines for main composite plot
-    let raw_ungraded = masterCardListings.filter(d => d.label === "Ungraded");
+    // Extract inline historical trendlines for main composite plot.
+    // Median line: ungraded, auction-free (clean price signal).
+    let raw_ungraded = pricedCardListings.filter(d => d.label === "Ungraded");
     let grouped = {};
     raw_ungraded.forEach(d => { if(!grouped[d.date_pulled]) grouped[d.date_pulled] = []; grouped[d.date_pulled].push(d.clean_price); });
     let eb_dates = Object.keys(grouped).sort();
@@ -892,10 +916,15 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
        let prices = grouped[date].sort((a,b)=>a-b);
        return prices.length % 2 !== 0 ? prices[Math.floor(prices.length/2)] : (prices[prices.length/2 - 1] + prices[prices.length/2])/2;
     });
-    let eb_vols = eb_dates.map(date => grouped[date].length);
+    // Volume bars: TOTAL supply — every listing regardless of grade or listing type
+    // (all grades + auctions). Count only; the eBay median line stays ungraded/auction-free.
+    let vol_grouped = {};
+    masterCardListings.forEach(d => { vol_grouped[d.date_pulled] = (vol_grouped[d.date_pulled] || 0) + 1; });
+    let vol_dates = Object.keys(vol_grouped).sort();
+    let eb_vols = vol_dates.map(date => vol_grouped[date]);
 
     const trace_ebay_med = { x: eb_dates, y: eb_meds, mode: 'lines+markers', name: 'eBay Median', line: {color: '#c084fc', width: 2}, marker: {size: 6}, hovertemplate: 'eBay Med: $%{y:.2f}<extra></extra>' };
-    const trace_ebay_vol = { x: eb_dates, y: eb_vols, type: 'bar', name: 'eBay Vol', yaxis: 'y2', opacity: 0.15, marker: {color: '#c084fc'}, hovertemplate: 'Vol: %{y}<extra></extra>', showlegend: false };
+    const trace_ebay_vol = { x: vol_dates, y: eb_vols, type: 'bar', name: 'eBay Vol', yaxis: 'y2', opacity: 0.15, marker: {color: '#c084fc'}, hovertemplate: 'Vol: %{y}<extra></extra>', showlegend: false };
 
     const all_traces = [trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
 

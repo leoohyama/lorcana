@@ -58,8 +58,10 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   )
 
   fetch_and_parse <- function(query_params, source_name) {
-    # Price filtering pushed to API to conserve execution runtime & bandwidth
-    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION},price:[20.00..]"
+    # Price filtering pushed to API to conserve execution runtime & bandwidth.
+    # priceCurrency is REQUIRED for the price bound to take effect; without it eBay
+    # silently ignores the whole price filter and returns everything (incl. sub-$20).
+    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION},price:[20.00..],priceCurrency:USD"
     query_params$limit <- 200 
     
     all_pages <- list()
@@ -123,18 +125,38 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   }
   
   api_name <- str_replace_all(card_name, "-", " ") %>% str_squish()
-  
+  api_version <- str_squish(str_replace_all(version, "-", " "))
+
   # Negative exclusions added to the direct query string context
-  search_string <- paste0("Lorcana ", "\"", api_name, "\" -case -box -proxy -replica -wafer -custom") 
-  
-  text_results <- fetch_and_parse(list(q = search_string), "Text")
+  negatives <- "-case -box -proxy -replica -wafer -custom"
+
+  # Query 1: Lorcana-anchored. eBay AND-s query words against the title, so this
+  # only sees listings that literally contain "Lorcana".
+  q_lorcana <- paste0("Lorcana \"", api_name, "\" ", negatives)
+
+  # Query 2: name + version phrase. Many sellers title listings "Disney ...",
+  # "Ravensburger ...", "The First Chapter ...", or with no set word at all, so the
+  # Lorcana-anchored query never returns them. The version phrase is specific enough
+  # to stand in as the anchor and recover those. Skipped for version-less cards.
+  q_namever <- if (api_version != "") {
+    paste0("\"", api_name, "\" \"", api_version, "\" ", negatives)
+  } else {
+    NA_character_
+  }
+
+  text_results <- fetch_and_parse(list(q = q_lorcana), "Text")
+  namever_results <- if (!is.na(q_namever)) {
+    fetch_and_parse(list(q = q_namever), "Text")
+  } else {
+    template
+  }
   epid_results = if (!is.na(epid_code) && epid_code != "") {
     fetch_and_parse(list(epid = epid_code), "EPID")
   } else {
     template
   }
-  
-  combined_unique <- bind_rows(text_results, epid_results) %>% 
+
+  combined_unique <- bind_rows(text_results, namever_results, epid_results) %>%
     distinct(item_id, .keep_all = TRUE)
   
   if (nrow(combined_unique) > 0) {
@@ -144,7 +166,13 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
     raw_v_keys <- str_split(tolower(str_replace_all(version, "[[:punct:]]", " ")), "\\s+")[[1]]
     version_keys <- raw_v_keys[nchar(raw_v_keys) > 3] 
 
-    blacklist <- "case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship|legendary|artwork|keychain|pin"
+    # Whole-word matching is REQUIRED here: a bare substring "pin" matches inside
+    # "shipping" / "shopping", "case" inside "showcase", etc., which silently
+    # discards legitimate listings (e.g. any title saying "Free Shipping").
+    # NOTE: \\b word boundaries do NOT work in this machine's stringi/ICU build, so
+    # we use explicit lookaround boundaries. The trailing s? tolerates plurals
+    # ("pins", "cases") while still anchoring on a word edge.
+    blacklist <- "(?<![a-zA-Z])(case|box|proxy|replica|repro|custom|fan art|digital|wafer|sleeve|coin|playmat|play mat|promo|set championship|legendary|artwork|keychain|pin|pinback)s?(?![a-zA-Z])"
 
     final_df <- combined_unique %>% 
       mutate(lower_title = tolower(listing_title)) %>%
@@ -166,7 +194,10 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
       ) %>%
       filter(
         pass_name,
-        (pull_source == "EPID") | (has_rarity & (has_num | has_ver)),
+        # A collector number above the base set size (e.g. 207/204) uniquely
+        # identifies the Enchanted/variant printing, so has_num alone is sufficient;
+        # otherwise fall back to needing a rarity word AND the version phrase.
+        (pull_source == "EPID") | has_num | (has_rarity & has_ver),
         !str_detect(lower_title, blacklist)
       ) %>%
       select(-lower_title, -pass_name, -has_rarity, -has_num, -has_ver)
@@ -200,8 +231,10 @@ final_gold_scrape <- master_target_cards %>%
     listing_title, date_pulled, posted_date, pull_source
   ) %>%
   filter(!str_detect(
-    listing_title, 
-    regex("D23|repack|pin|proxy|custom|oversized|coin|sleeve", ignore_case = TRUE)
+    listing_title,
+    # Whole-word lookaround boundaries (see blacklist note): same "pin"-inside-
+    # "shipping" hazard, and \\b does not work in this stringi/ICU build.
+    regex("(?<![a-zA-Z])(D23|repack|pin|proxy|custom|oversized|coin|sleeve)s?(?![a-zA-Z])", ignore_case = TRUE)
   ))
 
 # ==========================================
