@@ -32,10 +32,12 @@ message(paste("Fetching daily prices from JustTCG in", length(card_batches), "ba
 # --- STEP 2: Execute API Batches ---
 # ==========================================
 for(i in seq_along(card_batches)) {
-  # 1. Keep the payload strictly focused on identifying the cards
+  # 1. Keep the payload strictly focused on identifying the cards.
+  #    NOTE: do NOT send `condition` here — JustTCG's batch endpoint now
+  #    returns 500 ("Failed to fetch batch data") if it's present. We filter
+  #    to Near Mint client-side from the returned variants instead.
   payload <- map(card_batches[[i]], ~ list(
-    tcgplayerId = as.character(.x),
-    condition = "NM"
+    tcgplayerId = as.character(.x)
   ))
   
   # 2. Send the POST request
@@ -52,7 +54,11 @@ for(i in seq_along(card_batches)) {
       all_price_data[[i]] <- as_tibble(batch_data) %>% unnest(variants, names_sep = "_")
     }
   } else {
-    warning(paste("Batch", i, "failed with status", status_code(response)))
+    # Surface the real reason: status code + a snippet of the response body
+    body_txt <- tryCatch(content(response, "text", encoding = "UTF-8"),
+                         error = function(e) "<unreadable body>")
+    warning(paste0("Batch ", i, " failed with status ", status_code(response),
+                   " | body: ", substr(body_txt, 1, 300)))
   }
   
   # 4. Smart Rate Limiter
@@ -67,7 +73,19 @@ for(i in seq_along(card_batches)) {
 # ==========================================
 # --- STEP 3: Clean & Format for Storage ---
 # ==========================================
-daily_prices_lean <- bind_rows(all_price_data) %>%
+raw_prices <- bind_rows(all_price_data)
+
+# If every batch failed, raw_prices has 0 columns. Stop with a clear message
+# (and dump the warnings) instead of a misleading "column doesn't exist" error.
+if (nrow(raw_prices) == 0 || !"tcgplayerId" %in% names(raw_prices)) {
+  print(warnings())
+  stop("No usable price data returned from JustTCG — all batches failed. ",
+       "See the batch warnings above for status codes / response bodies.")
+}
+
+daily_prices_lean <- raw_prices %>%
+  # Filter to Near Mint client-side (condition is no longer a valid API param).
+  filter(variants_condition == "Near Mint") %>%
   select(
     tcgplayer_id = tcgplayerId,
     market_price = variants_price
