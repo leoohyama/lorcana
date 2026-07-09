@@ -69,8 +69,14 @@ print("🚀 Connecting to MotherDuck...")
 md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
 Sys.setenv(motherduck_token = md_token)
 
-# Connect seamlessly using the auto-loader, bypassing the strict version check
-con <- dbConnect(duckdb::duckdb(), "md:my_db")
+# Explicit install/load/attach — the "md:" dbdir shortcut silently creates a
+# LOCAL file literally named "md:my_db" when the duckdb package can't autoload
+# the motherduck extension, making this script see an empty database and exit.
+con <- dbConnect(duckdb::duckdb())
+dbExecute(con, "INSTALL motherduck;")
+dbExecute(con, "LOAD motherduck;")
+dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+dbExecute(con, "USE my_db;")
 
 create_table_query <- "
   CREATE TABLE IF NOT EXISTS llm_listing_metadata (
@@ -159,31 +165,66 @@ print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d r
               nrow(deterministic_mismatches), nrow(llm_queue)))
 
 # ==========================================
-# 5. SEQUENTIAL LLM PROCESSING
+# 5. SEQUENTIAL LLM PROCESSING (INCREMENTAL COMMITS)
 # ==========================================
+
+# Flush helper: delete conflicting item_ids then bulk-append the batch. Called
+# incrementally during the loop so an interrupted run keeps its progress instead
+# of losing hours of sequential LLM work on a large queue.
+flush_payload <- function(df) {
+  if (is.null(df) || nrow(df) == 0) return(invisible(0))
+  item_id_list <- paste0("'", df$item_id, "'", collapse = ",")
+  dbExecute(con, sprintf("DELETE FROM llm_listing_metadata WHERE item_id IN (%s)", item_id_list))
+  dbWriteTable(con, "llm_listing_metadata", df, append = TRUE)
+  invisible(nrow(df))
+}
+
+# Commit the deterministic regex rejects up front — no LLM needed for these
+flush_payload(deterministic_mismatches)
+
+total_written <- nrow(deterministic_mismatches)
+n_errors <- 0
+FLUSH_EVERY <- 250
 llm_results_list <- list()
 
 if(nrow(llm_queue) > 0) {
   print("🧠 Running sequential LLM processing...")
-  
+
   for (i in 1:nrow(llm_queue)) {
     cat(sprintf("\rProcessing %d of %d...", i, nrow(llm_queue)))
-    
+
     res <- ask_gemma_json(llm_queue$cardname[i], llm_queue$listing_title[i])
-    
-    is_valid_flag <- ifelse(res$validity == "Match", TRUE, FALSE)
-    is_graded_flag <- as.logical(res$is_graded)
-    comp_val <- ifelse(res$grading_company %in% c("NA", "ERROR") || is.na(res$grading_company), NA_character_, res$grading_company)
-    g_val <- ifelse(res$grade_value %in% c("NA", "ERROR") || is.na(res$grade_value), NA_character_, as.character(res$grade_value))
-    
+
+    # SKIP on ERROR: an unreachable / timed-out Ollama must NOT be recorded as
+    # is_valid = FALSE (that permanently blacklists good listings). Leaving the
+    # item unwritten keeps it in the queue so it is retried on the next run.
+    if (is.null(res$validity) || identical(res$validity, "ERROR")) {
+      n_errors <- n_errors + 1
+      # Abort early if literally every call so far has failed — Ollama is down.
+      if (n_errors >= 25 && n_errors == i) {
+        flush_payload(bind_rows(llm_results_list))
+        dbDisconnect(con, shutdown = TRUE)
+        stop("🛑 First 25 LLM calls all failed — is Ollama running? Aborting; unprocessed items will be retried next run.")
+      }
+      next
+    }
+
+    is_valid_flag <- isTRUE(res$validity == "Match")
+    is_graded_flag <- isTRUE(as.logical(res$is_graded))
+    # Coerce possibly-missing LLM JSON fields to length-1 strings before testing
+    comp_raw <- if (is.null(res$grading_company)) NA_character_ else as.character(res$grading_company)[1]
+    g_raw <- if (is.null(res$grade_value)) NA_character_ else as.character(res$grade_value)[1]
+    comp_val <- ifelse(is.na(comp_raw) || comp_raw %in% c("NA", "ERROR"), NA_character_, comp_raw)
+    g_val <- ifelse(is.na(g_raw) || g_raw %in% c("NA", "ERROR"), NA_character_, g_raw)
+
     if (is.na(comp_val) || trimws(comp_val) == "") {
       is_graded_flag <- FALSE
       comp_val <- NA_character_
       g_val <- NA_character_
     }
     if(!is.na(comp_val) && toupper(comp_val) == "BECKETT") comp_val <- "BGS"
-    
-    llm_results_list[[i]] <- tibble(
+
+    llm_results_list[[length(llm_results_list) + 1]] <- tibble(
       item_id = llm_queue$item_id[i],
       id = llm_queue$id[i],
       is_valid = is_valid_flag,
@@ -192,27 +233,20 @@ if(nrow(llm_queue) > 0) {
       grade_val = g_val,
       card_language = llm_queue$card_language[i]
     )
+
+    # Periodic incremental commit
+    if (length(llm_results_list) >= FLUSH_EVERY) {
+      total_written <- total_written + flush_payload(bind_rows(llm_results_list))
+      llm_results_list <- list()
+    }
   }
-  cat("\n") 
-  llm_results <- bind_rows(llm_results_list)
-  final_payload <- bind_rows(deterministic_mismatches, llm_results)
-} else {
-  final_payload <- deterministic_mismatches
+  cat("\n")
 }
 
 # ==========================================
-# 6. CHUNKED BULK DB WRITE (No Row-by-Row Latency)
+# 6. FINAL FLUSH & SUMMARY
 # ==========================================
-if(nrow(final_payload) > 0) {
-  print("💾 Committing payloads to MotherDuck in a single chunk...")
-  
-  # Delete conflicting IDs in a single batch query
-  item_id_list <- paste0("'", final_payload$item_id, "'", collapse = ",")
-  dbExecute(con, sprintf("DELETE FROM llm_listing_metadata WHERE item_id IN (%s)", item_id_list))
-  
-  # Bulk append dataframe using DuckDB's optimized appender stream
-  dbWriteTable(con, "llm_listing_metadata", final_payload, append = TRUE)
-}
+total_written <- total_written + flush_payload(bind_rows(llm_results_list))
 
-print("✨ Pipeline complete! Database sync complete.")
+print(sprintf("✨ Pipeline complete! %d rows written, %d LLM errors skipped (left in queue for next run).", total_written, n_errors))
 dbDisconnect(con, shutdown = TRUE)

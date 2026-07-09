@@ -77,8 +77,19 @@ if (md_token == "") {
 
 Sys.setenv(motherduck_token = md_token)
 
-# Connect seamlessly using the auto-loader, bypassing the strict version check
-con <- dbConnect(duckdb::duckdb(), "md:my_db")
+# Explicit install/load/attach — the "md:" dbdir shortcut silently creates a
+# LOCAL file literally named "md:my_db" when the duckdb package can't autoload
+# the motherduck extension, making this script see an empty database and exit.
+connect_motherduck <- function() {
+  con <- dbConnect(duckdb::duckdb())
+  dbExecute(con, "INSTALL motherduck;")
+  dbExecute(con, "LOAD motherduck;")
+  dbExecute(con, "ATTACH 'md:my_db' AS my_db;")
+  dbExecute(con, "USE my_db;")
+  con
+}
+
+con <- connect_motherduck()
 
 # SAFEGUARD: Ensure the upstream scraper has actually created the table
 if (!dbExistsTable(con, "lorcana_active_listings")) {
@@ -137,9 +148,21 @@ for (i in 1:nrow(processing_queue)) {
   curr_target <- processing_queue$card_name[i]
   
   result_list <- ask_gemma_json(curr_target, curr_title)
-  is_match <- ifelse(result_list$validity == "Match", TRUE, FALSE)
+
+  # SKIP on ERROR: an unreachable / timed-out Ollama must NOT count as "No Match" —
+  # that would DELETE legitimate listings. Leaving is_valid = NA excludes the row
+  # from the kill list, and the conflict is re-evaluated on the next run.
+  if (is.null(result_list$validity) || identical(result_list$validity, "ERROR")) {
+    message(sprintf("[%d/%d] ⚠️ LLM ERROR — skipping (will re-evaluate next run)", i, nrow(processing_queue)))
+    message(sprintf("   Target : %s", curr_target))
+    message(sprintf("   Listing: %s", curr_title))
+    message("--------------------------------------------------")
+    next
+  }
+
+  is_match <- isTRUE(result_list$validity == "Match")
   evaluations$is_valid[i] <- is_match
-  
+
   # Action-friendly logging
   eval_status <- ifelse(is_match, "✅ MATCH", "❌ NO MATCH (WILL DELETE)")
   message(sprintf("[%d/%d] %s", i, nrow(processing_queue), eval_status))
@@ -160,8 +183,8 @@ message("==================================================")
 if(nrow(kill_list) > 0) {
   message(sprintf("Gemma identified %d false matches. Reconnecting to MotherDuck...", nrow(kill_list)))
   
-  # RECONNECT: Use the auto-loader here too!
-  con <- dbConnect(duckdb::duckdb(), "md:my_db")
+  # RECONNECT with the explicit extension load (see connect_motherduck above)
+  con <- connect_motherduck()
   
   for(i in 1:nrow(kill_list)) {
     # Use standard parameterized queries (safer and cleaner than glue_sql)
