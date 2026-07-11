@@ -1,6 +1,7 @@
 ---
 title: ""
-format: 
+pagetitle: "Lorecaster"
+format:
   dashboard:
     logo: "lorecaster_logo.png"
     theme: darkly
