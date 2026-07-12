@@ -213,6 +213,8 @@ The pipeline moves data through six stages, mirrored by the `pipeline/` folder l
 | `lorcana_active_listings` | `ebay_api_download.R` | Raw eBay active-listing float |
 | `llm_listing_metadata` | `run_gemma_cleaner.R`, `dedupe_gemma4.R` | LLM match/grade metadata per listing |
 | `gru_predictions` | `daily_inference_gru.py` | 30-day GRU forecasts |
+| `buy_hold_sell_scores` | `buy_hold_sell_multinom.R` | Daily calibrated buy/hold/sell probabilities per card |
+| `buy_hold_sell_metrics` | `buy_hold_sell_multinom.R` | Per-run model health (AUC, Brier, today's avg confidence) |
 | `chronos_predictions` | `chronos_transfer_learning.py` | 30-day Chronos forecasts |
 | `model_residuals_live` | `update_residuals.R` | Live prediction-vs-actual residuals |
 | `card_ts_metrics` | `update_ts_metrics.R` | Entropy, Hurst, skew, autocorrelation, volatility |
@@ -289,6 +291,16 @@ Price history alone tells you *where* a card has been, not how hard it's being b
 
 Running both lets the dashboard compare them and surface **model divergence** as its own signal (see [Monitoring & Health](#monitoring--health)).
 
+### 3. Buy / Hold / Sell Signal — calibrated multinomial logistic
+
+Where the GRU and Chronos answer *"what will the price be?"*, this model answers the decision question directly: *"is now a good time to **buy**, **hold**, or **sell**?"* It is a **regularized multinomial logistic regression** (R, **tidymodels** + `glmnet`) that emits three **calibrated probabilities per card that sum to 1** — chosen deliberately because logistic regression yields interpretable coefficients and honest, well-calibrated probabilities rather than a black-box score.
+
+- **Label (looks ~3 weeks forward):** `sell` if the price is likely to fall (≤ −7%), `buy` if it is likely to rise **and** the card is currently near a low (≥ +7% **and** in the bottom half of its all-time range), `hold` otherwise. Horizon and thresholds were picked by a walk-forward sweep (21 days / ±7% gave the best balanced AUC).
+- **Predictors (all leakage-safe, as of day t):** TCG price dynamics (momentum, moving-average gaps, volatility, skew), each card's **all-time high/low position**, and — where eBay data exists — **listing volume, churn, and the eBay/TCG premium** (imputed on the older pre-eBay days). The `card_ts_metrics` snapshot is deliberately *not* used as a feature, since applying today's 30-day stats to a historical row would leak the future; the equivalent stats are recomputed per-day from the price series instead.
+- **Calibration:** probabilities are refit each run with **beta calibration** (isotonic fallback) on the most recent slice, and the walk-forward holdout re-calibrates per window to track regime shift — so a reported 70% really means ~70%.
+- **Honest performance:** strictly time-based validation with an embargo gap. Walk-forward macro-AUC ≈ **0.71** (a real but modest edge — 3-week moves are hard), calibrated Brier ≈ 0.22. The probabilities are trustworthy enough to *rank and size* decisions, not to bet the farm on a single card.
+- **Output:** `pipeline/modeling/buy_hold_sell_multinom.R` fits, calibrates, scores the latest day for every card, writes `data/pytorch/buy_hold_sell_scores.csv`, and pushes to the `buy_hold_sell_scores` table. Each run also records model-health metrics (AUC, Brier, and today's average confidence) to `buy_hold_sell_metrics`. The dashboard surfaces the three probabilities inside each card's deep-dive (with a hold-confidence colour gradient and a per-card confidence read-out), plus a global model-health card that puts the AUC/calibration into plain language.
+
 ---
 
 ## Market Health Metrics
@@ -319,6 +331,7 @@ Everything is orchestrated by **six GitHub Actions workflows**, all on the self-
 | **eBay Daily Market Float** | daily `04:23` | eBay scrape → Gemma clean → Gemma dedupe (3 chained jobs) |
 | **Update Time Series Metrics** | daily `04:30` | `pipeline/postprocessing/update_ts_metrics.R` |
 | **Daily Lorcana Market Inference** | after *JustTCG Price Pull* succeeds | preprocess → GRU + Chronos inference → residuals → backtest metrics |
+| **Daily Buy/Hold/Sell Signal** | after *eBay Market Float* succeeds | refit calibrated logistic on fresh price + eBay data → push buy/hold/sell probabilities |
 | **Daily Dashboard Render** | after *eBay Market Float* succeeds | `quarto render index.qmd`, commit to `docs/` |
 | **Weekly Lorcana Training** | Sundays `04:26` | preprocess → train GRU + Chronos backtests → diagnostics → back up weights |
 
@@ -364,7 +377,8 @@ lorcana/
 │   ├── cleaning/                 # run_gemma_cleaner.R, dedupe_gemma4.R
 │   ├── preprocessing/            # preprocessing.R, chronos_data_processing.R
 │   ├── modeling/                 # train_lorcana_model.py, model_testing_gru.py,
-│   │                             #   chronos_transfer_learning.py, chronos_backtest.py
+│   │                             #   chronos_transfer_learning.py, chronos_backtest.py,
+│   │                             #   buy_hold_sell_multinom.R (buy/hold/sell logistic)
 │   ├── inference/                # daily_inference_gru.py
 │   └── postprocessing/           # update_residuals.R, update_ts_metrics.R,
 │                                 #   calculate_backtest_metrics.R, model_diagnostics.R
@@ -383,6 +397,7 @@ lorcana/
 | **Languages** | R, Python (developed in [Positron](https://positron.posit.co/), which runs both) |
 | **Data / ML (Python)** | PyTorch, pandas, NumPy, Amazon Chronos, duckdb, python-dotenv |
 | **Data / stats (R)** | tidyverse, DBI + duckdb, httr, jsonlite, `pracma`, `moments`, lubridate |
+| **ML (R)** | tidymodels (`parsnip`, `recipes`, `rsample`, `tune`, `yardstick`), `glmnet`, `probably` + `betacal` (calibration), `slider` |
 | **LLM cleaning** | Ollama serving Gemma (`gemma4:e2b`), local on the runner |
 | **Storage** | MotherDuck (cloud DuckDB) |
 | **Data sources** | eBay Browse API, JustTCG API, Lorcast (card metadata) |
@@ -396,13 +411,14 @@ lorcana/
 - [ ] **Modularize `index.qmd`** into smaller, maintainable components.
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
 - [ ] **Rework the landing page** to include more interesting statistics.
-- [ ] **Buy vs. Sell decision maker** leveraging the models and market metrics.
+- [x] **Buy vs. Sell decision maker** leveraging the models and market metrics — shipped as a calibrated buy/hold/sell logistic (see [Forecasting Models](#forecasting-models)); next up is folding the GRU/Chronos forecasts in as features.
 
 ---
 
 ## Changelog
 *(significant changes only)*
 
+- **2026-07-12** — Added a **Buy / Hold / Sell signal**: a calibrated multinomial logistic (tidymodels + `glmnet`) in `pipeline/modeling/buy_hold_sell_multinom.R` emitting three probabilities per card from TCG price dynamics, all-time high/low position, and eBay volume/churn/premium. Walk-forward tuned (21d / ±7%) and beta-calibrated; scores land in the `buy_hold_sell_scores` table, refresh via the new **Daily Buy/Hold/Sell Signal** workflow, and appear in each card's dashboard deep-dive.
 - **2026-07-12** — Added an **eBay churn signal** to the GRU: `preprocessing.R` now derives a per-card, per-day listing churn rate + coverage mask, and the GRU temporal branch went from 2 to 4 input channels (`USE_EBAY_FEATURES` flag). Rolling-origin A/B showed churn lifts directional accuracy at every horizon and cuts wMAPE on the 30-day model, so **daily inference now serves the 30-day window**.
 - **2026-07-06** — Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the data-pipeline stages above; updated all GitHub Actions workflows to the new paths.
 - **2026-06-12** — Switched storage from Neon (PostgreSQL) to **MotherDuck**, after realizing the use case didn't require Neon's features.

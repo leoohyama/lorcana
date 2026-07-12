@@ -116,6 +116,8 @@ chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pr
 gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)")
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
+buy_signals <- tryCatch(dbGetQuery(con, "SELECT CAST(card_id AS INTEGER) AS tcgplayer_id, p_buy, p_hold, p_sell, call AS signal_call FROM buy_hold_sell_scores WHERE run_date = (SELECT MAX(run_date) FROM buy_hold_sell_scores)"), error = function(e) data.frame())
+signal_metrics <- tryCatch(dbGetQuery(con, "SELECT horizon, auc, brier, logloss, avg_confidence, buy_pct, sell_pct, hold_pct, run_date FROM buy_hold_sell_metrics WHERE run_date = (SELECT MAX(run_date) FROM buy_hold_sell_metrics)"), error = function(e) data.frame())
 
 # --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
 # NOTE: auctions are intentionally retained here (no listing_type filter). The
@@ -136,6 +138,7 @@ forecast_flat <- bind_rows(chronos_pred %>% mutate(tcgplayer_id = as.integer(tcg
 hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
 unified <- master_dict %>% left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>% left_join(metrics_df, by="tcgplayer_id")
+if (nrow(buy_signals) > 0) unified <- unified %>% left_join(buy_signals, by = "tcgplayer_id")
 
 if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id), listing_type = replace_na(as.character(listing_type), "")) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language, listing_type)
@@ -144,7 +147,7 @@ if(nrow(raw_ebay_sql) > 0) {
 if(nrow(raw_ebay_titles) > 0) { ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title")) } else { ebay_title_dict <- data.frame(item_id=character(), listing_title=character()) }
 
 # Broadcast In-Memory Data Structures to OJS Space
-ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics, ojs_global_stats = global_stats, ojs_churn = daily_churn)
+ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics, ojs_global_stats = global_stats, ojs_churn = daily_churn, ojs_signal_metrics = signal_metrics)
 ```
 
 ```{=html}
@@ -674,9 +677,78 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     return {
       ...d, c_pred_30d: c_pred, c_pct_30d: c_pct, g_pred_30d: g_pred, g_pct_30d: g_pct,
       c_err_30d: c_err ? c_err.mdape * 100 : null, g_err_30d: g_err ? g_err.mdape * 100 : null,
-      recent_ebay_med: raw_stats.median, totalCount: totalCount, psa_10_med: psa_stats.median, delta: delta
+      recent_ebay_med: raw_stats.median, totalCount: totalCount, psa_10_med: psa_stats.median, delta: delta,
+      signal_score: (d.p_buy != null && d.p_sell != null) ? (d.p_buy - d.p_sell) : null
     };
   });
+
+  // Latest global model-health metrics (single row) + plain-language labels.
+  const signal_metrics = (safeTranspose(ojs_signal_metrics) || [])[0] || null;
+  function aucLabel(a) {
+    if (a == null) return { t: '—', c: 'var(--text-muted)' };
+    if (a >= 0.75) return { t: 'Strong', c: 'var(--accent-green)' };
+    if (a >= 0.68) return { t: 'Fair', c: 'var(--accent-green)' };
+    if (a >= 0.60) return { t: 'Modest', c: 'var(--accent-yellow)' };
+    return { t: 'Weak (near chance)', c: 'var(--accent-red)' };
+  }
+  function confLabel(c) {
+    if (c == null) return { t: '—', c: 'var(--text-muted)' };
+    if (c >= 0.60) return { t: 'Confident', c: 'var(--accent-green)' };
+    if (c >= 0.45) return { t: 'Moderate', c: 'var(--accent-yellow)' };
+    return { t: 'Cautious / mixed', c: 'var(--accent-red)' };
+  }
+  // Compact global readout: how reliable the model is (AUC), how well-calibrated
+  // (Brier), and how decisive its calls are today (avg confidence).
+  function buildModelHealthCard(m) {
+    if (m == null) return null;
+    const al = aucLabel(m.auc), cl = confLabel(m.avg_confidence);
+    const stat = (label, main, mainColor, sub) => `
+      <div><div style="color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">${label}</div>
+        <div style="font-weight:800; color:${mainColor}; font-size:15px;">${main}
+          ${sub ? `<span style="color:var(--text-muted); font-size:12px; font-weight:400;"> ${sub}</span>` : ''}</div></div>`;
+    const el = document.createElement("div");
+    el.className = "momentum-box";
+    el.style.cssText = "margin-top:15px; display:flex; flex-wrap:wrap; gap:22px; align-items:center;";
+    el.innerHTML = `
+      <div style="font-weight:800; color:var(--text-main); font-size:14px;">🎯 Buy / Hold / Sell Model
+        <span style="font-size:11px; color:var(--text-muted); font-weight:400;">· ${m.horizon}-day outlook · calibrated</span></div>
+      ${stat('Reliability', al.t, al.c, `AUC ${Number(m.auc).toFixed(2)}`)}
+      ${stat('Calibration', `Brier ${Number(m.brier).toFixed(2)}`, 'var(--text-main)', 'lower is better')}
+      ${stat('Confidence today', cl.t, cl.c, `${Math.round(m.avg_confidence * 100)}% avg`)}`;
+    return el;
+  }
+
+  // Calibrated Buy/Hold/Sell panel for a card's deep-dive. Each pill tints by its
+  // probability, so a higher HOLD reads as a stronger hue and a lower HOLD fades
+  // to a weaker one (same for buy/sell); the top call gets a bold border.
+  function buildSignalPanel(ci) {
+    if (ci == null || ci.signal_call == null || ci.p_buy == null) return null;
+    const pill = (label, prob, rgb, accent, key) => {
+      const a = (0.12 + 0.88 * prob).toFixed(2);
+      const sel = ci.signal_call === key;
+      return `<div style="flex:1; text-align:center; padding:10px 6px; border-radius:8px;
+                 background:rgba(${rgb},${a}); border:${sel ? '2px' : '1px'} solid rgba(${rgb},${sel ? 0.9 : 0.3});">
+                <div style="font-size:11px; letter-spacing:1px; color:${accent}; font-weight:800;">${label}</div>
+                <div style="font-size:22px; font-weight:800; color:var(--text-main);">${Math.round(prob * 100)}%</div>
+              </div>`;
+    };
+    const maxp = Math.max(ci.p_buy, ci.p_hold, ci.p_sell);
+    const cl = confLabel(maxp);
+    const panel = document.createElement("div");
+    panel.className = "modal-panel";
+    panel.style.padding = "12px 15px";
+    panel.innerHTML = `
+      <h4 class="panel-title" style="margin-bottom:8px;">Buy / Hold / Sell Signal
+        <span style="font-size:11px; color:var(--text-muted); font-weight:400;">· calibrated · ~3-week outlook</span></h4>
+      <div style="display:flex; gap:8px;">
+        ${pill('BUY',  ci.p_buy,  '34,197,94',  'var(--accent-green)',  'buy')}
+        ${pill('HOLD', ci.p_hold, '245,158,11', 'var(--accent-yellow)', 'hold')}
+        ${pill('SELL', ci.p_sell, '239,68,68',  'var(--accent-red)',    'sell')}
+      </div>
+      <div style="margin-top:8px; font-size:12px; color:var(--text-muted);">Confidence in this call:
+        <span style="color:${cl.c}; font-weight:700;">${cl.t}</span> (${Math.round(maxp * 100)}%)</div>`;
+    return panel;
+  }
 
   const page_wrapper = document.createElement("div");
   page_wrapper.style.width = "100%";
@@ -687,6 +759,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     banner.className = "momentum-box"; banner.style.marginTop = "20px";
     banner.innerHTML = "<strong>Unified Market Explorer</strong><p style='font-size: 14px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Select a card to open its full deep dive — forecasts, eBay medians, supply volumes, and live listings. Select a second card to compare side-by-side.</p>";
     page_wrapper.appendChild(banner);
+    const mh_card = buildModelHealthCard(signal_metrics);
+    if (mh_card) page_wrapper.appendChild(mh_card);
 
     // Split Container Setup
     const split_container = document.createElement("div");
@@ -733,6 +807,7 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
       const arrow = val >= 0 ? '▲' : '▼';
       return `<div style="color:${color}; font-weight:700;">${arrow} ${Math.abs(val).toFixed(1)}%</div><div style="color:var(--text-muted); font-size:11px; font-weight:400;">$${price.toFixed(2)}</div>`;
     };
+
 
     function renderTable() {
       const q = search_input.value.toLowerCase(); const r = set_select.value;
@@ -876,6 +951,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
          renderTable(); renderDetails();
       });
 
+      const sig_panel_d = buildSignalPanel(card_info);
+      if (sig_panel_d) wrapper.appendChild(sig_panel_d);
+
       // ===== Price Forecast & Market Context (TCG history + eBay median + eBay volume + models) =====
       const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'TCGplayer', line: {color: '#f8fafc', width: 3}, hovertemplate: 'TCG: $%{y:.2f}<extra></extra>' };
       const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
@@ -1010,7 +1088,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
 
            let lis = unique.map(item => {
                let act = ebay_title_map.get(String(item.item_id).trim()) || "Unknown Title";
-               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
+               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : '';
+               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
            }).join('');
            return `<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 320px; overflow-y: auto;"><div style="position: sticky; top: -15px; background: var(--bg-base); z-index: 5; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle);"><h4 style="color:var(--accent-blue); margin:0; font-size:14px; text-transform:uppercase;">${title}</h4><div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sample Size: ${unique.length} Unique Listings</div></div>${lis}</div>`;
         };
@@ -1131,6 +1210,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     banner.className = "momentum-box"; banner.style.marginTop = "20px";
     banner.innerHTML = "<strong>Unified Market Explorer</strong><p style='font-size: 14px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Click any row below to open the complete deep dive containing forecasts, eBay volumes, and listings.</p>";
     page_wrapper.appendChild(banner);
+    const mh_card = buildModelHealthCard(signal_metrics);
+    if (mh_card) page_wrapper.appendChild(mh_card);
 
     const filter_bar = document.createElement("div");
     filter_bar.style.cssText = "display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap;";
@@ -1337,6 +1418,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
         </div>
       `;
 
+      const msig = buildSignalPanel(card_info);
+      if (msig) { msig.style.margin = "12px 0 0 0"; document.getElementById('modal-header').appendChild(msig); }
+
       const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'TCGplayer', line: {color: '#f8fafc', width: 3}, hovertemplate: 'TCG: $%{y:.2f}<extra></extra>' };
       const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
       const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
@@ -1463,7 +1547,8 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
          
            let lis = unique.map(item => {
                let act = ebay_title_map.get(String(item.item_id).trim()) || "Unknown Title";
-               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
+               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : '';
+               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
            }).join('');
            return `<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 350px; overflow-y: auto;"><div style="position: sticky; top: -15px; background: var(--bg-base); z-index: 5; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle);"><h4 style="color:var(--accent-blue); margin:0; font-size:14px; text-transform:uppercase;">${title}</h4><div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sample Size: ${unique.length} Unique Listings</div></div>${lis}</div>`;
         };

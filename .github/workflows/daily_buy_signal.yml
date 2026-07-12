@@ -1,0 +1,49 @@
+name: Daily Buy/Hold/Sell Signal
+
+# Re-fits the calibrated multinomial logistic on the latest price + eBay data and
+# refreshes each card's buy/hold/sell probabilities in MotherDuck. Runs on the
+# tuned config (sweep OFF) so it finishes in a couple of minutes; re-tuning the
+# horizon/threshold is a manual/periodic step (BHS_SWEEP=TRUE via dispatch).
+
+on:
+  # Fire once the eBay Market Float chain (scrape -> LLM clean -> dedupe) finishes:
+  # the model's churn / listing-volume / eBay-premium features need the day's
+  # cleaned eBay data, and the parallel price pull is long done by then, so both
+  # datasets are fresh. Manual dispatch can flip BHS_SWEEP on to re-tune.
+  workflow_run:
+    workflows: ["eBay Daily Market Float (Local Mac Edition)"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      sweep:
+        description: "Re-tune horizon/threshold (slow)"
+        type: boolean
+        default: false
+
+jobs:
+  buy-signal:
+    runs-on: self-hosted
+    timeout-minutes: 25
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🎯 Fit calibrated buy/hold/sell model + push scores to MotherDuck
+        env:
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+          BHS_SWEEP: ${{ github.event.inputs.sweep == 'true' && 'TRUE' || 'FALSE' }}
+          BHS_HORIZON: "21"
+          BHS_PUSH: "TRUE"
+        run: Rscript pipeline/modeling/buy_hold_sell_multinom.R
+
+      - name: 📦 Sync scores CSV to GitHub
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🎯 Auto-signal: Daily buy/hold/sell probabilities updated"
+          file_pattern: 'data/pytorch/buy_hold_sell_scores.csv'
+          push_options: '--force'

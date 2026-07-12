@@ -1,11 +1,15 @@
 name: Daily Dashboard Render
 
-on:  
-  workflow_run:    
-    workflows: ["eBay Daily Market Float (Local Mac Edition)"]    
-    types:      
-      - completed    
-  workflow_dispatch: 
+on:
+  # Render LAST in the daily chain: eBay Market Float -> Buy/Hold/Sell Signal -> render.
+  # The signal fires on the eBay float, so keying render off the signal guarantees
+  # every daily job (prices, eBay clean, forecasts, buy/hold/sell) is done first.
+  # workflow_dispatch stays independent, so a manual render never re-runs the signal.
+  workflow_run:
+    workflows: ["Daily Buy/Hold/Sell Signal"]
+    types:
+      - completed
+  workflow_dispatch:
 
 jobs:  
   render-site:    
