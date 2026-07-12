@@ -25,7 +25,7 @@ jobs:
       - name: 📊 Render Dashboard        
         env:          
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
-        run: quarto render Lorecaster.qmd      
+        run: quarto render index.qmd
 
       - name: 🚀 Commit and Push        
         uses: stefanzweifel/git-auto-commit-action@v5        
