@@ -189,7 +189,7 @@ The pipeline moves data through six stages, mirrored by the `pipeline/` folder l
 - **`dedupe_gemma4.R`** performs a second LLM pass to prune mislabeled/duplicate listings.
 
 **3. Preprocessing** — `pipeline/preprocessing/`
-- **`preprocessing.R`** pulls prices for cards with **≥180 days** of history, fills temporal gaps (forward-fill across missing days), scales features, and writes the model-ready matrix to `data/pytorch/lorcana_pytorch_ready.csv`.
+- **`preprocessing.R`** pulls prices for cards with **≥180 days** of history, fills temporal gaps (forward-fill across missing days), scales features, derives the per-card **eBay churn rate + coverage mask** (see [eBay Churn Signal](#the-ebay-churn-signal)), and writes the model-ready matrix to `data/pytorch/lorcana_pytorch_ready.csv`.
 - **`chronos_data_processing.R`** builds a lighter dataset for cards with **≥90 days** of history (`data/chronos_ready_prices.csv`) so newer cards can still be forecast by the zero-shot transformer.
 
 **4. Forecasting** — `pipeline/modeling/` + `pipeline/inference/`
@@ -249,7 +249,7 @@ Price forecasting is treated as a **multi-modal time-series problem**. Two archi
 
 A custom **PyTorch** model that ingests both temporal data (historical prices) and static metadata (set, rarity, ink color). By concatenating static embeddings with recurrent outputs, it contextualizes price movement — learning, for example, that an "Enchanted" card's volatility behaves differently from a "Rare" card's.
 
-1. **Temporal Branch:** a 2-feature-per-step sequence (normalized price + relative day) flows through a multi-layer GRU.
+1. **Temporal Branch:** a 4-feature-per-step sequence (normalized price + relative day + **eBay churn rate** + an **eBay-coverage mask**) flows through a multi-layer GRU. The churn features inject a demand-side signal on top of raw price history (see [eBay Churn Signal](#the-ebay-churn-signal)).
 2. **Static Branch:** categorical attributes are mapped into dense vectors via PyTorch `nn.Embedding` layers, alongside a couple of continuous static features (cost, inkwell).
 3. **The Merge:** attention-summarized sequence features and static embeddings are concatenated and passed through a final MLP to produce the 30-day forecast.
 
@@ -257,7 +257,7 @@ A custom **PyTorch** model that ingests both temporal data (historical prices) a
 <summary><strong>Architecture & training internals</strong></summary>
 
 **Network (`HybridLorcanaGRU`):**
-- **GRU:** input size 2 → hidden size 128, 2 layers, dropout 0.4.
+- **GRU:** input size 4 (price, relative day, eBay churn rate, eBay-coverage mask) → hidden size 128, 2 layers, dropout 0.4. The channel set is toggled by the `USE_EBAY_FEATURES` flag (env-overridable) so the 2-channel price-only baseline can be reproduced for A/B comparison.
 - **Additive attention:** `Linear(128→64) → Tanh → Linear(64→1)`, softmax over the time axis to produce a weighted **context vector** — instead of relying on only the final hidden state.
 - **Embeddings:** `set → 4`, `rarity → 8`, `ink → 2` dimensions, concatenated with 2 continuous static features (16 static dims total).
 - **Head:** `Linear(hidden+16 → 64) → ReLU → Dropout(0.5) → Linear(64 → 30)`.
@@ -271,6 +271,15 @@ A custom **PyTorch** model that ingests both temporal data (historical prices) a
 - **Confidence intervals:** Monte-Carlo dropout at inference (dropout left active, 100 samples) yields a **median** forecast plus **10th/90th-percentile** bands.
 
 </details>
+
+#### The eBay Churn Signal
+
+Price history alone tells you *where* a card has been, not how hard it's being bought. To capture demand pressure, `preprocessing.R` derives a per-card, per-day **churn rate** from the eBay listing float: the count of listings whose *last observed day* is that day (i.e., delisted/sold), divided by the day's active listing count. Intuitively, listings disappearing = supply being absorbed = bullish; a build-up of new listings = bearish.
+
+- **Why churn, not raw volume:** in backtesting, raw active-listing count barely correlates with forward price (within-card *r* ≈ 0.02), while normalized churn is the strongest of the flow features (*r* ≈ +0.16 against the 7-day forward return) — and it's orthogonal to price, so it's additive rather than redundant.
+- **Shorter history, handled honestly:** eBay coverage (~3.5 months) is much shorter than price history (~14 months). Churn is fed as a dynamic GRU channel alongside a binary **coverage mask**; pre-eBay days get `churn = 0, mask = 0` so the network can *gate* the feature to the window where it actually exists rather than treating missing as zero-demand.
+- **No look-ahead:** the most recent pull date is excluded from churn (every still-live listing would falsely look "removed" until the next pull is observed — right-censoring).
+- **Measured lift:** rolling-origin A/B (churn on vs. off) shows churn improves **directional accuracy across every horizon** for both windows, and on the **30-day model** it also cuts magnitude error (wMAPE −1.8 to −2.1 pp at the 6–30-day horizons). The 30-day window is therefore the production served model.
 
 ### 2. Pre-trained Transformer (Amazon Chronos) — the cold-start model
 
@@ -394,6 +403,7 @@ lorcana/
 ## Changelog
 *(significant changes only)*
 
+- **2026-07-12** — Added an **eBay churn signal** to the GRU: `preprocessing.R` now derives a per-card, per-day listing churn rate + coverage mask, and the GRU temporal branch went from 2 to 4 input channels (`USE_EBAY_FEATURES` flag). Rolling-origin A/B showed churn lifts directional accuracy at every horizon and cuts wMAPE on the 30-day model, so **daily inference now serves the 30-day window**.
 - **2026-07-06** — Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the data-pipeline stages above; updated all GitHub Actions workflows to the new paths.
 - **2026-06-12** — Switched storage from Neon (PostgreSQL) to **MotherDuck**, after realizing the use case didn't require Neon's features.
 - Removed the DigitalOcean/Docker approach in favor of a daily-rendered static HTML page, which better supports web traffic while still showing daily data and market changes.

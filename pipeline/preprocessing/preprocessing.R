@@ -38,6 +38,27 @@ daily_prices <- dbGetQuery(con, "
   ORDER BY tcgplayer_id, pull_date
 ")
 
+# --- eBay listing volume / churn panel (per card, per day) ---
+# 'active'  = distinct valid, ungraded, English listings live that day
+# 'removed' = listings whose LAST observed day is that day (delisted/sold)
+# We drop the most recent pull date: on it every live listing looks "removed"
+# (right-censoring), so churn there is unknowable until the next pull.
+ebay_churn <- dbGetQuery(con, "
+  WITH valid AS (
+    SELECT a.item_id, l.id AS ebay_id, DATE(a.date_pulled) AS d
+    FROM lorcana_active_listings a
+    JOIN llm_listing_metadata l ON a.item_id = l.item_id
+    WHERE l.is_valid AND l.is_graded IS FALSE AND l.card_language = 'English'
+  ),
+  life    AS (SELECT ebay_id, item_id, MAX(d) AS last_seen FROM valid GROUP BY 1, 2),
+  active  AS (SELECT ebay_id, d, COUNT(DISTINCT item_id) AS active FROM valid GROUP BY 1, 2),
+  removed AS (SELECT ebay_id, last_seen AS d, COUNT(*) AS removed FROM life GROUP BY 1, 2)
+  SELECT a.ebay_id, a.d AS date, a.active, COALESCE(r.removed, 0) AS removed
+  FROM active a
+  LEFT JOIN removed r ON a.ebay_id = r.ebay_id AND a.d = r.d
+  WHERE a.d < (SELECT MAX(d) FROM valid)
+")
+
 # Cleanly shutdown the DuckDB instance before running heavy CPU tasks
 dbDisconnect(con, shutdown = TRUE)
 
@@ -123,6 +144,37 @@ df_final <- df_merged %>%
     set_idx = as.integer(as.factor(set_name)) - 1L,
     rarity_idx = as.integer(as.factor(rarity)) - 1L,
     ink_idx = as.integer(as.factor(ink_clean)) - 1L
+  ) %>%
+  arrange(card_id, date)
+
+# ==========================================
+# 4b. MERGE EBAY CHURN SIGNAL
+# ==========================================
+print("4b. Merging eBay churn signal...")
+
+# Map eBay card key (`id`) -> tcgplayer_id (= card_id used everywhere downstream)
+id_map <- static %>%
+  distinct(id, tcgplayer_id) %>%
+  transmute(ebay_id = as.character(id), card_id = as.character(tcgplayer_id))
+
+ebay_features <- ebay_churn %>%
+  mutate(date = as.Date(date), ebay_id = as.character(ebay_id)) %>%
+  inner_join(id_map, by = "ebay_id") %>%
+  transmute(
+    card_id,
+    date,
+    # removed <= active by construction, so churn_rate lands in [0, 1]
+    churn_rate = if_else(active > 0, pmin(removed / active, 1), 0),
+    ebay_mask  = 1L
+  )
+
+df_final <- df_final %>%
+  left_join(ebay_features, by = c("card_id", "date")) %>%
+  mutate(
+    # Pre-eBay history (and uncovered days) get 0 churn + mask=0 so the
+    # network can gate the feature to the window where it actually exists.
+    churn_rate = coalesce(churn_rate, 0),
+    ebay_mask  = coalesce(ebay_mask, 0L)
   ) %>%
   arrange(card_id, date)
 

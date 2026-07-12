@@ -15,6 +15,17 @@ if torch.backends.mps.is_available(): device = torch.device("mps"); print("hardw
 elif torch.cuda.is_available(): device = torch.device("cuda"); print("hardware: nvidia gpu (cuda) detected.")
 else: device = torch.device("cpu"); print("hardware: gpu not found, using cpu.")
 
+# dynamic input channels. price_scaled MUST stay at index 0 (persistence anchor).
+# Flip USE_EBAY_FEATURES to False to rerun the CV as the 2-channel baseline and
+# compare wMAPE / trend accuracy against the eBay-augmented model.
+USE_EBAY_FEATURES = os.getenv("USE_EBAY_FEATURES", "1") == "1"
+DYN_COLS = ['price_scaled', 'days_scaled'] + (['churn_rate', 'ebay_mask'] if USE_EBAY_FEATURES else [])
+DYN_DIM = len(DYN_COLS)
+
+# CV scope (overridable for a faster A/B; defaults reproduce full behavior)
+CV_WINDOWS = [int(x) for x in os.getenv("GRU_WINDOWS", "15,30,45").split(",")]
+CV_FOLDS = int(os.getenv("GRU_FOLDS", "3"))
+
 class EarlyStopping:
     def __init__(self, patience=15, path='data/pytorch/lorcana_gru_weights.pth'): 
         self.patience = patience; self.path = path; self.counter = 0; self.best_loss = None; self.early_stop = False
@@ -34,8 +45,9 @@ class LorcanaDataset(Dataset):
         df['date'] = pd.to_datetime(df['date'])
         
         df['price_scaled'] = df.groupby('card_id')['price_scaled'].transform(lambda x: x.bfill().ffill()).fillna(0.5)
-        for col in ['inkwell', 'cost_scaled', 'days_scaled']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        for col in ['inkwell', 'cost_scaled', 'days_scaled', 'churn_rate', 'ebay_mask']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         for col in ['set_idx', 'rarity_idx', 'ink_idx']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
@@ -60,7 +72,8 @@ class LorcanaDataset(Dataset):
             
             if len(sub_group) < (seq_length + pred_length): continue
                 
-            prices, days = sub_group['price_scaled'].values, sub_group['days_scaled'].values
+            prices = sub_group['price_scaled'].values
+            feats = sub_group[DYN_COLS].values  # (T, DYN_DIM); price_scaled at col 0
             static_cat = sub_group[['set_idx', 'rarity_idx', 'ink_idx']].iloc[0].values
             static_cont = sub_group[['cost_scaled', 'inkwell']].iloc[0].values
             c_min, c_max = sub_group['card_min_price'].iloc[0], sub_group['card_max_price'].iloc[0]
@@ -68,7 +81,7 @@ class LorcanaDataset(Dataset):
             dates = sub_group['date'].apply(lambda x: x.timestamp()).values
             
             for i in range(len(sub_group) - seq_length - pred_length + 1):
-                dyn = np.column_stack((prices[i:i+seq_length], days[i:i+seq_length]))
+                dyn = feats[i:i+seq_length].copy()
                 if self.split == 'train': dyn[:, 0] += np.random.normal(0, 0.001, seq_length)
                 
                 self.X_dynamic.append(dyn)
@@ -96,7 +109,7 @@ class LorcanaDataset(Dataset):
 class HybridLorcanaGRU(nn.Module):
     def __init__(self, vocab_sizes, pred_length=30, hidden_size=128, num_layers=2):
         super().__init__()
-        self.gru = nn.GRU(2, hidden_size, num_layers, batch_first=True, dropout=0.4)
+        self.gru = nn.GRU(DYN_DIM, hidden_size, num_layers, batch_first=True, dropout=0.4)
         
         self.attention = nn.Sequential(
             nn.Linear(hidden_size, 64),
@@ -171,10 +184,10 @@ if __name__ == "__main__":
     vocabs = [int(temp_df[c].max() + 1) for c in ['set_idx', 'rarity_idx', 'ink_idx']]
     
     global_metrics_rows = []
-    num_folds = 3 
-    
-    # 🟢 MASTER LOOP: Now iterates through 15, 30, and 45-day windows
-    for seq_len in [15, 30, 45]:
+    num_folds = CV_FOLDS
+
+    # 🟢 MASTER LOOP: iterates through the configured windows
+    for seq_len in CV_WINDOWS:
         cv_wmapes_d1 = []
         cv_wmapes_d30 = []
         cv_trend_accs = []

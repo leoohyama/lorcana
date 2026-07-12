@@ -14,7 +14,12 @@ if not MD_TOKEN:
     raise ValueError("⚠️ MOTHERDUCK_TOKEN not found. Please check your .env file!")
 
 # TOGGLE YOUR ACTIVE MODEL HERE (15, 30, or 45)
-ACTIVE_WINDOW = 15
+ACTIVE_WINDOW = 30
+
+# Must match training. price_scaled stays at index 0 (persistence anchor).
+USE_EBAY_FEATURES = os.getenv("USE_EBAY_FEATURES", "1") == "1"
+DYN_COLS = ['price_scaled', 'days_scaled'] + (['churn_rate', 'ebay_mask'] if USE_EBAY_FEATURES else [])
+DYN_DIM = len(DYN_COLS)
 
 if torch.backends.mps.is_available(): 
     device = torch.device("mps")
@@ -29,7 +34,7 @@ csv_path = "data/pytorch/lorcana_pytorch_ready.csv"
 class HybridLorcanaGRU(nn.Module):
     def __init__(self, vocab_sizes, pred_length=30, hidden_size=128, num_layers=2):
         super().__init__()
-        self.gru = nn.GRU(2, hidden_size, num_layers, batch_first=True, dropout=0.4)
+        self.gru = nn.GRU(DYN_DIM, hidden_size, num_layers, batch_first=True, dropout=0.4)
         
         self.attention = nn.Sequential(
             nn.Linear(hidden_size, 64),
@@ -70,8 +75,9 @@ if __name__ == "__main__":
     df = pd.read_csv(csv_path, dtype={'card_id': str}, low_memory=False)
     
     df['price_scaled'] = df.groupby('card_id')['price_scaled'].transform(lambda x: x.bfill().ffill()).fillna(0.5)
-    for col in ['inkwell', 'cost_scaled', 'days_scaled']: 
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    for col in ['inkwell', 'cost_scaled', 'days_scaled', 'churn_rate', 'ebay_mask']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     for col in ['set_idx', 'rarity_idx', 'ink_idx']: 
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
@@ -95,7 +101,7 @@ if __name__ == "__main__":
             recent = group.sort_values('date').tail(seq_len)
             if len(recent) < seq_len: continue
             
-            x_dyn = torch.tensor(np.column_stack((recent['price_scaled'].values, recent['days_scaled'].values)), dtype=torch.float32).unsqueeze(0).to(device)
+            x_dyn = torch.tensor(recent[DYN_COLS].values, dtype=torch.float32).unsqueeze(0).to(device)
             x_cat = torch.tensor(recent[['set_idx', 'rarity_idx', 'ink_idx']].iloc[0].values, dtype=torch.long).unsqueeze(0).to(device)
             x_cont = torch.tensor(recent[['cost_scaled', 'inkwell']].iloc[0].values, dtype=torch.float32).unsqueeze(0).to(device)
             

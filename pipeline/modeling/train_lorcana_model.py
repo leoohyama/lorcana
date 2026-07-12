@@ -17,6 +17,13 @@ if torch.backends.mps.is_available(): device = torch.device("mps"); print("hardw
 elif torch.cuda.is_available(): device = torch.device("cuda"); print("hardware: nvidia gpu (cuda) detected.")
 else: device = torch.device("cpu"); print("hardware: gpu not found, using cpu.")
 
+# dynamic input channels. price_scaled MUST stay at index 0 (used as the
+# persistence anchor + noise target). Set USE_EBAY_FEATURES=False to reproduce
+# the 2-channel baseline for measuring the churn lift.
+USE_EBAY_FEATURES = os.getenv("USE_EBAY_FEATURES", "1") == "1"
+DYN_COLS = ['price_scaled', 'days_scaled'] + (['churn_rate', 'ebay_mask'] if USE_EBAY_FEATURES else [])
+DYN_DIM = len(DYN_COLS)
+
 # dataset definition (PURE PRODUCTION MODE)
 class LorcanaDataset(Dataset):
     def __init__(self, csv_file, seq_length=30, pred_length=30, split='train'):
@@ -25,8 +32,9 @@ class LorcanaDataset(Dataset):
         df['date'] = pd.to_datetime(df['date'])
         
         df['price_scaled'] = df.groupby('card_id')['price_scaled'].transform(lambda x: x.bfill().ffill()).fillna(0.5)
-        for col in ['inkwell', 'cost_scaled', 'days_scaled']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        for col in ['inkwell', 'cost_scaled', 'days_scaled', 'churn_rate', 'ebay_mask']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         for col in ['set_idx', 'rarity_idx', 'ink_idx']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
@@ -44,7 +52,8 @@ class LorcanaDataset(Dataset):
             
             if len(sub_group) < (seq_length + pred_length): continue
                 
-            prices, days = sub_group['price_scaled'].values, sub_group['days_scaled'].values
+            prices = sub_group['price_scaled'].values
+            feats = sub_group[DYN_COLS].values  # (T, DYN_DIM); price_scaled at col 0
             static_cat = sub_group[['set_idx', 'rarity_idx', 'ink_idx']].iloc[0].values
             static_cont = sub_group[['cost_scaled', 'inkwell']].iloc[0].values
             c_min, c_max = sub_group['card_min_price'].iloc[0], sub_group['card_max_price'].iloc[0]
@@ -52,8 +61,8 @@ class LorcanaDataset(Dataset):
             dates = sub_group['date'].apply(lambda x: x.timestamp()).values
             
             for i in range(len(sub_group) - seq_length - pred_length + 1):
-                dyn = np.column_stack((prices[i:i+seq_length], days[i:i+seq_length]))
-                # Add noise to training to prevent extreme overfitting
+                dyn = feats[i:i+seq_length].copy()
+                # Add noise to training to prevent extreme overfitting (price channel only)
                 dyn[:, 0] += np.random.normal(0, 0.001, seq_length)
                 
                 self.X_dynamic.append(dyn)
@@ -82,7 +91,7 @@ class LorcanaDataset(Dataset):
 class HybridLorcanaGRU(nn.Module):
     def __init__(self, vocab_sizes, pred_length=30, hidden_size=128, num_layers=2):
         super().__init__()
-        self.gru = nn.GRU(2, hidden_size, num_layers, batch_first=True, dropout=0.4)
+        self.gru = nn.GRU(DYN_DIM, hidden_size, num_layers, batch_first=True, dropout=0.4)
         
         self.attention = nn.Sequential(
             nn.Linear(hidden_size, 64),
