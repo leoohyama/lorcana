@@ -44,7 +44,7 @@ target_cards <- all_lorcast_cards %>%
   filter(!is.na(tcgplayer_id))
 
 # Save the target list for your Price Tracking script
-saveRDS(target_cards, "data/enchanteds/enchanted_list_05_07.rds")
+saveRDS(target_cards, "data/enchanteds/enchanted_list_07_13.rds")
 
 
 # --- STEP 3: The Image Download Pipeline ---

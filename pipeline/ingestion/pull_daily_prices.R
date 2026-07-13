@@ -86,6 +86,10 @@ if (nrow(raw_prices) == 0 || !"tcgplayerId" %in% names(raw_prices)) {
 daily_prices_lean <- raw_prices %>%
   # Filter to Near Mint client-side (condition is no longer a valid API param).
   filter(variants_condition == "Near Mint") %>%
+  # Drop cards JustTCG lists but hasn't priced yet (e.g. a set before release day).
+  # Self-healing: a card is simply absent from justtcg_prices until a real price
+  # exists, then starts recording automatically — no per-set filter to maintain.
+  filter(!is.na(variants_price)) %>%
   select(
     tcgplayer_id = tcgplayerId,
     market_price = variants_price

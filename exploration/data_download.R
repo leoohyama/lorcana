@@ -10,7 +10,7 @@ library(tidyverse)
 # --- STEP 3: Fetch Prices from JustTCG ---
 api_key <- "tcg_ed83c7138fff417098cd323bcdaaaa8b"
 base_url <- "https://api.justtcg.com/v1/cards"
-target_cards<-readRDS("data/enchanteds/enchanted_list.rds")
+target_cards<-readRDS("data/enchanteds/enchanted_list_07_13.rds")
 
 
 # Split the IDs into batches of 20 (JustTCG free tier limit per request)
