@@ -35,7 +35,8 @@ BUY_THR          <- as.numeric(Sys.getenv("BHS_BUY_THR", "0.07"))
 SELL_THR         <- as.numeric(Sys.getenv("BHS_SELL_THR", "0.07"))
 BUY_REQUIRES_LOW <- TRUE
 LOW_POS          <- 0.50
-MIN_HISTORY      <- 180
+MIN_HISTORY      <- 180   # min raw history to TRAIN/label a card (reliable fwd-return label + calibration)
+SCORE_MIN_HISTORY <- as.integer(Sys.getenv("BHS_SCORE_MIN_HISTORY", "45"))  # min history to SCORE; newer cards get calibrated probs from the shared-dynamics model. Lower toward ~31 = thinner/imputed features
 EMBARGO          <- HORIZON_DAYS
 TEST_DAYS        <- 60       # future holdout window (also split into monthly walk-forward chunks)
 CAL_DAYS         <- 60       # size of the recent slice used to (re)fit the calibrator
@@ -64,7 +65,15 @@ prices <- dbGetQuery(con, sprintf("
   FROM justtcg_prices
   WHERE tcgplayer_id IN (SELECT tcgplayer_id FROM justtcg_prices
     GROUP BY 1 HAVING COUNT(DISTINCT pull_date) >= %d)
-  ORDER BY 1, 2", MIN_HISTORY))
+  ORDER BY 1, 2", SCORE_MIN_HISTORY))
+
+# Per-card raw history length -> defines the two universes:
+#   >= MIN_HISTORY days       : eligible to TRAIN/label (feat_train, below)
+#   >= SCORE_MIN_HISTORY days : eligible to SCORE (the full `feat`)
+# Training is unchanged from before; we only ADD newer cards at scoring time.
+hist_tbl  <- prices %>% mutate(card_id = as.character(card_id)) %>%
+  group_by(card_id) %>% summarise(hist_days = n_distinct(date), .groups = "drop")
+train_ids <- hist_tbl %>% filter(hist_days >= MIN_HISTORY) %>% pull(card_id)
 
 ebay <- dbGetQuery(con, "
   WITH v AS (
@@ -149,6 +158,13 @@ feat <- feat %>%
   mutate(days_since_release = pmax(0L, as.integer(date - released_at))) %>%
   filter(!is.na(vol_30), !is.na(skew_30), !is.na(mom_30), !is.na(pos_range), !is.na(rarity))
 
+# Veterans-only frame for training/labeling; the full `feat` (every card with a
+# complete feature window) is used for the final scoring pass, so newer cards
+# also receive calibrated probabilities from the same shared-dynamics model.
+feat_train <- feat %>% filter(card_id %in% train_ids)
+message(sprintf("   %d cards scoreable | %d eligible to train (>= %d days history)",
+                n_distinct(feat$card_id), n_distinct(feat_train$card_id), MIN_HISTORY))
+
 # ---- helpers ---------------------------------------------------------------
 make_labeled <- function(df, horizon, buy_thr, sell_thr) {
   df %>% group_by(card_id) %>% arrange(date, .by_group = TRUE) %>%
@@ -222,7 +238,7 @@ if (SWEEP) {
   message("3. Sweeping horizon x threshold...")
   grid_cfg <- expand_grid(h = c(14L, 21L, 30L), thr = c(0.07, 0.10))
   res <- pmap_dfr(grid_cfg, function(h, thr) {
-    lab <- make_labeled(feat, h, thr, thr) %>% filter(!is.na(fwd_ret))
+    lab <- make_labeled(feat_train, h, thr, thr) %>% filter(!is.na(fwd_ret))
     max_d <- max(lab$date); ts <- max_d - TEST_DAYS; te <- ts - h
     tr <- lab %>% filter(date <= te)
     tb <- tune_best(tr, grid_levels = c(5, 3))
@@ -249,7 +265,7 @@ if (SWEEP) {
 # ============================================================================
 message("4. Final model on chosen config...")
 HORIZON_DAYS <- choose$h; BUY_THR <- choose$buy; SELL_THR <- choose$sell; EMBARGO <- HORIZON_DAYS
-labeled <- make_labeled(feat, HORIZON_DAYS, BUY_THR, SELL_THR) %>% filter(!is.na(fwd_ret))
+labeled <- make_labeled(feat_train, HORIZON_DAYS, BUY_THR, SELL_THR) %>% filter(!is.na(fwd_ret))
 max_date <- max(labeled$date); test_start <- max_date - TEST_DAYS; train_end <- test_start - EMBARGO
 tb <- tune_best(labeled %>% filter(date <= train_end))
 ev <- walkforward_eval(labeled, tb$wf, tb$best, train_end, test_start)
@@ -290,20 +306,29 @@ clamp_norm <- function(df) {  # keep each prob in [0.01, 0.98], renormalize -> n
 score_df <- feat %>% group_by(card_id) %>% slice_max(date, n = 1) %>% ungroup() %>%
   select(card_id, name, date, all_of(PRED))
 scored <- augment(deploy_model, score_df) %>% cal_apply(cal_deploy) %>% clamp_norm() %>%
+  left_join(hist_tbl, by = "card_id") %>%
   transmute(card_id, name, score_date = date, horizon = HORIZON_DAYS,
             p_buy = round(.pred_buy, 3), p_hold = round(.pred_hold, 3), p_sell = round(.pred_sell, 3),
-            call = c("buy", "hold", "sell")[max.col(cbind(.pred_buy, .pred_hold, .pred_sell))])
+            call = c("buy", "hold", "sell")[max.col(cbind(.pred_buy, .pred_hold, .pred_sell))],
+            hist_days, days_since_release = as.integer(days_since_release),
+            is_new = !(card_id %in% train_ids))   # TRUE = outside training universe -> extrapolated
 
 # today's decisiveness: how peaked the calls are (0.33 = coin-flip, 1 = certain)
 avg_conf <- mean(pmax(scored$p_buy, scored$p_hold, scored$p_sell))
+n_new    <- sum(scored$is_new)
 
 write_csv(scored, "data/pytorch/buy_hold_sell_scores.csv")
-cat(sprintf("\nScored %d cards -> data/pytorch/buy_hold_sell_scores.csv (avg confidence %.1f%%)\n",
-            nrow(scored), 100 * avg_conf))
+cat(sprintf("\nScored %d cards (%d new / outside training universe) -> data/pytorch/buy_hold_sell_scores.csv (avg confidence %.1f%%)\n",
+            nrow(scored), n_new, 100 * avg_conf))
 cat("\nStrongest BUY signals right now:\n")
-print(scored %>% arrange(desc(p_buy)) %>% select(name, p_buy, p_hold, p_sell, call) %>% head(10), n = 10)
+print(scored %>% arrange(desc(p_buy)) %>% select(name, p_buy, p_hold, p_sell, call, is_new) %>% head(10), n = 10)
 cat("\nStrongest SELL signals right now:\n")
-print(scored %>% arrange(desc(p_sell)) %>% select(name, p_buy, p_hold, p_sell, call) %>% head(10), n = 10)
+print(scored %>% arrange(desc(p_sell)) %>% select(name, p_buy, p_hold, p_sell, call, is_new) %>% head(10), n = 10)
+if (n_new > 0) {
+  cat("\nNEW-card calls (extrapolated -- treat with caution until outcomes accrue):\n")
+  print(scored %>% filter(is_new) %>% arrange(desc(pmax(p_buy, p_sell))) %>%
+        select(name, hist_days, days_since_release, p_buy, p_hold, p_sell, call) %>% head(15), n = 15)
+}
 
 # ============================================================================
 # 6. PUSH TO MOTHERDUCK (idempotent per run_date)
@@ -311,6 +336,9 @@ print(scored %>% arrange(desc(p_sell)) %>% select(name, p_buy, p_hold, p_sell, c
 if (PUSH) {
   message("\n6. Pushing scores to MotherDuck...")
   run_date <- Sys.Date()
+  # Table schema unchanged: new cards are pushed alongside veterans (the extra
+  # is_new/hist_days columns stay in the CSV). If you want the dashboard to flag
+  # newer cards, join released_at / history there, or add an is_new column later.
   push_df <- scored %>% mutate(run_date = run_date) %>%
     select(run_date, score_date, card_id, name, horizon, p_buy, p_hold, p_sell, call)
   con <- dbConnect(duckdb::duckdb())
