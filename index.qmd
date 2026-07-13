@@ -313,278 +313,6 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 </style>
 ```
 
-# Market Overview {orientation="rows"}
-
-```{ojs}
-//| echo: false
-//| output: false
-// 🛡️ Global safe transpose function to handle empty databases natively across all panels
-safeTranspose = (data) => {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-  if (Object.keys(data).length === 0) return [];
-  try { return transpose(data) || []; } catch(e) { return []; }
-};
-```
-
-## Row {height="content"}
-
-```{ojs}
-//| echo: false
-//| padding: 0px
-//| classes: transparent-card
-// ==============================================================================
-// SECTION 2.5: GLOBAL DASHBOARD METRICS HERO BANNER
-// ==============================================================================
-{
-  const transposed_stats = safeTranspose(ojs_global_stats);
-  if (transposed_stats.length === 0 || !transposed_stats[0].total_ebay_listings) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
-  
-  const stats = transposed_stats[0];
-  const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
-  const updated = stats.last_updated ? new Date(stats.last_updated + "T12:00:00").toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
-
-  // --- Market-pulse aggregates (computed client-side from live forecasts & churn) ---
-  const info = safeTranspose(ojs_info) || [];
-  const fcst = safeTranspose(ojs_forecast) || [];
-  const churn = safeTranspose(ojs_churn) || [];
-
-  const priceByCard = new Map(info.filter(d => d.current_price).map(d => [d.cardname, d.current_price]));
-  const cardsTracked = priceByCard.size;
-
-  // Latest (30-day) GRU forecast per card -> bullish/bearish tally vs current price
-  const gruByCard = new Map();
-  fcst.filter(f => f.model === "GRU" && f.price != null).forEach(f => {
-    const prev = gruByCard.get(f.cardname);
-    if (!prev || f.date > prev.date) gruByCard.set(f.cardname, f);
-  });
-  let bull = 0, bear = 0;
-  gruByCard.forEach((f, name) => {
-    const cp = priceByCard.get(name);
-    if (cp) { if (f.price > cp) bull++; else if (f.price < cp) bear++; }
-  });
-  const dirTotal = bull + bear;
-  const pctBull = dirTotal ? Math.round((bull / dirTotal) * 100) : null;
-  const bullish = pctBull !== null && pctBull >= 50;
-  const outlookColor = pctBull === null ? 'var(--text-muted)' : (bullish ? 'var(--accent-green)' : 'var(--accent-red)');
-  const outlookArrow = pctBull === null ? '' : (bullish ? '▲' : '▼');
-
-  // 7-day listing velocity (supply flow): net new vs. closed listings
-  const newSum = churn.reduce((a, d) => a + (+d.new_listings || 0), 0);
-  const goneSum = churn.reduce((a, d) => a + (+d.disappeared_listings || 0), 0);
-  const netVel = newSum - goneSum;
-  const velSign = netVel > 0 ? '+' : (netVel < 0 ? '−' : '');
-  const velArrow = netVel > 0 ? '▲' : (netVel < 0 ? '▼' : '');
-
-  return html`
-    <div style="width: 100%;">
-    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 12px;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green);"></span>
-      <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Data updated: <span style="color: var(--text-main);">${updated}</span></span>
-    </div>
-    <div style="display: flex; gap: 20px; flex-wrap: wrap; width: 100%;">
-      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-blue); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Cards Tracked</div>
-        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${formatNum(cardsTracked)}</div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">High-rarity cards priced daily</div>
-      </div>
-      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid ${outlookColor}; border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">30-Day Outlook <span style="opacity:0.7;">· GRU</span></div>
-        <div style="font-size: 32px; font-weight: 800; color: ${outlookColor}; margin-top: 8px;">${pctBull === null ? '—' : outlookArrow + ' ' + pctBull + '%'}<span style="font-size: 15px; color: var(--text-muted); font-weight: 500;"> projected up</span></div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${bull} up · ${bear} down of ${dirTotal} forecast</div>
-      </div>
-      <div style="flex: 1; min-width: 250px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--accent-cyan); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Listing Velocity <span style="opacity:0.7;">· 7D</span></div>
-        <div style="font-size: 32px; font-weight: 800; color: var(--text-main); margin-top: 8px;">${velArrow} ${velSign}${formatNum(Math.abs(netVel))}<span style="font-size: 15px; color: var(--text-muted); font-weight: 500;"> net listings</span></div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600;">${formatNum(newSum)} new · ${formatNum(goneSum)} closed</div>
-      </div>
-    </div>
-    </div>
-  `;
-}
-```
-
-## Row {height="content"}
-
-### 📈 Daily Market Velocity (Listing Churn vs. Inflow)
-
-```{ojs}
-//| echo: false
-// ==============================================================================
-// SECTION 2.5.5: INVENTORY VELOCITY AREA PLOT
-// ==============================================================================
-{
-  const churnData = safeTranspose(ojs_churn);
-  if (churnData.length === 0 || !churnData[0].event_date) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
-  
-  const isMobile = window.innerWidth <= 768;
-
-  const traceNew = {
-    x: churnData.map(d => d.event_date),
-    y: churnData.map(d => d.new_listings),
-    type: 'scatter',
-    mode: 'lines',
-    name: 'New Listings Added',
-    fill: 'tozeroy',
-    fillcolor: 'rgba(52, 211, 153, 0.1)',
-    line: { color: '#34d399', width: 2.5 }
-  };
-
-  const traceGone = {
-    x: churnData.map(d => d.event_date),
-    y: churnData.map(d => d.disappeared_listings),
-    type: 'scatter',
-    mode: 'lines',
-    name: 'Listings Removed/Closed',
-    fill: 'tozeroy',
-    fillcolor: 'rgba(248, 113, 113, 0.1)',
-    line: { color: '#f87171', width: 2.5 }
-  };
-
-  const layout = {
-    dragmode: false,
-    paper_bgcolor: 'transparent',
-    plot_bgcolor: 'transparent',
-    font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 10 : 12 },
-    xaxis: {
-      type: 'date',
-      gridcolor: '#334155',
-      linecolor: '#334155',
-      fixedrange: true,
-      tickfont: { size: isMobile ? 9 : 12 }
-    },
-    yaxis: {
-      title: { text: isMobile ? '' : 'Volume of Listings', font: { size: 12 } },
-      gridcolor: '#334155',
-      fixedrange: true,
-      rangemode: 'tozero',
-      tickfont: { size: isMobile ? 9 : 12 }
-    },
-    margin: { l: isMobile ? 30 : 50, r: isMobile ? 15 : 20, t: isMobile ? 10 : 10, b: isMobile ? 60 : 40 },
-    hovermode: 'x unified',
-    hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569' },
-    legend: {
-      orientation: 'h',
-      y: isMobile ? -0.4 : -0.2,
-      x: 0.5,
-      xanchor: 'center',
-      font: { size: isMobile ? 9 : 12 }
-    }
-  };
-
-  const target = document.createElement("div");
-  target.style.height = "350px";
-  target.style.width = "100%";
-  target.style.position = "relative";
-  
-  setTimeout(() => {
-    Plotly.newPlot(target, [traceNew, traceGone], layout, { responsive: true, displayModeBar: false });
-  }, 50);
-  
-  return target;
-}
-```
-
-## Row
-
-```{ojs}
-//| echo: false
-//| output: false
-// ==============================================================================
-// SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
-// ==============================================================================
-
-movers_data = safeTranspose(ojs_movers)
-Plotly = require("plotly.js-dist-min@2.30.0")
-
-// Reconstruct incoming title pairs directly for linear search dictionary
-ebay_title_map = {
-  const map = new Map();
-  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
-    const ids = Array.from(ojs_ebay_titles.item_id);
-    const titles = Array.from(ojs_ebay_titles.listing_title);
-    for (let i = 0; i < ids.length; i++) {
-      if (ids[i] && titles[i]) map.set(String(ids[i]).trim(), titles[i]);
-    }
-  }
-  return map;
-}
-
-// Global programmatic data sanitization step for raw listing objects
-clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
-  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
-  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
-  
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
-
-  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
-  let cleanGrade = "UNG";
-  if (numMatch && rawGrade !== "UNG") {
-    let parsed = parseFloat(numMatch[0]);
-    if (parsed > 0 && parsed <= 10) cleanGrade = parsed.toString();
-  }
-  
-  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
-  if (cleanCompany === "UNG") cleanGrade = "UNG";
-
-  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
-  let lang = d.card_language ? d.card_language : "English";
-  
-  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
-  // but excluded from all price/median math — auction current-bids are not clean price signal.
-  let is_auction = /AUCTION/i.test(d.listing_type || "");
-
-  return {
-    ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
-    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
-  };
-}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
-```
-
-```{ojs}
-//| echo: false
-// Render UI Top Flip Cards 
-{
-  if (movers_data.length === 0) return html`<div style='color:var(--text-muted); font-style:italic; text-align:center; padding: 20px;'>Awaiting initial database sync...</div>`;
-  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const container = html`<div style="width: 100%; max-width: 1200px; margin: 0 auto;"><div id="cards-flex" style="display: flex; justify-content: space-around; background: var(--bg-card); padding: 25px 10px; border-radius: 12px; flex-wrap: wrap; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);"></div></div>`;
-  const flex_target = container.querySelector('#cards-flex');
-
-  movers_data.forEach(row => {
-    let p_c = row.pct >= 0 ? "green-text" : "red-text";
-    let sign = row.abs >= 0 ? "+" : "";
-    let arrow = row.pct >= 0 ? "▲" : "▼";
-    const wrapper = html`
-      <div class="flip-card-wrapper">
-        <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');">
-          <div class="flip-card-inner">
-            <div class="flip-card-front" style="background-color: var(--bg-base); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
-              <div style="font-size: 20px; font-weight: 500; color: var(--accent-blue); text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px;">${row.Category}</div>
-              <img src="${row.image_path}" alt="${row.cardname}" loading="lazy" style="height: 210px; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-              <div style="margin-top: 15px; font-size: 13px; font-weight: 600; color: var(--text-main); height: 40px; text-align: center; width: 100%; line-height: 1.4;">${row.cardname}</div>
-              <div style="margin-top: 8px; font-size: 18px; font-weight: 800; color: var(--accent-yellow);">$${row.market_price_cur.toFixed(2)}</div>
-              <div class="${p_c}" style="font-size: 14px; margin-top: 4px;">${arrow} ${sign}$${row.abs.toFixed(2)} (${row.pct.toFixed(1)}%)</div>
-            </div>
-            <div class="flip-card-back" id="back-${row.tcgplayer_id}">
-              <span style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; margin-bottom: 15px; font-weight: 700; font-size: 16px; color: var(--accent-blue);">${row.Category}</span>
-              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">Current Price</span>
-              <span style="font-size: 28px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 20px;">$${row.market_price_cur.toFixed(2)}</span>
-              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px;">7-Day Trend</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    const card_hist = all_hist.filter(d => d.cardname === row.cardname).filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).sort((a, b) => a.date - b.date); 
-    const sparkline = Plot.plot({ height: 120, width: 220, style: { background: "transparent", fontFamily: "Inter" }, x: { axis: null }, y: { axis: null }, marks: [ Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}), Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 }) ] });
-    wrapper.querySelector('#back-' + row.tcgplayer_id).appendChild(sparkline);
-    flex_target.appendChild(wrapper);
-  });
-  return container; 
-}
-```
-
 # Market Explorer {orientation="rows"}
 
 ## Row {.flow}
@@ -771,6 +499,7 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
 
     const search_input = document.createElement("input");
     search_input.type = "text"; search_input.placeholder = "🔍 Search...";
+    search_input.className = "explorer-search";
     search_input.style.cssText = "flex: 1; min-width: 0; padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 13px; font-family: Inter;";
 
     const set_select = document.createElement("select");
@@ -1072,9 +801,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
           }, {responsive: true, displayModeBar: false});
         }
 
-        // Live 7-Day listing title lists
-        let max_date_ms = new Date(scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01")).getTime();
-        let r_7d = scopedListings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7*24*60*60*1000));
+        // Current-day listings only — the links table holds just the latest pull.
+        let latest_pull = scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
+        let r_7d = scopedListings.filter(e => e.date_pulled === latest_pull);
 
         const buildListHTML = (title, lbl) => {
            let subset = r_7d.filter(d => d.label === lbl);
@@ -1084,14 +813,16 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
 
            let lis = unique.map(item => {
                let act = ebay_title_map.get(String(item.item_id).trim()) || "Unknown Title";
-               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : '';
-               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
+               let url = ebayItemUrl(item.item_id);
+               let titleHTML = url ? `<a href="${url}" target="_blank" rel="noopener" style="color: var(--accent-blue); text-decoration: none;">${act} ↗</a>` : act;
+               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : `<span title="Fixed-price / Buy It Now listing." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(56,189,248,0.15); color:var(--accent-blue); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🏷️ Buy Now</span>`;
+               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${titleHTML}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
            }).join('');
            return `<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 320px; overflow-y: auto;"><div style="position: sticky; top: -15px; background: var(--bg-base); z-index: 5; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle);"><h4 style="color:var(--accent-blue); margin:0; font-size:14px; text-transform:uppercase;">${title}</h4><div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sample Size: ${unique.length} Unique Listings</div></div>${lis}</div>`;
         };
 
-        const lists_html = buildListHTML("Ungraded 7-Day Titles", "Ungraded") + buildListHTML("PSA 10 7-Day Titles", "PSA 10");
-        ebay_panel.querySelector('.ebay-listings-target').innerHTML = lists_html || "<div style='color:var(--text-muted); font-size: 13px; font-style: italic;'>No ungraded or PSA 10 listings in the last 7 days for these filters.</div>";
+        const lists_html = buildListHTML("Ungraded — Today's Listings", "Ungraded") + buildListHTML("PSA 10 — Today's Listings", "PSA 10");
+        ebay_panel.querySelector('.ebay-listings-target').innerHTML = lists_html || "<div style='color:var(--text-muted); font-size: 13px; font-style: italic;'>No ungraded or PSA 10 listings in today's pull for these filters.</div>";
       }
 
       ebay_panel.querySelector('.ebay-lang').addEventListener("change", renderEbayDetails);
@@ -1214,6 +945,7 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
   
     const search_input = document.createElement("input");
     search_input.type = "text"; search_input.placeholder = "🔍 Search by name...";
+    search_input.className = "explorer-search";
     search_input.style.cssText = "flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; font-family: Inter;";
   
     const set_select = document.createElement("select"); 
@@ -1531,9 +1263,9 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
           }, {responsive: true, displayModeBar: false});
         }
 
-        // Live 7-Day Component Titles Listing Generation
-        let max_date_ms = new Date(scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01")).getTime();
-        let r_7d = scopedListings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7*24*60*60*1000));
+        // Current-day listings only — the links table holds just the latest pull.
+        let latest_pull = scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
+        let r_7d = scopedListings.filter(e => e.date_pulled === latest_pull);
       
         const buildListHTML = (title, lbl) => {
            let subset = r_7d.filter(d => d.label === lbl);
@@ -1543,13 +1275,15 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
          
            let lis = unique.map(item => {
                let act = ebay_title_map.get(String(item.item_id).trim()) || "Unknown Title";
-               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : '';
-               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${act}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
+               let url = ebayItemUrl(item.item_id);
+               let titleHTML = url ? `<a href="${url}" target="_blank" rel="noopener" style="color: var(--accent-blue); text-decoration: none;">${act} ↗</a>` : act;
+               let auction_tag = item.is_auction ? `<span title="Auction listing — the shown price is a live bid and may be well below the final sale price." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.18); color:var(--accent-yellow); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🔨 Auction</span>` : `<span title="Fixed-price / Buy It Now listing." style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:rgba(56,189,248,0.15); color:var(--accent-blue); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; vertical-align:middle;">🏷️ Buy Now</span>`;
+               return `<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;"><span style="color: var(--text-main); white-space: normal; line-height: 1.4; padding-right: 15px;">${titleHTML}${auction_tag}</span><span style="color: var(--accent-yellow); font-weight: 700; flex-shrink: 0;">$${item.clean_price.toFixed(2)}</span></div>`;
            }).join('');
            return `<div style="background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 350px; overflow-y: auto;"><div style="position: sticky; top: -15px; background: var(--bg-base); z-index: 5; padding-bottom: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle);"><h4 style="color:var(--accent-blue); margin:0; font-size:14px; text-transform:uppercase;">${title}</h4><div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sample Size: ${unique.length} Unique Listings</div></div>${lis}</div>`;
         };
       
-        document.getElementById('ebay-modal-listings-target').innerHTML = buildListHTML("Ungraded 7-Day Titles", "Ungraded") + buildListHTML("PSA 10 7-Day Titles", "PSA 10");
+        document.getElementById('ebay-modal-listings-target').innerHTML = buildListHTML("Ungraded — Today's Listings", "Ungraded") + buildListHTML("PSA 10 — Today's Listings", "PSA 10");
       }
 
       // Bind event hooks directly to input filters inside modal framework
@@ -1594,6 +1328,396 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
   window.addEventListener("resize", () => { clearTimeout(resize_timer); resize_timer = setTimeout(renderMode, 250); });
 
   return page_wrapper;
+}
+```
+
+# Market Overview {orientation="rows"}
+
+```{ojs}
+//| echo: false
+//| output: false
+// 🛡️ Global safe transpose function to handle empty databases natively across all panels
+safeTranspose = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Object.keys(data).length === 0) return [];
+  try { return transpose(data) || []; } catch(e) { return []; }
+};
+```
+
+## Row {height="content"}
+
+```{ojs}
+//| echo: false
+//| padding: 0px
+//| classes: transparent-card
+// ==============================================================================
+// SECTION 2.5: GLOBAL DASHBOARD METRICS HERO BANNER
+// ==============================================================================
+{
+  const transposed_stats = safeTranspose(ojs_global_stats);
+  if (transposed_stats.length === 0 || !transposed_stats[0].total_ebay_listings) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
+  
+  const stats = transposed_stats[0];
+  const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
+  const updated = stats.last_updated ? new Date(stats.last_updated + "T12:00:00").toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+
+  // --- Market-pulse aggregates (computed client-side from live signals & forecasts) ---
+  const info = safeTranspose(ojs_info) || [];
+  const fcst = safeTranspose(ojs_forecast) || [];
+
+  const priceByCard = new Map(info.filter(d => d.current_price).map(d => [d.cardname, d.current_price]));
+  const cardsTracked = priceByCard.size;
+  const totalListings = stats.total_ebay_listings;
+
+  // Buy / Hold / Sell split — share of rated cards by today's signal call
+  const rated = info.filter(d => d.signal_call);
+  const tally = { buy: 0, hold: 0, sell: 0 };
+  rated.forEach(d => { const c = String(d.signal_call).toLowerCase(); if (tally[c] !== undefined) tally[c]++; });
+  const ratedTot = rated.length || 1;
+  const pctOf = k => Math.round((tally[k] / ratedTot) * 100);
+
+  // 30-day outlook per model: share of forecast cards projected above current price
+  const outlookFor = (modelName) => {
+    const byCard = new Map();
+    fcst.filter(f => f.model === modelName && f.price != null).forEach(f => {
+      const prev = byCard.get(f.cardname);
+      if (!prev || f.date > prev.date) byCard.set(f.cardname, f);
+    });
+    let up = 0, down = 0;
+    byCard.forEach((f, name) => { const cp = priceByCard.get(name); if (cp) { if (f.price > cp) up++; else if (f.price < cp) down++; } });
+    const tot = up + down;
+    return { pct: tot ? Math.round((up / tot) * 100) : null, up, down, tot };
+  };
+  const gru = outlookFor("GRU");
+  const chr = outlookFor("Chronos");
+  const outlookRow = (label, o) => {
+    if (o.pct === null) return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">${label}</span><span style="font-size:18px; font-weight:800; color:var(--text-muted);">—</span></div>`;
+    const up = o.pct >= 50;
+    const col = up ? 'var(--accent-green)' : 'var(--accent-red)';
+    return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">${label} <span style="opacity:0.7;">(${o.up}↑/${o.down}↓)</span></span><span style="font-size:20px; font-weight:800; color:${col};">${up ? '▲' : '▼'} ${o.pct}%</span></div>`;
+  };
+
+  const tile = (border, label, valueHTML, subHTML) => `
+    <div style="flex:1; min-width:230px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top:4px solid ${border}; border-radius:12px; padding:20px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.5);">
+      <div style="font-size:13px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:1px;">${label}</div>
+      ${valueHTML}
+      ${subHTML || ''}
+    </div>`;
+  const bigVal = (txt, color) => `<div style="font-size:32px; font-weight:800; color:${color || 'var(--text-main)'}; margin-top:8px;">${txt}</div>`;
+  const subTxt = (txt) => `<div style="font-size:12px; color:var(--text-muted); margin-top:4px; font-weight:600;">${txt}</div>`;
+
+  const splitBar = `<div style="display:flex; height:10px; border-radius:5px; overflow:hidden; margin-top:12px; margin-bottom:8px;">
+      <div style="width:${pctOf('buy')}%; background:var(--accent-green);"></div>
+      <div style="width:${pctOf('hold')}%; background:var(--text-muted);"></div>
+      <div style="width:${pctOf('sell')}%; background:var(--accent-red);"></div>
+    </div>`;
+  const splitLegend = `<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700;">
+      <span style="color:var(--accent-green);">Buy ${pctOf('buy')}%</span>
+      <span style="color:var(--text-muted);">Hold ${pctOf('hold')}%</span>
+      <span style="color:var(--accent-red);">Sell ${pctOf('sell')}%</span>
+    </div>`;
+
+  const outlookBorder = gru.pct === null ? 'var(--text-muted)' : (gru.pct >= 50 ? 'var(--accent-green)' : 'var(--accent-red)');
+
+  const wrap = document.createElement("div");
+  wrap.style.width = "100%";
+  wrap.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-bottom:12px;">
+      <span style="width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);"></span>
+      <span style="font-size:13px; color:var(--text-muted); font-weight:600;">Data updated: <span style="color:var(--text-main);">${updated}</span></span>
+    </div>
+    <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
+      ${tile('var(--accent-blue)', 'Cards Tracked', bigVal(formatNum(cardsTracked)), subTxt('High-rarity cards priced daily'))}
+      ${tile('var(--accent-cyan)', 'Total Unique Listings', bigVal(formatNum(totalListings)), subTxt('Distinct eBay listings collected to date'))}
+      ${tile('var(--accent-purple)', 'Market Signal', splitBar + splitLegend, subTxt(formatNum(rated.length) + ' cards rated today'))}
+      ${tile(outlookBorder, '30-Day Outlook', outlookRow('GRU', gru) + outlookRow('Chronos', chr), subTxt('Share of cards forecast above current price'))}
+    </div>`;
+  return wrap;
+}
+```
+
+## Row
+
+### 💰 Daily Signals — Top Buys & Sells (by rarity)
+
+```{ojs}
+//| echo: false
+// ==============================================================================
+// SECTION 2.5.5: TOP BUY / SELL SIGNAL TABLES — split by rarity, deep-linked
+// ==============================================================================
+{
+  const info = safeTranspose(ojs_info) || [];
+  const rated = info.filter(d => d.p_buy != null && d.current_price);
+
+  // Rarity buckets: Enchanted + Iconic grouped together; Epic on its own.
+  const isEnchIconic = d => { const r = String(d.rarity || '').toLowerCase(); return r === 'enchanted' || r === 'iconic'; };
+  const isEpic = d => String(d.rarity || '').toLowerCase() === 'epic';
+  const escAttr = s => String(s).replace(/"/g, '&quot;');
+
+  const money = v => v != null ? '$' + Number(v).toFixed(2) : 'N/A';
+  const pctBadge = (v, color) => `<span style="color:${color}; font-weight:800;">${Math.round(v * 100)}%</span>`;
+
+  const buildTable = (subtitle, rows, probKey, probColor) => {
+    const body = rows.map((d, i) => `
+      <tr class="ov-card-row" data-cardname="${escAttr(d.cardname)}" style="border-bottom:1px solid var(--border-subtle); cursor:pointer;" title="Open in Market Explorer →">
+        <td style="padding:9px 8px; color:var(--text-muted); font-weight:700; width:26px;">${i + 1}</td>
+        <td style="padding:9px 8px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <img src="${d.image_path}" loading="lazy" style="height:38px; border-radius:4px; flex-shrink:0;" onerror="this.style.display='none'">
+            <span style="color:var(--text-main); font-size:13px; line-height:1.3;">${d.cardname} <span style="color:var(--accent-blue); font-size:11px;">↗</span></span>
+          </div>
+        </td>
+        <td style="padding:9px 8px; text-align:right; color:var(--accent-yellow); font-weight:700; white-space:nowrap;">${money(d.current_price)}</td>
+        <td style="padding:9px 8px; text-align:right; white-space:nowrap;">${pctBadge(d[probKey], probColor)}</td>
+      </tr>`).join('');
+    return `
+      <div style="flex:1; min-width:320px; background:var(--bg-card); border-radius:12px; padding:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.3);">
+        <div style="margin:0 0 12px 0; color:var(--text-muted); font-size:12px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">${subtitle}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead><tr style="border-bottom:2px solid var(--border-subtle);">
+            <th style="padding:6px 8px; color:var(--text-muted); font-size:11px; text-transform:uppercase; text-align:left;">#</th>
+            <th style="padding:6px 8px; color:var(--text-muted); font-size:11px; text-transform:uppercase; text-align:left;">Card</th>
+            <th style="padding:6px 8px; color:var(--text-muted); font-size:11px; text-transform:uppercase; text-align:right;">Price</th>
+            <th style="padding:6px 8px; color:var(--text-muted); font-size:11px; text-transform:uppercase; text-align:right;">Prob</th>
+          </tr></thead>
+          <tbody>${body || `<tr><td colspan="4" style="padding:14px; color:var(--text-muted); font-style:italic;">No rated cards.</td></tr>`}</tbody>
+        </table>
+      </div>`;
+  };
+
+  const topN = (pred, key) => [...rated].filter(pred).sort((a, b) => b[key] - a[key]).slice(0, 8);
+
+  const groupHtml = (title, accent, probKey) => `
+    <div style="width:100%;">
+      <h4 style="margin:6px 0 12px 0; color:${accent}; font-size:15px; text-transform:uppercase; letter-spacing:0.5px;">${title}</h4>
+      <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
+        ${buildTable('Enchanted &amp; Iconic', topN(isEnchIconic, probKey), probKey, accent)}
+        ${buildTable('Epic', topN(isEpic, probKey), probKey, accent)}
+      </div>
+    </div>`;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "width:100%; display:flex; flex-direction:column; gap:26px;";
+  wrap.innerHTML = groupHtml('🟢 Top Cards to Buy', 'var(--accent-green)', 'p_buy')
+                 + groupHtml('🔴 Top Cards to Sell', 'var(--accent-red)', 'p_sell');
+
+  // Whole-row deep link into the Market Explorer, plus hover affordance.
+  wrap.querySelectorAll('.ov-card-row').forEach(row => {
+    row.addEventListener('click', () => openInExplorer(row.dataset.cardname));
+    row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-base)'; });
+    row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
+  });
+  return wrap;
+}
+```
+
+## Row
+
+### 📦 Supply Highlights (unique active listings)
+
+```{ojs}
+//| echo: false
+// ==============================================================================
+// SECTION 2.5.6: SUPPLY HIGHLIGHTS — listing-count movers & extremes
+// ==============================================================================
+{
+  const listings = clean_ebay_master || [];
+  if (listings.length === 0) return html`<div style="padding:20px; color:var(--text-muted); font-style:italic;">Awaiting listing data...</div>`;
+
+  const dates = [...new Set(listings.map(d => d.date_pulled))].sort();
+  const latest = dates[dates.length - 1];
+  const latestMs = new Date(latest).getTime();
+  // Baseline = the most recent pull that is at least 7 days before the latest pull.
+  let baseline = null;
+  for (let i = dates.length - 1; i >= 0; i--) {
+    if (new Date(dates[i]).getTime() <= latestMs - 7 * 24 * 60 * 60 * 1000) { baseline = dates[i]; break; }
+  }
+
+  const uniqOn = (date) => {
+    const m = new Map();
+    listings.filter(d => d.date_pulled === date).forEach(d => {
+      if (!m.has(d.cardname)) m.set(d.cardname, new Set());
+      m.get(d.cardname).add(d.item_id);
+    });
+    const out = new Map();
+    m.forEach((s, k) => out.set(k, s.size));
+    return out;
+  };
+  const todayCounts = uniqOn(latest);
+  const baseCounts = baseline ? uniqOn(baseline) : new Map();
+
+  const infoMap = new Map((safeTranspose(ojs_info) || []).map(d => [d.cardname, d]));
+  const imgFor = (name) => { const d = infoMap.get(name); return d ? d.image_path : ''; };
+
+  let changes = [];
+  if (baseline) {
+    todayCounts.forEach((cnt, name) => {
+      const base = baseCounts.get(name) || 0;
+      changes.push({ name, delta: cnt - base, cnt, base });
+    });
+  }
+  const maxInc = changes.filter(c => c.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null;
+  const maxDec = changes.filter(c => c.delta < 0).sort((a, b) => a.delta - b.delta)[0] || null;
+
+  const counts = [...todayCounts.entries()].map(([name, cnt]) => ({ name, cnt })).filter(c => c.cnt > 0);
+  const rarest = counts.slice().sort((a, b) => a.cnt - b.cnt)[0] || null;
+  const common = counts.slice().sort((a, b) => b.cnt - a.cnt)[0] || null;
+
+  const num = (n, color) => `<span style="color:${color || 'var(--text-main)'}; font-weight:800; font-size:15px;">${n}</span>`;
+  const row = (icon, label, item, valueHTML, accent) => {
+    if (!item) return `<tr style="border-bottom:1px solid var(--border-subtle);"><td style="padding:11px 8px; white-space:nowrap;">${icon} <span style="color:${accent}; font-weight:700; font-size:12px; text-transform:uppercase;">${label}</span></td><td colspan="2" style="padding:11px 8px; color:var(--text-muted); font-style:italic;">Insufficient history</td></tr>`;
+    return `<tr style="border-bottom:1px solid var(--border-subtle);">
+      <td style="padding:11px 8px; white-space:nowrap;">${icon} <span style="color:${accent}; font-weight:700; font-size:12px; text-transform:uppercase;">${label}</span></td>
+      <td style="padding:11px 8px;"><div style="display:flex; align-items:center; gap:10px;"><img src="${imgFor(item.name)}" loading="lazy" style="height:36px; border-radius:4px; flex-shrink:0;" onerror="this.style.display='none'"><span style="color:var(--text-main); font-size:13px;">${item.name}</span></div></td>
+      <td style="padding:11px 8px; text-align:right; white-space:nowrap;">${valueHTML}</td>
+    </tr>`;
+  };
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "width:100%; background:var(--bg-card); border-radius:12px; padding:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.3);";
+  wrap.innerHTML = `
+    <table style="width:100%; border-collapse:collapse;">
+      <tbody>
+        ${row('📈', 'Biggest Supply Increase', maxInc, maxInc ? num('+' + maxInc.delta, 'var(--accent-green)') + `<span style="color:var(--text-muted); font-size:11px;"> (${maxInc.base}→${maxInc.cnt})</span>` : '', 'var(--accent-green)')}
+        ${row('📉', 'Biggest Supply Decrease', maxDec, maxDec ? num(maxDec.delta, 'var(--accent-red)') + `<span style="color:var(--text-muted); font-size:11px;"> (${maxDec.base}→${maxDec.cnt})</span>` : '', 'var(--accent-red)')}
+        ${row('💎', 'Rarest (fewest listings)', rarest, rarest ? num(rarest.cnt) + `<span style="color:var(--text-muted); font-size:11px;"> listings</span>` : '', 'var(--accent-blue)')}
+        ${row('🌊', 'Most Common (most listings)', common, common ? num(common.cnt) + `<span style="color:var(--text-muted); font-size:11px;"> listings</span>` : '', 'var(--accent-cyan)')}
+      </tbody>
+    </table>
+    <div style="font-size:11px; color:var(--text-muted); margin-top:10px; font-style:italic;">Supply change compares today's pull (${latest})${baseline ? ' vs ' + baseline : ' — awaiting 7-day baseline'}. Counts are unique active listings per card.</div>`;
+  return wrap;
+}
+```
+
+## Row
+
+```{ojs}
+//| echo: false
+//| output: false
+// ==============================================================================
+// SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
+// ==============================================================================
+
+movers_data = safeTranspose(ojs_movers)
+Plotly = require("plotly.js-dist-min@2.30.0")
+
+// Reconstruct incoming title pairs directly for linear search dictionary
+ebay_title_map = {
+  const map = new Map();
+  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
+    const ids = Array.from(ojs_ebay_titles.item_id);
+    const titles = Array.from(ojs_ebay_titles.listing_title);
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] && titles[i]) map.set(String(ids[i]).trim(), titles[i]);
+    }
+  }
+  return map;
+}
+
+// Build a live eBay listing URL straight from the item_id (format: v1|<legacyId>|<var>).
+// The id already encodes the listing number, so no stored links / extra table is needed.
+ebayItemUrl = (item_id) => {
+  if (!item_id) return null;
+  const parts = String(item_id).split("|");
+  const legacy = parts.length > 1 ? parts[1] : parts[0];
+  if (!/^[0-9]+$/.test(legacy)) return null;
+  return `https://www.ebay.com/itm/${legacy}`;
+}
+
+// Deep-link a card from the Overview tables into the Market Explorer deep dive:
+// switch to the Explorer tab, prefill its search (filters to that exact cardname),
+// then auto-open the single matching row. Works for both desktop & mobile layouts.
+openInExplorer = (name) => {
+  if (!name) return;
+  const tab = document.getElementById('tab-market-explorer');
+  if (tab) tab.click();
+  setTimeout(() => {
+    document.querySelectorAll('.explorer-search').forEach(inp => {
+      inp.value = name;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    setTimeout(() => {
+      const pane = document.getElementById('market-explorer');
+      const rows = pane ? pane.querySelectorAll('tr.card-row') : [];
+      if (rows.length === 1) rows[0].click();
+      if (pane) pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 90);
+  }, 130);
+}
+
+// Global programmatic data sanitization step for raw listing objects
+clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
+  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
+  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
+  
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
+
+  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
+  let cleanGrade = "UNG";
+  if (numMatch && rawGrade !== "UNG") {
+    let parsed = parseFloat(numMatch[0]);
+    if (parsed > 0 && parsed <= 10) cleanGrade = parsed.toString();
+  }
+  
+  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
+  if (cleanCompany === "UNG") cleanGrade = "UNG";
+
+  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
+  let lang = d.card_language ? d.card_language : "English";
+  
+  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
+  // but excluded from all price/median math — auction current-bids are not clean price signal.
+  let is_auction = /AUCTION/i.test(d.listing_type || "");
+
+  return {
+    ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
+    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+  };
+}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
+```
+
+```{ojs}
+//| echo: false
+// Render UI Top Flip Cards 
+{
+  if (movers_data.length === 0) return html`<div style='color:var(--text-muted); font-style:italic; text-align:center; padding: 20px;'>Awaiting initial database sync...</div>`;
+  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const container = html`<div style="width: 100%; max-width: 1200px; margin: 0 auto;"><div id="cards-flex" style="display: flex; justify-content: space-around; background: var(--bg-card); padding: 25px 10px; border-radius: 12px; flex-wrap: wrap; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);"></div></div>`;
+  const flex_target = container.querySelector('#cards-flex');
+
+  movers_data.forEach(row => {
+    let p_c = row.pct >= 0 ? "green-text" : "red-text";
+    let sign = row.abs >= 0 ? "+" : "";
+    let arrow = row.pct >= 0 ? "▲" : "▼";
+    const wrapper = html`
+      <div class="flip-card-wrapper">
+        <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');">
+          <div class="flip-card-inner">
+            <div class="flip-card-front" style="background-color: var(--bg-base); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
+              <div style="font-size: 20px; font-weight: 500; color: var(--accent-blue); text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px;">${row.Category}</div>
+              <img src="${row.image_path}" alt="${row.cardname}" loading="lazy" style="height: 210px; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
+              <div style="margin-top: 15px; font-size: 13px; font-weight: 600; color: var(--text-main); height: 40px; text-align: center; width: 100%; line-height: 1.4;">${row.cardname}</div>
+              <div style="margin-top: 8px; font-size: 18px; font-weight: 800; color: var(--accent-yellow);">$${row.market_price_cur.toFixed(2)}</div>
+              <div class="${p_c}" style="font-size: 14px; margin-top: 4px;">${arrow} ${sign}$${row.abs.toFixed(2)} (${row.pct.toFixed(1)}%)</div>
+            </div>
+            <div class="flip-card-back" id="back-${row.tcgplayer_id}">
+              <span style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; margin-bottom: 15px; font-weight: 700; font-size: 16px; color: var(--accent-blue);">${row.Category}</span>
+              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">Current Price</span>
+              <span style="font-size: 28px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 20px;">$${row.market_price_cur.toFixed(2)}</span>
+              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px;">7-Day Trend</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const card_hist = all_hist.filter(d => d.cardname === row.cardname).filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).sort((a, b) => a.date - b.date); 
+    const sparkline = Plot.plot({ height: 120, width: 220, style: { background: "transparent", fontFamily: "Inter" }, x: { axis: null }, y: { axis: null }, marks: [ Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}), Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 }) ] });
+    wrapper.querySelector('#back-' + row.tcgplayer_id).appendChild(sparkline);
+    flex_target.appendChild(wrapper);
+  });
+  return container; 
 }
 ```
 
