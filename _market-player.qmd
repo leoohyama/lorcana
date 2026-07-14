@@ -1,0 +1,693 @@
+# Market Player {orientation="rows"}
+
+## Row {.flow}
+
+```{ojs}
+//| echo: false
+// ==============================================================================
+// SECTION 6: MARKET PLAYER — fantasy budget game on live forecasts
+//   Set a USD budget, "buy" cards at current JustTCG market prices, and watch
+//   the projected 30-day payout (Chronos / GRU) update live. Pure client-side:
+//   state lives in the browser (localStorage), no server involved.
+// ==============================================================================
+{
+  // Styles are injected here (not as a raw HTML block) so the dashboard layout
+  // engine sees exactly one cell on this page.
+  const MP_CSS = `
+  /* MARKET PLAYER — fantasy-portfolio game tab (all classes mp-*) */
+  .mp-wrap { width: 100%; display: flex; flex-direction: column; gap: 18px; }
+
+  /* --- Sticky wallet HUD --- */
+  .mp-hud { position: sticky; top: 0; z-index: 60; background: var(--bg-base); padding: 12px 0 10px 0; border-bottom: 1px solid var(--border-subtle); box-shadow: 0 8px 16px -12px rgba(0,0,0,0.8); }
+  .mp-hud-inner { background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .mp-hud-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .mp-budget-label { font-size: 11px; font-weight: 700; color: var(--accent-blue); text-transform: uppercase; letter-spacing: 0.5px; }
+  .mp-budget-input { width: 110px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--price); font-weight: 800; font-size: 16px; }
+  .mp-preset { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .mp-preset:hover, .mp-preset.active { border-color: var(--brand); color: var(--text-main); background: var(--bg-hover); }
+  .mp-clear-btn { margin-left: auto; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(248,113,113,0.5); background: transparent; color: var(--accent-red); font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .mp-clear-btn:hover { background: rgba(248,113,113,0.15); }
+
+  .mp-meter { width: 100%; height: 10px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
+  .mp-meter-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); width: 0%; transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s; }
+  .mp-meter-fill.warn { background: linear-gradient(90deg, var(--accent-yellow), #fb923c); }
+  .mp-meter-fill.over { background: var(--accent-red); }
+
+  .mp-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .mp-stat { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 8px 12px; min-width: 0; }
+  .mp-stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; white-space: nowrap; }
+  .mp-stat-value { font-size: 17px; font-weight: 800; color: var(--text-main); margin-top: 2px; white-space: nowrap; }
+  .mp-stat.mp-shake { animation: mp-shake 0.35s; border-color: var(--accent-red); }
+  @keyframes mp-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+  .mp-rank { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-main); }
+  .mp-rank-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: rgba(56,189,248,0.12); border: 1px solid var(--brand); font-weight: 800; font-size: 13px; }
+  .mp-rank-next { font-size: 11px; color: var(--text-muted); }
+
+  /* --- Main two-pane layout: shop | payout+portfolio --- */
+  .mp-main { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 18px; align-items: start; }
+  .mp-main > *, .mp-wrap, .mp-panel { min-width: 0; max-width: 100%; }
+  .mp-chart .js-plotly-plot, .mp-chart .plot-container, .mp-chart svg { max-width: 100% !important; }
+
+  /* --- Card shop --- */
+  .mp-shop { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+  .mp-shop-bar { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; position: sticky; top: 0; background: var(--bg-card); z-index: 5; }
+  .mp-shop-bar input[type="text"] { flex: 1 1 140px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 13px; }
+  .mp-shop-bar select { padding: 8px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 12px; cursor: pointer; max-width: 150px; }
+  .mp-afford-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer; user-select: none; transition: all 0.15s; }
+  .mp-afford-toggle.active { border-color: var(--pos); color: var(--pos); background: rgba(52,211,153,0.1); }
+
+  .mp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 12px; max-height: 900px; overflow-y: auto; }
+  .mp-tile { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; position: relative; -webkit-tap-highlight-color: transparent; }
+  .mp-tile:hover { transform: translateY(-3px); border-color: var(--brand); box-shadow: 0 8px 20px -8px rgba(0,0,0,0.7); }
+  .mp-tile:active { transform: scale(0.97); }
+  .mp-tile.mp-pop { animation: mp-pop 0.35s; }
+  @keyframes mp-pop { 0% { transform: scale(1); } 40% { transform: scale(1.06); border-color: var(--pos); } 100% { transform: scale(1); } }
+  .mp-tile.mp-broke { opacity: 0.38; cursor: not-allowed; }
+  .mp-tile.mp-broke:hover { transform: none; border-color: var(--border-subtle); box-shadow: none; }
+  .mp-tile.mp-owned { border-color: var(--accent-cyan); }
+
+  .mp-imgwrap { position: relative; width: 100%; aspect-ratio: 5 / 7; border-radius: 8px; overflow: hidden; background: var(--bg-hover); }
+  .mp-imgwrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .mp-qty-badge { position: absolute; top: 6px; right: 6px; background: var(--accent-cyan); color: var(--bg-base); font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+  .mp-signal-chip { position: absolute; bottom: 6px; left: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 5px; }
+
+  .mp-tile-name { font-size: 12px; font-weight: 700; color: var(--text-main); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.5em; }
+  .mp-tile-meta { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 12px; }
+  .mp-tile-price { color: var(--price); font-weight: 800; }
+  .mp-buy-btn { width: 100%; padding: 8px 0; border-radius: 8px; border: none; background: var(--brand); color: var(--bg-base); font-weight: 800; font-size: 13px; cursor: pointer; transition: filter 0.15s; min-height: 34px; }
+  .mp-tile:hover .mp-buy-btn { filter: brightness(1.15); }
+  .mp-tile.mp-broke .mp-buy-btn { background: var(--bg-hover); color: var(--text-muted); cursor: not-allowed; }
+
+  .mp-float { position: fixed; z-index: 999; font-size: 15px; font-weight: 800; color: var(--pos); pointer-events: none; animation: mp-float-up 0.8s ease-out forwards; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+  @keyframes mp-float-up { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-46px); } }
+
+  /* --- Right pane: payout + portfolio --- */
+  .mp-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .mp-panel { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 15px; }
+  .mp-panel-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0 0 10px 0; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; }
+  .mp-model-pills { display: inline-flex; gap: 6px; margin-left: auto; }
+  .mp-model-pill { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-muted); font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.15s; }
+  .mp-model-pill.active-chronos { border-color: var(--series-chronos); color: var(--series-chronos); background: rgba(251,191,36,0.1); }
+  .mp-model-pill.active-gru { border-color: var(--series-gru); color: var(--series-gru); background: rgba(34,211,238,0.1); }
+
+  .mp-hero { font-size: 30px; font-weight: 800; color: var(--text-main); line-height: 1.1; }
+  .mp-hero-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .mp-milestones { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+  .mp-milestone { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px; text-align: center; }
+  .mp-milestone .lbl { font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+  .mp-milestone .val { font-size: 14px; font-weight: 800; margin-top: 2px; }
+
+  .mp-chart { width: 100%; height: 320px; margin-top: 10px; }
+  .mp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); padding: 40px 15px; gap: 8px; }
+  .mp-empty .big { font-size: 40px; }
+
+  .mp-holdings { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+  .mp-holding { display: flex; align-items: center; gap: 10px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 8px 10px; }
+  .mp-holding img { width: 34px; border-radius: 4px; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+  .mp-holding-info { flex: 1; min-width: 0; }
+  .mp-holding-name { font-size: 12px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp-holding-each { font-size: 11px; color: var(--text-muted); }
+  .mp-stepper { display: inline-flex; align-items: center; gap: 2px; }
+  .mp-step-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-card); color: var(--text-main); font-size: 16px; font-weight: 800; cursor: pointer; line-height: 1; transition: all 0.12s; }
+  .mp-step-btn:hover { border-color: var(--brand); }
+  .mp-step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .mp-step-qty { min-width: 26px; text-align: center; font-weight: 800; font-size: 14px; color: var(--text-main); }
+  .mp-holding-total { font-weight: 800; font-size: 13px; color: var(--price); min-width: 62px; text-align: right; }
+
+  .mp-disclaimer { font-size: 11px; color: var(--text-muted); font-style: italic; }
+
+  /* --- Mobile --- */
+  @media (max-width: 900px) {
+    .mp-main { grid-template-columns: 1fr; }
+    .mp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mp-stat-value { font-size: 15px; }
+    .mp-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); max-height: 600px; gap: 9px; padding: 9px; }
+    .mp-hero { font-size: 24px; }
+    .mp-chart { height: 260px; }
+    .mp-clear-btn { margin-left: 0; }
+    /* Payout + portfolio above the shop on mobile so feedback stays visible */
+    .mp-side { order: 0; }
+    .mp-shop { order: 1; }
+  }
+  `;
+  if (!document.getElementById("mp-styles")) {
+    const st = document.createElement("style");
+    st.id = "mp-styles";
+    st.textContent = MP_CSS;
+    document.head.appendChild(st);
+  }
+
+  const MODELS = { Chronos: { color: '#fbbf24', band: 'rgba(251,191,36,0.13)' },
+                   GRU:     { color: '#22d3ee', band: 'rgba(34,211,238,0.13)' } };
+  const LS_KEY = "lorecaster_market_player_v1";
+  const fmtUSD = v => (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const escAttr = s => String(s).replace(/"/g, "&quot;");
+
+  // ----- Data prep: sellable cards + per-model forecast series ---------------
+  const fcstByModel = { Chronos: new Map(), GRU: new Map() };
+  (safeTranspose(ojs_forecast) || []).forEach(f => {
+    const m = fcstByModel[f.model];
+    if (!m) return;
+    if (!m.has(f.cardname)) m.set(f.cardname, []);
+    m.get(f.cardname).push(f);
+  });
+  for (const m of Object.values(fcstByModel)) for (const arr of m.values()) arr.sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  const cards = (safeTranspose(ojs_info) || [])
+    .filter(d => d.current_price != null && d.current_price > 0)
+    .map(d => {
+      const pct = {};
+      for (const model of Object.keys(MODELS)) {
+        const s = fcstByModel[model].get(d.cardname);
+        pct[model] = (s && s.length > 0) ? ((s[s.length - 1].price - d.current_price) / d.current_price) * 100 : null;
+      }
+      return { ...d, fcst_pct: pct };
+    });
+  const cardByName = new Map(cards.map(d => [d.cardname, d]));
+
+  // ----- Game state (persisted so a portfolio survives reloads) --------------
+  let state = { budget: 1000, model: "Chronos", holdings: {} }; // holdings: cardname -> qty
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_KEY));
+    if (saved && typeof saved === "object") {
+      if (Number.isFinite(saved.budget) && saved.budget > 0) state.budget = saved.budget;
+      if (MODELS[saved.model]) state.model = saved.model;
+      if (saved.holdings && typeof saved.holdings === "object") {
+        for (const [n, q] of Object.entries(saved.holdings)) {
+          if (cardByName.has(n) && Number.isInteger(q) && q > 0) state.holdings[n] = q;
+        }
+      }
+    }
+  } catch (e) { /* private mode / corrupt state: start fresh */ }
+  const save = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} };
+
+  const heldNames = () => Object.keys(state.holdings).filter(n => state.holdings[n] > 0);
+  const spent = () => heldNames().reduce((s, n) => s + cardByName.get(n).current_price * state.holdings[n], 0);
+  const cashLeft = () => state.budget - spent();
+
+  // ----- 30-day payout projection --------------------------------------------
+  // Portfolio value on day t = Σ qty × forecast price(t); cards missing a
+  // forecast for the chosen model are carried flat at today's price so the
+  // totals stay honest. Chronos conf_low/high sum into a best/worst band.
+  function buildProjection() {
+    const per = heldNames().map(n => {
+      const card = cardByName.get(n);
+      const series = fcstByModel[state.model].get(n) || [];
+      return { card, qty: state.holdings[n], series, idx: 0,
+               lastP: card.current_price, lastLo: card.current_price, lastHi: card.current_price,
+               has: series.length > 0 };
+    });
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const dateSet = new Set();
+    per.forEach(p => p.series.forEach(f => { if (f.date > todayStr) dateSet.add(f.date); }));
+    const dates = [...dateSet].sort();
+    const cost = per.reduce((s, p) => s + p.card.current_price * p.qty, 0);
+    const rows = [{ date: todayStr, v: cost, lo: cost, hi: cost }];
+    dates.forEach(ds => {
+      let v = 0, lo = 0, hi = 0;
+      per.forEach(p => {
+        while (p.idx < p.series.length && p.series[p.idx].date <= ds) {
+          const f = p.series[p.idx];
+          p.lastP = f.price;
+          p.lastLo = (f.conf_low != null && isFinite(f.conf_low)) ? f.conf_low : f.price;
+          p.lastHi = (f.conf_high != null && isFinite(f.conf_high)) ? f.conf_high : f.price;
+          p.idx++;
+        }
+        v += p.lastP * p.qty; lo += p.lastLo * p.qty; hi += p.lastHi * p.qty;
+      });
+      rows.push({ date: ds, v, lo, hi });
+    });
+    return { rows, cost, missing: per.filter(p => !p.has).length };
+  }
+
+  // ----- Trader ranks (the hook: always show the next rung) -------------------
+  const RANKS = [
+    { min: -Infinity, emoji: "💀", title: "Bag Holder" },
+    { min: -5,        emoji: "📉", title: "Dip Buyer" },
+    { min: 0,         emoji: "🌱", title: "Sprout Trader" },
+    { min: 2,         emoji: "🧭", title: "Market Scout" },
+    { min: 5,         emoji: "⚔️", title: "Ink Raider" },
+    { min: 10,        emoji: "🔮", title: "Illumineer Oracle" },
+    { min: 20,        emoji: "👑", title: "Lorcana Whale" }
+  ];
+  function rankFor(roi) {
+    let i = 0;
+    for (let k = 0; k < RANKS.length; k++) if (roi >= RANKS[k].min) i = k;
+    return { rank: RANKS[i], next: RANKS[i + 1] || null };
+  }
+
+  // ----- Static skeleton -------------------------------------------------------
+  const wrap = document.createElement("div");
+  wrap.className = "mp-wrap";
+  wrap.innerHTML = `
+    <div class="momentum-box" style="margin-bottom:0;">
+      <strong>🎮 Market Player</strong>
+      <p style="font-size:14px; color:var(--text-muted); margin:5px 0 0 0;">
+        Set a budget, draft cards at today's JustTCG market prices, and watch what the latest AI forecasts
+        say your haul could be worth over the next 30 days. Your picks are saved in this browser — come back
+        tomorrow and see how the odds have shifted.
+      </p>
+    </div>
+
+    <div class="mp-hud">
+      <div class="mp-hud-inner">
+        <div class="mp-hud-row">
+          <span class="mp-budget-label">💰 Budget</span>
+          <input class="mp-budget-input" type="number" min="1" step="50" inputmode="decimal">
+          <button class="mp-preset" data-b="100">$100</button>
+          <button class="mp-preset" data-b="500">$500</button>
+          <button class="mp-preset" data-b="1000">$1,000</button>
+          <button class="mp-preset" data-b="5000">$5,000</button>
+          <button class="mp-clear-btn">🗑 Clear &amp; start over</button>
+        </div>
+        <div class="mp-meter"><div class="mp-meter-fill"></div></div>
+        <div class="mp-stats">
+          <div class="mp-stat" data-stat="cash"><div class="mp-stat-label">Cash left</div><div class="mp-stat-value">$0.00</div></div>
+          <div class="mp-stat" data-stat="invested"><div class="mp-stat-label">Invested</div><div class="mp-stat-value">$0.00</div></div>
+          <div class="mp-stat" data-stat="proj"><div class="mp-stat-label">Day-30 value</div><div class="mp-stat-value">$0.00</div></div>
+          <div class="mp-stat" data-stat="pl"><div class="mp-stat-label">Projected P/L</div><div class="mp-stat-value">—</div></div>
+        </div>
+        <div class="mp-rank"></div>
+      </div>
+    </div>
+
+    <div class="mp-main">
+      <div class="mp-shop">
+        <div class="mp-shop-bar">
+          <input type="text" class="mp-search" placeholder="🔍 Search cards...">
+          <select class="mp-set"></select>
+          <select class="mp-sort">
+            <option value="fcst">🔥 Best forecast</option>
+            <option value="signal">🟢 Buy signal</option>
+            <option value="price_asc">💰 Price: low → high</option>
+            <option value="price_desc">💎 Price: high → low</option>
+            <option value="name">🔤 A–Z</option>
+          </select>
+          <span class="mp-afford-toggle">✓ In my budget</span>
+        </div>
+        <div class="mp-grid"></div>
+      </div>
+
+      <div class="mp-side">
+        <div class="mp-panel">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <h4 class="mp-panel-title" style="margin:0; border:none; padding:0;">📈 30-Day Payout</h4>
+            <span class="mp-model-pills">
+              <button class="mp-model-pill" data-m="Chronos">CHRONOS</button>
+              <button class="mp-model-pill" data-m="GRU">GRU</button>
+            </span>
+          </div>
+          <div class="mp-payout-body" style="margin-top:12px;"></div>
+        </div>
+        <div class="mp-panel">
+          <h4 class="mp-panel-title">🎒 Your cards <span class="mp-holdings-count" style="color:var(--text-muted); font-weight:400; font-size:12px;"></span></h4>
+          <div class="mp-holdings"></div>
+        </div>
+        <div class="mp-disclaimer">Simulated portfolio for fun — model projections are not financial advice, and no real purchases happen here.</div>
+      </div>
+    </div>
+  `;
+
+  const els = {
+    budget: wrap.querySelector(".mp-budget-input"),
+    presets: [...wrap.querySelectorAll(".mp-preset")],
+    clear: wrap.querySelector(".mp-clear-btn"),
+    meter: wrap.querySelector(".mp-meter-fill"),
+    stats: Object.fromEntries([...wrap.querySelectorAll(".mp-stat")].map(el => [el.dataset.stat, el])),
+    rank: wrap.querySelector(".mp-rank"),
+    search: wrap.querySelector(".mp-search"),
+    set: wrap.querySelector(".mp-set"),
+    sort: wrap.querySelector(".mp-sort"),
+    afford: wrap.querySelector(".mp-afford-toggle"),
+    grid: wrap.querySelector(".mp-grid"),
+    pills: [...wrap.querySelectorAll(".mp-model-pill")],
+    payout: wrap.querySelector(".mp-payout-body"),
+    holdings: wrap.querySelector(".mp-holdings"),
+    holdingsCount: wrap.querySelector(".mp-holdings-count")
+  };
+
+  ["All Sets", ...new Set(cards.map(d => d.set_name).filter(Boolean))].sort()
+    .forEach(s => { const o = document.createElement("option"); o.value = o.text = s; els.set.appendChild(o); });
+
+  // ----- Small animation helpers ----------------------------------------------
+  const prevVals = { cash: null, invested: null, proj: null, pl: null };
+  const animTokens = {};
+  function animateStat(key, to, colorFn) {
+    const valEl = els.stats[key].querySelector(".mp-stat-value");
+    const from = prevVals[key] == null ? to : prevVals[key];
+    prevVals[key] = to;
+    if (colorFn) valEl.style.color = colorFn(to);
+    const token = animTokens[key] = (animTokens[key] || 0) + 1;
+    const dur = 550;
+    let startTs = null; // taken from the first rAF frame so both timestamps share a clock
+    function tick(now) {
+      if (animTokens[key] !== token) return; // superseded by a newer animation
+      if (startTs === null) startTs = now;
+      const t = Math.max(0, Math.min(1, (now - startTs) / dur));
+      const eased = 1 - Math.pow(1 - t, 3);
+      const v = from + (to - from) * eased;
+      valEl.textContent = (key === "pl" ? (v >= 0 ? "▲ +" : "▼ ") : "") + fmtUSD(v);
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  function floatChip(x, y, text) {
+    const chip = document.createElement("span");
+    chip.className = "mp-float";
+    chip.textContent = text;
+    chip.style.left = (x - 10) + "px"; chip.style.top = (y - 20) + "px";
+    document.body.appendChild(chip);
+    setTimeout(() => chip.remove(), 850);
+  }
+
+  // ----- HUD ------------------------------------------------------------------
+  function renderHUD(proj) {
+    const sp = spent(), cash = state.budget - sp;
+    const pctUsed = state.budget > 0 ? (sp / state.budget) * 100 : 0;
+    els.meter.style.width = Math.min(100, pctUsed) + "%";
+    els.meter.classList.toggle("warn", pctUsed >= 70 && pctUsed <= 100);
+    els.meter.classList.toggle("over", pctUsed > 100);
+    els.presets.forEach(b => b.classList.toggle("active", Number(b.dataset.b) === state.budget));
+
+    animateStat("cash", cash, v => v < 0 ? "var(--neg)" : "var(--text-main)");
+    animateStat("invested", sp);
+    const last = proj.rows[proj.rows.length - 1];
+    const profit = last.v - proj.cost;
+    animateStat("proj", last.v, () => "var(--price)");
+    if (heldNames().length === 0) {
+      prevVals.pl = null;
+      els.stats.pl.querySelector(".mp-stat-value").textContent = "—";
+      els.stats.pl.querySelector(".mp-stat-value").style.color = "var(--text-muted)";
+    } else {
+      animateStat("pl", profit, v => v >= 0 ? "var(--pos)" : "var(--neg)");
+    }
+
+    // Rank badge + distance to the next rung
+    if (heldNames().length === 0) {
+      els.rank.innerHTML = `<span class="mp-rank-badge">🃏 Window Shopper</span><span class="mp-rank-next">Draft your first card to start climbing the ranks!</span>`;
+    } else {
+      const roi = proj.cost > 0 ? (profit / proj.cost) * 100 : 0;
+      const { rank, next } = rankFor(roi);
+      let nextTxt = "Top of the ladder — the whole Great Illuminary bows to you.";
+      if (next) {
+        const needed = (next.min / 100) * proj.cost - profit;
+        nextTxt = `${fmtUSD(Math.max(0, needed))} more projected profit to reach ${next.emoji} ${next.title}`;
+      }
+      els.rank.innerHTML = `<span class="mp-rank-badge">${rank.emoji} ${rank.title}</span><span class="mp-rank-next">${nextTxt}</span>`;
+    }
+  }
+
+  // ----- Shop ------------------------------------------------------------------
+  const signalChip = d => {
+    if (!d.signal_call) return "";
+    const map = { buy:  ["BUY",  "rgba(52,211,153,0.9)",  "var(--bg-base)"],
+                  sell: ["SELL", "rgba(248,113,113,0.9)", "var(--bg-base)"],
+                  hold: ["HOLD", "rgba(251,191,36,0.9)",  "var(--bg-base)"] };
+    const c = map[d.signal_call];
+    return c ? `<span class="mp-signal-chip" style="background:${c[1]}; color:${c[2]};">${c[0]}</span>` : "";
+  };
+  const fcstChip = d => {
+    const p = d.fcst_pct[state.model];
+    if (p == null) return '<span style="color:var(--text-muted); font-size:11px;">no fcst</span>';
+    const up = p >= 0;
+    return `<span style="color:${up ? "var(--pos)" : "var(--neg)"}; font-weight:700; font-size:11px;">${up ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%</span>`;
+  };
+
+  function renderShop() {
+    const q = els.search.value.toLowerCase();
+    const setSel = els.set.value || "All Sets";
+    const affordOnly = els.afford.classList.contains("active");
+    const cash = cashLeft();
+
+    let list = cards.filter(d =>
+      d.cardname.toLowerCase().includes(q) &&
+      (setSel === "All Sets" || d.set_name === setSel) &&
+      (!affordOnly || d.current_price <= cash + 1e-9));
+
+    const sorters = {
+      fcst: (a, b) => (b.fcst_pct[state.model] ?? -9999) - (a.fcst_pct[state.model] ?? -9999),
+      signal: (a, b) => ((b.p_buy ?? -1) - (a.p_buy ?? -1)),
+      price_asc: (a, b) => a.current_price - b.current_price,
+      price_desc: (a, b) => b.current_price - a.current_price,
+      name: (a, b) => a.cardname.localeCompare(b.cardname)
+    };
+    list.sort(sorters[els.sort.value] || sorters.fcst);
+
+    els.grid.innerHTML = list.map(d => {
+      const name = escAttr(d.cardname);
+      const qty = state.holdings[d.cardname] || 0;
+      const broke = d.current_price > cash + 1e-9;
+      return `
+        <div class="mp-tile ${broke ? "mp-broke" : ""} ${qty > 0 ? "mp-owned" : ""}" data-cardname="${name}">
+          <div class="mp-imgwrap">
+            <img src="${d.image_path}" alt="${name}" loading="lazy">
+            ${qty > 0 ? `<span class="mp-qty-badge">×${qty}</span>` : ""}
+            ${signalChip(d)}
+          </div>
+          <div class="mp-tile-name">${d.name}${d.version ? ` <span style="color:var(--text-muted); font-weight:400;">· ${d.version}</span>` : ""}</div>
+          <div class="mp-tile-meta"><span class="mp-tile-price">${fmtUSD(d.current_price)}</span>${fcstChip(d)}</div>
+          <button class="mp-buy-btn">${broke ? "Too rich 💸" : "＋ Buy"}</button>
+        </div>`;
+    }).join("") || `<div class="mp-empty" style="grid-column:1/-1;"><span class="big">🫥</span>No cards match — loosen the filters or raise the budget.</div>`;
+  }
+
+  // Cheap in-place refresh after a buy/sell: badges + affordability, no full
+  // re-render (keeps scroll position and search focus).
+  function refreshTiles() {
+    const cash = cashLeft();
+    els.grid.querySelectorAll(".mp-tile").forEach(tile => {
+      const d = cardByName.get(tile.dataset.cardname);
+      if (!d) return;
+      const qty = state.holdings[d.cardname] || 0;
+      const broke = d.current_price > cash + 1e-9;
+      tile.classList.toggle("mp-broke", broke);
+      tile.classList.toggle("mp-owned", qty > 0);
+      tile.querySelector(".mp-buy-btn").textContent = broke ? "Too rich 💸" : "＋ Buy";
+      let badge = tile.querySelector(".mp-qty-badge");
+      if (qty > 0) {
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = "mp-qty-badge";
+          tile.querySelector(".mp-imgwrap").appendChild(badge);
+        }
+        badge.textContent = "×" + qty;
+      } else if (badge) badge.remove();
+    });
+  }
+
+  // ----- Portfolio -------------------------------------------------------------
+  function renderHoldings() {
+    const names = heldNames().sort((a, b) => cardByName.get(b).current_price * state.holdings[b] - cardByName.get(a).current_price * state.holdings[a]);
+    const totalQty = names.reduce((s, n) => s + state.holdings[n], 0);
+    els.holdingsCount.textContent = totalQty > 0 ? `· ${totalQty} card${totalQty > 1 ? "s" : ""}` : "";
+    if (names.length === 0) {
+      els.holdings.innerHTML = `<div class="mp-empty"><span class="big">🎒</span>Your bag is empty.<br>Tap any card in the shop to draft it.</div>`;
+      return;
+    }
+    const cash = cashLeft();
+    els.holdings.innerHTML = names.map(n => {
+      const d = cardByName.get(n), qty = state.holdings[n];
+      const canAdd = d.current_price <= cash + 1e-9;
+      return `
+        <div class="mp-holding" data-cardname="${escAttr(n)}">
+          <img src="${d.image_path}" alt="${escAttr(n)}" loading="lazy">
+          <div class="mp-holding-info">
+            <div class="mp-holding-name">${d.name}${d.version ? " · " + d.version : ""}</div>
+            <div class="mp-holding-each">${fmtUSD(d.current_price)} each ${fcstChip(d)}</div>
+          </div>
+          <div class="mp-stepper">
+            <button class="mp-step-btn mp-minus">−</button>
+            <span class="mp-step-qty">${qty}</span>
+            <button class="mp-step-btn mp-plus" ${canAdd ? "" : "disabled"}>+</button>
+          </div>
+          <div class="mp-holding-total">${fmtUSD(d.current_price * qty)}</div>
+        </div>`;
+    }).join("");
+  }
+
+  // ----- Payout chart ------------------------------------------------------------
+  let chartMounted = false;
+  let chartPending = false; // set when the tab was hidden at render time
+  function renderPayout(proj) {
+    if (heldNames().length === 0) {
+      chartMounted = false; chartPending = false;
+      const gd = els.payout.querySelector(".mp-chart");
+      if (gd) Plotly.purge(gd);
+      els.payout.innerHTML = `<div class="mp-empty"><span class="big">📈</span><b style="color:var(--text-main);">Nothing on the line yet.</b>Draft some cards and this chart will show what the forecasts say your haul is worth, day by day, for the next 30 days.</div>`;
+      return;
+    }
+    const last = proj.rows[proj.rows.length - 1];
+    const profit = last.v - proj.cost;
+    const roi = proj.cost > 0 ? (profit / proj.cost) * 100 : 0;
+    const isChronos = state.model === "Chronos";
+    const endDate = new Date(last.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    // Milestone helper: projection row closest to today + N days
+    const rowNear = days => {
+      const target = Date.now() + days * 864e5;
+      return proj.rows.reduce((best, r) => Math.abs(new Date(r.date + "T12:00:00") - target) < Math.abs(new Date(best.date + "T12:00:00") - target) ? r : best);
+    };
+    const milestone = (lbl, r) => {
+      const p = r.v - proj.cost, up = p >= 0;
+      return `<div class="mp-milestone"><div class="lbl">${lbl}</div><div class="val" style="color:${up ? "var(--pos)" : "var(--neg)"};">${up ? "▲ +" : "▼ "}${fmtUSD(p)}</div></div>`;
+    };
+
+    if (!chartMounted) {
+      els.payout.innerHTML = `<div class="mp-hero-slot"></div><div class="mp-milestones"></div><div class="mp-chart"></div><div class="mp-missing" style="font-size:11px; color:var(--text-muted); margin-top:6px;"></div>`;
+      chartMounted = true;
+    }
+    els.payout.querySelector(".mp-hero-slot").innerHTML = `
+      <div class="mp-hero" style="color:${profit >= 0 ? "var(--pos)" : "var(--neg)"};">${profit >= 0 ? "▲ +" : "▼ "}${fmtUSD(profit)}</div>
+      <div class="mp-hero-sub">projected ${profit >= 0 ? "gain" : "loss"} by ${endDate} (${roi >= 0 ? "+" : ""}${roi.toFixed(1)}% ROI)
+        ${isChronos ? ` · range ${fmtUSD(last.lo - proj.cost)} to ${fmtUSD(last.hi - proj.cost)}` : ""}</div>`;
+    els.payout.querySelector(".mp-milestones").innerHTML =
+      milestone("1 week", rowNear(7)) + milestone("2 weeks", rowNear(14)) + milestone("30 days", last);
+    els.payout.querySelector(".mp-missing").textContent =
+      proj.missing > 0 ? `${proj.missing} card${proj.missing > 1 ? "s have" : " has"} no ${state.model} forecast — held flat at today's price.` : "";
+
+    // Never hand Plotly a zero-width container (hidden tab): it falls back to a
+    // 700px default that blows out the layout on phones. Defer until visible.
+    const chartEl = els.payout.querySelector(".mp-chart");
+    if (chartEl.clientWidth === 0) { chartPending = true; return; }
+    chartPending = false;
+
+    const mc = MODELS[state.model];
+    const x = proj.rows.map(r => r.date);
+    const traces = [];
+    if (isChronos) {
+      traces.push(
+        { x, y: proj.rows.map(r => r.hi), mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false },
+        { x, y: proj.rows.map(r => r.lo), mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: mc.band, name: "Best/worst case", hoverinfo: "skip" }
+      );
+    }
+    traces.push(
+      { x, y: proj.rows.map(() => proj.cost), mode: "lines", name: "You paid", line: { color: "#94a3b8", width: 2, dash: "dot" }, hovertemplate: "You paid: $%{y:.2f}<extra></extra>" },
+      { x, y: proj.rows.map(r => r.v), mode: "lines", name: `Portfolio (${state.model})`, line: { color: mc.color, width: 3 }, hovertemplate: "Projected: $%{y:.2f}<extra></extra>" }
+    );
+
+    Plotly.react(chartEl, traces, {
+      dragmode: false, paper_bgcolor: "transparent", plot_bgcolor: "transparent",
+      font: { color: "#f8fafc", family: "Inter", size: 11 },
+      xaxis: { type: "date", gridcolor: "#334155", linecolor: "#334155", hoverformat: "%b %d", fixedrange: true },
+      yaxis: { gridcolor: "#334155", tickprefix: "$", fixedrange: true },
+      margin: { l: 55, r: 15, t: 10, b: 55 },
+      hovermode: "x unified",
+      hoverlabel: { bgcolor: "#0f172a", bordercolor: "#475569", font: { color: "#f8fafc", size: 12 } },
+      legend: { orientation: "h", y: -0.22, x: 0.5, xanchor: "center", font: { size: 10 }, itemwidth: 30 }
+    }, { responsive: true, displayModeBar: false });
+  }
+
+  function renderModelPills() {
+    els.pills.forEach(p => {
+      const on = p.dataset.m === state.model;
+      p.classList.toggle("active-chronos", on && state.model === "Chronos");
+      p.classList.toggle("active-gru", on && state.model === "GRU");
+    });
+  }
+
+  // ----- Master update -----------------------------------------------------------
+  function update({ shop = false } = {}) {
+    save();
+    const proj = buildProjection();
+    renderHUD(proj);
+    renderHoldings();
+    renderPayout(proj);
+    if (shop) renderShop(); else refreshTiles();
+  }
+
+  // ----- Interactions --------------------------------------------------------------
+  function buyCard(name, evt) {
+    const d = cardByName.get(name);
+    if (!d) return;
+    if (d.current_price > cashLeft() + 1e-9) {
+      const cashTile = els.stats.cash;
+      cashTile.classList.remove("mp-shake"); void cashTile.offsetWidth; cashTile.classList.add("mp-shake");
+      return;
+    }
+    state.holdings[name] = (state.holdings[name] || 0) + 1;
+    if (evt) floatChip(evt.clientX, evt.clientY, `−${fmtUSD(d.current_price)} 🃏`);
+    update();
+  }
+  function sellCard(name) {
+    if (!state.holdings[name]) return;
+    state.holdings[name]--;
+    if (state.holdings[name] <= 0) delete state.holdings[name];
+    update();
+  }
+
+  els.grid.addEventListener("click", e => {
+    const tile = e.target.closest(".mp-tile");
+    if (!tile) return;
+    tile.classList.remove("mp-pop"); void tile.offsetWidth; tile.classList.add("mp-pop");
+    buyCard(tile.dataset.cardname, e);
+  });
+
+  els.holdings.addEventListener("click", e => {
+    const row = e.target.closest(".mp-holding");
+    if (!row) return;
+    if (e.target.closest(".mp-plus")) buyCard(row.dataset.cardname, e);
+    else if (e.target.closest(".mp-minus")) sellCard(row.dataset.cardname);
+  });
+
+  els.budget.value = state.budget;
+  els.budget.addEventListener("change", () => {
+    const v = Number(els.budget.value);
+    state.budget = (Number.isFinite(v) && v > 0) ? Math.round(v * 100) / 100 : state.budget;
+    els.budget.value = state.budget;
+    update({ shop: true });
+  });
+  els.presets.forEach(b => b.addEventListener("click", () => {
+    state.budget = Number(b.dataset.b);
+    els.budget.value = state.budget;
+    update({ shop: true });
+  }));
+
+  // Two-tap confirm instead of window.confirm(): some mobile/in-app browsers
+  // suppress native dialogs entirely, which made the button appear dead.
+  let clearArmed = null;
+  els.clear.addEventListener("click", () => {
+    if (heldNames().length > 0 && !clearArmed) {
+      els.clear.textContent = "⚠️ Tap again to clear";
+      clearArmed = setTimeout(() => { clearArmed = null; els.clear.innerHTML = "🗑 Clear &amp; start over"; }, 3000);
+      return;
+    }
+    clearTimeout(clearArmed); clearArmed = null;
+    els.clear.innerHTML = "🗑 Clear &amp; start over";
+    state.holdings = {};
+    // Snap the HUD to fresh values instead of animating from the old ones
+    Object.keys(prevVals).forEach(k => { prevVals[k] = null; animTokens[k] = (animTokens[k] || 0) + 1; });
+    update({ shop: true });
+  });
+
+  els.pills.forEach(p => p.addEventListener("click", () => {
+    if (state.model === p.dataset.m) return;
+    state.model = p.dataset.m;
+    renderModelPills();
+    update({ shop: true }); // forecast chips on tiles follow the chosen model
+  }));
+
+  els.search.addEventListener("input", renderShop);
+  els.set.addEventListener("change", renderShop);
+  els.sort.addEventListener("change", renderShop);
+  els.afford.addEventListener("click", () => { els.afford.classList.toggle("active"); renderShop(); });
+
+  // Redraw the deferred chart once the tab actually becomes visible, and keep
+  // it fitted through tab switches, rotations, and window resizes.
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => {
+      const gd = els.payout.querySelector(".mp-chart");
+      if (!gd || gd.clientWidth === 0) return;
+      if (chartPending) renderPayout(buildProjection());
+      else if (gd._fullLayout) Plotly.Plots.resize(gd);
+    }).observe(els.payout);
+  }
+
+  // ----- Initial paint (deferred so Plotly mounts into the live DOM) --------------
+  renderModelPills();
+  renderShop();
+  setTimeout(() => update(), 50);
+
+  return wrap;
+}
+```

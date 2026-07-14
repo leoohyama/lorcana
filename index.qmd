@@ -35,6 +35,8 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
 {{< include _market-explorer.qmd >}}
 
+{{< include _market-player.qmd >}}
+
 {{< include _market-overview.qmd >}}
 
 {{< include _guide-faq.qmd >}}
