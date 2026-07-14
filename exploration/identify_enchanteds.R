@@ -60,7 +60,7 @@ download_organized_images <- function(url, set_name, card_id) {
   if (is.na(url)) return() 
   
   # Clean up the set name for safe folder creation
-  safe_set_name <- str_replace_all(set_name, "[^[:alnum:]]", "_")
+  safe_set_name <- str_replace_all(set_name, "[ ']", "_")
   set_path <- file.path(root_dir, safe_set_name)
   
   if (!dir.exists(set_path)) dir.create(set_path, recursive = TRUE)

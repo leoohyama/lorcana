@@ -15,7 +15,8 @@
 #
 # Pipeline:
 #   * BHS_SWEEP=TRUE  -> grid over {horizon x threshold}, report AUC / calibration
-#                        / class-balance, then auto-pick a sensible config.
+#                        / class-balance, then auto-pick a sensible config and
+#                        persist it (bhs_config.csv) for daily sweep-off runs.
 #   * ROLLING (walk-forward) recalibration: the probability calibrator is re-fit
 #     on the most-recent slice preceding each scored window, so it tracks regime.
 #   * BHS_PUSH=TRUE   -> write today's calibrated scores to MotherDuck.
@@ -30,9 +31,20 @@ suppressPackageStartupMessages({
 set.seed(42)
 
 # --- knobs ------------------------------------------------------------------
-HORIZON_DAYS     <- as.integer(Sys.getenv("BHS_HORIZON", "21"))   # tuned via the sweep (best balanced AUC)
-BUY_THR          <- as.numeric(Sys.getenv("BHS_BUY_THR", "0.07"))
-SELL_THR         <- as.numeric(Sys.getenv("BHS_SELL_THR", "0.07"))
+# horizon/threshold precedence: explicit env var > last sweep's persisted pick
+# (bhs_config.csv, written by the weekly BHS_SWEEP run) > hardcoded fallback.
+CONFIG_PATH <- "data/pytorch/bhs_config.csv"
+cfg <- if (file.exists(CONFIG_PATH)) read_csv(CONFIG_PATH, show_col_types = FALSE) else NULL
+cfg_knob <- function(env, field, fallback) {
+  v <- Sys.getenv(env, "")
+  if (v != "") return(as.numeric(v))
+  if (!is.null(cfg)) return(as.numeric(cfg[[field]]))
+  fallback
+}
+if (!is.null(cfg)) message(sprintf("Using tuned config from %s (swept on %s).", CONFIG_PATH, cfg$tuned_on))
+HORIZON_DAYS     <- as.integer(cfg_knob("BHS_HORIZON", "horizon", 21))
+BUY_THR          <- cfg_knob("BHS_BUY_THR", "buy_thr", 0.07)
+SELL_THR         <- cfg_knob("BHS_SELL_THR", "sell_thr", 0.07)
 BUY_REQUIRES_LOW <- TRUE
 LOW_POS          <- 0.50
 MIN_HISTORY      <- 180   # min raw history to TRAIN/label a card (reliable fwd-return label + calibration)
@@ -258,6 +270,10 @@ if (SWEEP) {
   choose <- list(h = pick$horizon, buy = pick$thr, sell = pick$thr)
   cat(sprintf("\n>> chosen config: horizon=%d, buy/sell threshold=+/-%.0f%% (AUC %.3f, buy %.1f%%, sell %.1f%%)\n\n",
               choose$h, 100 * choose$buy, pick$auc, pick$buy_pct, pick$sell_pct))
+  # persist the pick so daily (sweep-off) runs use it until the next sweep
+  write_csv(tibble(horizon = choose$h, buy_thr = choose$buy, sell_thr = choose$sell,
+                   auc = pick$auc, tuned_on = Sys.Date()), CONFIG_PATH)
+  message(sprintf("   chosen config persisted to %s", CONFIG_PATH))
 }
 
 # ============================================================================

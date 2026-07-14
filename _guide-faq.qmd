@@ -1,0 +1,53 @@
+# Dashboard Guide & FAQ {orientation="columns"}
+
+## Column {width="50%"}
+
+### 🃏 The Market & The Data
+
+**What exactly is Lorecaster predicting?**
+Lorecaster predicts the future secondary market prices of high-end, ungraded Disney Lorcana trading cards (specifically Epic, Enchanted, and Iconic rarities).
+
+**Why only high-rarity cards?**
+Lorcana is both a collectible and a playable game. Lower-rarity cards fluctuate wildly based on what is currently winning tournaments (the "meta"). High-rarity cards are driven much more by collector demand, special artwork, and beloved characters, making their long-term trajectories a different beast to forecast. 
+
+**Why doesn't this track graded cards (PSA 9, PSA 10)?**
+Graded cards—cards certified for their condition by third-party companies—sell for massive premiums. The market for a PSA 10 is fundamentally different and much more volatile than the raw market. Consistent daily pricing data for graded Lorcana cards is currently too sparse to model accurately. 
+
+**Where does the data come from?**
+Pricing data is aggregated daily. We monitor eBay, which is the premier marketplace for high-end TCGs. We use a local LLM to actively clean and validate granular eBay listing data, helping us filter out seller typos, fake listings, or wildly unrealistic prices so the models only see real market signals.
+
+### 🧠 How the AI Works
+
+**How does the forecast actually get generated?**
+Lorecaster uses a multi-model ensemble approach to handle the chaos of the secondary market:
+* **The Hybrid GRU:** A custom-built PyTorch architecture that looks at two things at once: a card's historical price movements and its static DNA (like its ink color or rarity). By combining these, the model learns that an "Enchanted" card behaves very differently than a standard "Rare" card. 
+* **Chronos (by Amazon):** A foundation model that treats time-series data like a language problem. Just like ChatGPT guesses the next word in a sentence, Chronos looks at the shape of a price chart and guesses the next "token" (price) in the sequence. 
+
+**What is the "Attention Mechanism"?**
+Not all days in a market are equal. Instead of looking at the last 30 days as a flat average, our GRU model uses an "Attention" layer. This allows the AI to prioritize sudden price shocks or major market shifts, ignoring quiet days and focusing heavily on the specific events that triggered a trend change.
+
+**How often does the AI learn?**
+The dashboard updates with fresh prices and new 30-day forecasts every single morning. Behind the scenes, the PyTorch AI models are fully retrained from scratch once a week via GitHub Actions to ensure they adapt to new card sets and shifting market regimes.
+
+## Column {width="50%"}
+
+### 📊 Glossary: Advanced Risk Metrics
+
+**Sample Entropy (Unpredictability)**
+* *What it means:* Measures how chaotic or random a card's daily price movement is. 
+* *How to read it:* A low number means the card's price moves in smooth, predictable patterns. A high number means the price is jittery, random, and highly susceptible to unpredictable daily swings.
+
+**Hurst Exponent (Momentum vs. Reversion)**
+* *What it means:* Tells us if a card is currently riding a consistent wave or if it's stuck in a rut.
+* *How to read it:*
+    * **Near 0.5:** The price is wandering randomly.
+    * **Above 0.5:** The card has *Momentum*. If it's trending up, it will likely keep going up. 
+    * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up suddenly, it will likely snap back down soon.
+
+**Volatility / CV (Risk Profile)**
+* *What it means:* The Coefficient of Variation measures how wide the price swings are relative to the card's total underlying value.
+* *How to read it:* Higher percentage = higher risk. A $200 card that fluctuates by $5 a day has low volatility. A $10 card that fluctuates by $5 a day has massive volatility. 
+
+**30-Day Forecast Error (MdAPE)**
+* *What it means:* "Median Absolute Percentage Error." This is our model's backtested report card. 
+* *How to read it:* We force the AI to predict prices for historical dates it already knows, and then grade its accuracy. If the Chronos Acc says `±5.2%`, it means that historically, the Chronos model's 30-day forecast for this specific card is reliably within 5.2% of the actual outcome.

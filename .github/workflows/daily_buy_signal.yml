@@ -1,9 +1,10 @@
 name: Daily Buy/Hold/Sell Signal
 
 # Re-fits the calibrated multinomial logistic on the latest price + eBay data and
-# refreshes each card's buy/hold/sell probabilities in MotherDuck. Runs on the
-# tuned config (sweep OFF) so it finishes in a couple of minutes; re-tuning the
-# horizon/threshold is a manual/periodic step (BHS_SWEEP=TRUE via dispatch).
+# refreshes each card's buy/hold/sell probabilities in MotherDuck. Daily runs use
+# the persisted tuned config (data/pytorch/bhs_config.csv, sweep OFF) so they
+# finish in a couple of minutes; the horizon/threshold sweep re-runs every Sunday
+# (or via dispatch) and persists its pick for the week's daily runs.
 
 on:
   # Fire once the eBay Market Float chain (scrape -> LLM clean -> dedupe) finishes:
@@ -24,7 +25,7 @@ on:
 jobs:
   buy-signal:
     runs-on: self-hosted
-    timeout-minutes: 25
+    timeout-minutes: 60   # sweep days need the headroom; sweep-off runs finish in minutes
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
@@ -33,17 +34,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Weekly re-tune: sweep on Sundays (still downstream of the eBay chain, so
+      # it tunes on fresh data). Manual dispatch with sweep=true also forces it.
+      - name: 🗓️ Sweep day?
+        id: sweepday
+        run: echo "sweep=$([ "$(date +%u)" = "7" ] && echo TRUE || echo FALSE)" >> "$GITHUB_OUTPUT"
+
       - name: 🎯 Fit calibrated buy/hold/sell model + push scores to MotherDuck
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-          BHS_SWEEP: ${{ github.event.inputs.sweep == 'true' && 'TRUE' || 'FALSE' }}
-          BHS_HORIZON: "21"
+          BHS_SWEEP: ${{ github.event.inputs.sweep == 'true' && 'TRUE' || steps.sweepday.outputs.sweep }}
           BHS_PUSH: "TRUE"
         run: Rscript pipeline/modeling/buy_hold_sell_multinom.R
 
-      - name: 📦 Sync scores CSV to GitHub
+      - name: 📦 Sync scores CSV + tuned config to GitHub
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🎯 Auto-signal: Daily buy/hold/sell probabilities updated"
-          file_pattern: 'data/pytorch/buy_hold_sell_scores.csv'
+          file_pattern: 'data/pytorch/buy_hold_sell_scores.csv data/pytorch/bhs_config.csv'
           push_options: '--force'

@@ -1,0 +1,23 @@
+# Support the Project!
+
+```{=html}
+<div class="support-card">
+  <h2 style="color: var(--accent-blue); font-weight: 800; margin-bottom: 20px;">Keep Lorecaster Running</h2>
+  
+  <p style="font-size: 16px; color: var(--text-main); line-height: 1.6; margin-bottom: 15px;">
+    Hey there! I built Lorecaster to provide the Lorcana community with free, advanced AI market intelligence. 
+  </p>
+  
+  <p style="font-size: 16px; color: var(--text-main); line-height: 1.6; margin-bottom: 25px;">
+    While the dashboard is free to use, running the serverless MotherDuck (DuckDB) database, orchestrating the daily data pipelines and training the PyTorch AI models all require paid cloud resources.
+  </p>
+
+  <p style="font-size: 16px; color: var(--text-muted); line-height: 1.6; margin-bottom: 30px;">
+    Your support goes a long way towards covering these server costs and helps fund the future roadmap of the project—like eventually expanding the data models to include direct, granular eBay transaction data!
+  </p>
+
+  <a href="https://ko-fi.com/lorecaster" target="_blank" class="kofi-button" style="display: inline-block; padding: 12px 24px; background-color: var(--accent-blue); color: var(--bg-base); font-weight: 700; border-radius: 8px; text-decoration: none;">
+    <span style="font-size: 18px;">☕ Support on Ko-fi</span>
+  </a>
+</div>
+```

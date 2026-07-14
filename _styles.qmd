@@ -1,0 +1,162 @@
+```{=html}
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  :root {
+    --bg-base: #0f172a;        
+    --bg-card: #1e293b;        
+    --bg-hover: #334155;      
+    --border-subtle: #475569; 
+    --text-main: #f8fafc;     
+    --text-muted: #94a3b8;    
+    --accent-blue: #38bdf8;   
+    --accent-purple: #c084fc;
+    --accent-cyan: #22d3ee;
+    --accent-yellow: #fbbf24;
+    --accent-red: #f87171;
+    --accent-green: #34d399;
+
+    /* ============================================================
+       SEMANTIC COLOR ROLES — assign color by the job it does.
+       Use these names (not raw --accent-*) so the dashboard reads
+       as one system. Status hues are RESERVED: never reuse --pos /
+       --neg for a category. CVD-validated (see grading palette).
+       ============================================================ */
+    --pos: var(--accent-green);    /* up / gain / bullish — RESERVED, ships with ▲ + label */
+    --neg: var(--accent-red);      /* down / loss / bearish — RESERVED, ships with ▼ + label */
+    --brand: var(--accent-blue);   /* primary interactive: links, borders, focus */
+    --price: var(--accent-yellow); /* monetary emphasis (headline $ values) */
+
+    /* Model-series identity — fixed, do not reassign (validated CVD-safe) */
+    --series-tcg: var(--text-main);     /* TCGplayer history — neutral reference line */
+    --series-gru: var(--accent-cyan);   /* GRU forecast */
+    --series-chronos: var(--accent-yellow); /* Chronos forecast */
+    --series-ebay: var(--accent-purple);    /* eBay median / volume */
+
+    /* Grading-firm identity — validated CVD-safe all-pairs (ΔE 16.5 deutan),
+       avoids the reserved --pos/--neg hues. UNG is neutral (the raw baseline). */
+    --grade-ung: var(--text-muted);
+    --grade-psa: #38bdf8;
+    --grade-cgc: #fb923c;
+    --grade-bgs: #fbbf24;
+    --grade-sgc: #f472b6;
+  }
+
+  /* Universal Font Family Enforcement */
+  body, h1, h2, h3, h4, h5, h6, p, a, span, div, text, th, td, input, select, button, .navbar, .nav-link, .quarto-dashboard { 
+    font-family: 'Inter', sans-serif !important; 
+  }
+
+  /* Navbar Logo Responsive Scaling */
+  .navbar-brand {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .navbar-brand img, .navbar-logo, .navbar-brand-logo {
+    max-height: 75px !important; 
+    width: auto !important;
+    object-fit: contain;
+    transition: all 0.3s ease;
+  }
+
+  /* Navbar Links Responsive Scaling */
+  .navbar-nav .nav-link, .navbar-title {
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    transition: font-size 0.3s ease;
+  }
+
+  /* Remove Quarto's default card wrapper styling for custom blocks */
+  .transparent-card {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .momentum-box { background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-left: 5px solid var(--accent-blue); padding: 18px 22px; border-radius: 12px; margin-bottom: 25px; color: var(--text-main); font-size: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
+  .green-text { color: var(--accent-green); font-weight: 700; }
+  .red-text { color: var(--accent-red); font-weight: 700; }
+  
+  /* Flex wrappers and structural grid definitions */
+  .flip-card-wrapper { display: flex; flex-direction: column; align-items: center; width: 260px; text-align: center; margin: 10px; }
+  .flip-card { perspective: 1000px; cursor: pointer; width: 100%; height: 380px; }
+  .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; }
+  .flip-card-inner.is-flipped { transform: rotateY(180deg); }
+  .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; }
+  .flip-card-back { transform: rotateY(180deg); background-color: var(--bg-base); border: 2px solid var(--accent-blue); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
+
+  /* Main Core Table Typography & Scroll Margins */
+  .hover-table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 14px; text-align: left; }
+  .hover-table th { background-color: var(--bg-card); padding: 14px 12px; border-bottom: 2px solid var(--accent-blue); position: sticky; top: 0; z-index: 10; transition: background 0.2s; user-select: none; white-space: nowrap; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 12px;}
+  .hover-table th:hover { background-color: var(--bg-hover); }
+  .hover-table td { padding: 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; white-space: nowrap; }
+  .hover-table tbody tr { transition: background-color 0.2s; cursor: pointer; background-color: var(--bg-base); }
+  .hover-table tbody tr:hover { background-color: var(--bg-hover); }
+  .hover-table th.sticky-card-col, .hover-table td.sticky-card-col { position: sticky; left: 0; z-index: 5; background-color: inherit; border-right: 1px solid var(--border-subtle); box-shadow: 4px 0 8px rgba(0,0,0,0.2); }
+  .hover-table thead th.sticky-card-col { z-index: 15; background-color: var(--bg-card); }
+
+  .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+
+  /* Master Interlinked Modal Positioning */
+  .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); overflow-y: auto; padding: 4vh 20px; box-sizing: border-box; }
+  .modal-content { background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px; width: 100%; max-width: 1400px; padding: 24px; position: relative; margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+  .close-btn { color: var(--text-muted); position: absolute; top: 12px; right: 24px; font-size: 32px; font-weight: bold; cursor: pointer; transition: 0.2s; z-index: 99; }
+  .close-btn:hover { color: var(--accent-red); }
+
+  /* Graph Boundaries & Canvas Scales */
+  .modal-graph-main { width: 100%; height: 400px; min-height: 400px; overflow: hidden; }
+  .modal-graph-err { width: 100%; height: 350px; overflow: hidden; }
+  .modal-graph-ebay { width: 100%; height: 350px; overflow: hidden; margin-bottom: 25px; }
+
+  .card-id-wrapper { display: flex; align-items: center; gap: 15px; min-width: 250px; }
+  .card-text-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .card-name-text { font-weight: 600; white-space: normal; line-height: 1.2; display: block; word-break: break-word; }
+
+  .modal-top-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .modal-panel { background: var(--bg-base); padding: 15px; border-radius: 8px; border: 1px solid var(--border-subtle); display:flex; flex-direction:column; }
+  .panel-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; }
+  
+  /* Inline Metric Filter Elements Grid */
+  .modal-controls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; background: var(--bg-base); padding: 15px; border-radius: 10px; border: 1px solid var(--border-subtle); margin-bottom: 20px; }
+  .modal-filter-box { display: flex; flex-direction: column; gap: 5px; }
+  .modal-filter-box label { font-size: 11px; font-weight: 700; color: var(--accent-blue); text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal-filter-box select { padding: 8px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-main); font-family: 'Inter', sans-serif; cursor: pointer; }
+
+  /* Summary Cards Component Framework */
+  .modal-metrics-summary-row { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 12px; }
+  .modal-metric-card { background: var(--bg-base); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border-subtle); min-width: 175px; flex: 1; }
+  .modal-metric-card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+  .modal-metric-card-value { font-size: 18px; font-weight: 800; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; }
+
+  /* Master-Detail Split Layout (desktop-only Market Explorer, >=1200px) */
+  .market-explorer-container { display: flex; gap: 20px; width: 100%; height: calc(100vh - 150px); min-height: 800px; margin-top: 15px; }
+  .master-pane { flex: 0 0 450px; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); overflow-y: auto; display: flex; flex-direction: column; }
+  .detail-pane { flex: 1; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); overflow-y: auto; padding: 20px; position: relative; }
+  .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; }
+  .hover-table tbody tr.selected-row { background-color: var(--bg-hover); position: relative; }
+  .hover-table tbody tr.selected-row td.sticky-card-col::before { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 4px; background-color: var(--accent-blue); }
+
+  /* Responsive Screen State Changes */
+  @media (max-width: 1024px) {
+    .modal-top-grid { grid-template-columns: 1fr !important; }
+  }
+  @media (max-width: 768px) {
+    .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 45px !important; }
+    .navbar-nav .nav-link, .navbar-title { font-size: 15px !important; }
+    
+    .flip-card-wrapper { width: 100% !important; margin: 15px 0 !important; padding: 0 10px; box-sizing: border-box; }
+    .momentum-box { font-size: 13px !important; padding: 12px !important; }
+    .modal-content { padding: 15px !important; border-radius: 8px !important; }
+    .hide-on-mobile { display: none !important; } 
+    .card-id-wrapper { min-width: 180px !important; max-width: 60vw; gap: 10px; }
+    .card-name-text { font-size: 13px; }
+    .modal-controls-grid { grid-template-columns: 1fr !important; }
+    .modal-graph-main { height: 320px !important; min-height: 320px !important; margin-bottom: 25px !important; }
+    .modal-graph-err { height: 250px !important; }
+    .modal-graph-ebay { height: 250px !important; margin-bottom: 15px !important; }
+    #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
+    #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
+    #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
+  }
+</style>
+```
