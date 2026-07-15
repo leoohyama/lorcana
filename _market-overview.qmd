@@ -24,7 +24,7 @@ safeTranspose = (data) => {
 {
   const transposed_stats = safeTranspose(ojs_global_stats);
   if (transposed_stats.length === 0 || !transposed_stats[0].total_ebay_listings) return html`<div style="padding: 20px; color: var(--text-muted); font-style: italic;">Awaiting initial database sync...</div>`;
-  
+
   const stats = transposed_stats[0];
   const formatNum = (num) => new Intl.NumberFormat('en-US').format(num || 0);
   const updated = stats.last_updated ? new Date(stats.last_updated + "T12:00:00").toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
@@ -66,13 +66,13 @@ safeTranspose = (data) => {
   };
 
   const tile = (border, label, valueHTML, subHTML) => `
-    <div style="flex:1; min-width:230px; background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top:4px solid ${border}; border-radius:12px; padding:20px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.5);">
-      <div style="font-size:13px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:1px;">${label}</div>
+    <div class="hero-tile" style="border-top-color:${border};">
+      <div class="hero-tile-label">${label}</div>
       ${valueHTML}
       ${subHTML || ''}
     </div>`;
-  const bigVal = (txt, color) => `<div style="font-size:32px; font-weight:800; color:${color || 'var(--text-main)'}; margin-top:8px;">${txt}</div>`;
-  const subTxt = (txt) => `<div style="font-size:12px; color:var(--text-muted); margin-top:4px; font-weight:600;">${txt}</div>`;
+  const bigVal = (txt, color) => `<div class="hero-tile-value" style="color:${color || 'var(--text-main)'};">${txt}</div>`;
+  const subTxt = (txt) => `<div class="hero-tile-sub">${txt}</div>`;
 
   const splitBar = `<div style="display:flex; height:10px; border-radius:5px; overflow:hidden; margin-top:12px; margin-bottom:8px;">
       <div style="width:${pctOf('buy')}%; background:var(--accent-green);"></div>
@@ -94,12 +94,263 @@ safeTranspose = (data) => {
       <span style="width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);"></span>
       <span style="font-size:13px; color:var(--text-muted); font-weight:600;">Data updated: <span style="color:var(--text-main);">${updated}</span></span>
     </div>
-    <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
+    <div class="hero-tiles">
       ${tile('var(--accent-blue)', 'Cards Tracked', bigVal(formatNum(cardsTracked)), subTxt('High-rarity cards priced daily'))}
       ${tile('var(--accent-cyan)', 'Total Unique Listings', bigVal(formatNum(totalListings)), subTxt('Distinct eBay listings collected to date'))}
       ${tile('var(--accent-purple)', 'Market Signal', splitBar + splitLegend, subTxt(formatNum(rated.length) + ' cards rated today'))}
       ${tile(outlookBorder, '30-Day Outlook', outlookRow('GRU', gru) + outlookRow('Chronos', chr), subTxt('Share of cards forecast above current price'))}
     </div>`;
+  return wrap;
+}
+```
+
+## Row
+
+### 🔥 Market Movers — 7-Day Trends
+
+```{ojs}
+//| echo: false
+//| output: false
+// ==============================================================================
+// SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & SHARED HELPERS
+// ==============================================================================
+
+Plotly = require("plotly.js-dist-min@2.30.0")
+
+// Reconstruct incoming title pairs directly for linear search dictionary
+ebay_title_map = {
+  const map = new Map();
+  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
+    const ids = Array.from(ojs_ebay_titles.item_id);
+    const titles = Array.from(ojs_ebay_titles.listing_title);
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] && titles[i]) map.set(String(ids[i]).trim(), titles[i]);
+    }
+  }
+  return map;
+}
+
+// Build a live eBay listing URL straight from the item_id (format: v1|<legacyId>|<var>).
+// The id already encodes the listing number, so no stored links / extra table is needed.
+ebayItemUrl = (item_id) => {
+  if (!item_id) return null;
+  const parts = String(item_id).split("|");
+  const legacy = parts.length > 1 ? parts[1] : parts[0];
+  if (!/^[0-9]+$/.test(legacy)) return null;
+  return `https://www.ebay.com/itm/${legacy}`;
+}
+
+// Deep-link a card from the Overview tables into the Market Explorer deep dive:
+// switch to the Explorer tab, prefill its search (filters to that exact cardname),
+// then auto-open the single matching row. Works for both desktop & mobile layouts.
+openInExplorer = (name) => {
+  if (!name) return;
+  const tab = document.getElementById('tab-market-explorer');
+  if (tab) tab.click();
+  setTimeout(() => {
+    document.querySelectorAll('.explorer-search').forEach(inp => {
+      inp.value = name;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    setTimeout(() => {
+      const pane = document.getElementById('market-explorer');
+      const rows = pane ? pane.querySelectorAll('tr.card-row') : [];
+      if (rows.length === 1) rows[0].click();
+      if (pane) pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 90);
+  }, 130);
+}
+
+// Global programmatic data sanitization step for raw listing objects
+clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
+  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
+  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
+
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
+  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
+
+  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
+  let cleanGrade = "UNG";
+  if (numMatch && rawGrade !== "UNG") {
+    let parsed = parseFloat(numMatch[0]);
+    if (parsed > 0 && parsed <= 10) cleanGrade = parsed.toString();
+  }
+
+  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
+  if (cleanCompany === "UNG") cleanGrade = "UNG";
+
+  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
+  let lang = d.card_language ? d.card_language : "English";
+
+  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
+  // but excluded from all price/median math — auction current-bids are not clean price signal.
+  let is_auction = /AUCTION/i.test(d.listing_type || "");
+
+  return {
+    ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
+    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+  };
+}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
+
+// Navbar menu badge: today's Buy/Hold/Sell model confidence, always visible.
+// Clicking it jumps to the Market Explorer, which carries the full health readout.
+{
+  const m = (safeTranspose(ojs_signal_metrics) || [])[0];
+  const nav = document.querySelector('.navbar #dashboard-collapse');
+  const old = document.getElementById('nav-model-conf');
+  if (old) old.remove();
+  if (!m || m.avg_confidence == null || !nav) return;
+  const conf = Math.round(m.avg_confidence * 100);
+  const tone = m.avg_confidence >= 0.60 ? ['var(--pos)', 'Confident']
+             : m.avg_confidence >= 0.45 ? ['var(--accent-yellow)', 'Moderate']
+             : ['var(--neg)', 'Cautious'];
+  const badge = document.createElement('a');
+  badge.id = 'nav-model-conf';
+  badge.className = 'nav-conf-badge';
+  badge.href = '#market-explorer';
+  badge.title = `Buy/Hold/Sell model — average confidence today ${conf}% (${tone[1].toLowerCase()}) · reliability AUC ${Number(m.auc).toFixed(2)} · ${m.horizon}-day outlook. Click for the full model health readout in the Market Explorer.`;
+  badge.innerHTML = `<span class="nav-conf-dot" style="background:${tone[0]}; box-shadow:0 0 6px ${tone[0]};"></span><span class="nav-conf-text">Model confidence: <b style="color:${tone[0]};">${conf}% · ${tone[1]}</b></span>`;
+  badge.addEventListener('click', (e) => {
+    e.preventDefault();
+    const t = document.getElementById('tab-market-explorer');
+    if (t) t.click();
+  });
+  nav.appendChild(badge);
+}
+```
+
+```{ojs}
+//| echo: false
+// ==============================================================================
+// SECTION 2.6.5: 7-DAY MARKET MOVERS — paired tables (TCGplayer & eBay medians)
+// with inline sparklines; rows deep-link into the Market Explorer.
+// ==============================================================================
+{
+  const DAY = 24 * 60 * 60 * 1000;
+  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
+  const infoMap = new Map((safeTranspose(ojs_info) || []).map(d => [d.cardname, d]));
+
+  // Inline SVG sparkline: single series, colored by 7-day direction (▲/▼ + signed
+  // numbers in the same row carry the direction too, so color is never alone).
+  const spark = (vals, color) => {
+    if (!vals || vals.length < 2) return `<span style="color:var(--text-muted); font-size:11px;">—</span>`;
+    const w = 88, h = 30, p = 4;
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const span = (max - min) || 1;
+    const pts = vals.map((v, i) => [
+      (p + (i / (vals.length - 1)) * (w - 2 * p)).toFixed(1),
+      (h - p - ((v - min) / span) * (h - 2 * p)).toFixed(1)
+    ]);
+    const last = pts[pts.length - 1];
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block; overflow:visible;" aria-hidden="true">
+      <polyline points="${pts.map(pt => pt.join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+      <circle cx="${last[0]}" cy="${last[1]}" r="2.5" fill="${color}"/>
+    </svg>`;
+  };
+
+  // --- TCGplayer (JustTCG) movers: latest market price vs the record ~7 days back ---
+  const histByCard = new Map();
+  all_hist.forEach(d => {
+    if (d.price == null) return;
+    if (!histByCard.has(d.cardname)) histByCard.set(d.cardname, []);
+    histByCard.get(d.cardname).push(d);
+  });
+  const tcgMovers = [];
+  histByCard.forEach((rows, name) => {
+    rows.sort((a, b) => a.date - b.date);
+    const cur = rows[rows.length - 1];
+    const target = cur.date.getTime() - 7 * DAY;
+    let base = null;
+    rows.forEach(r => { if (!base || Math.abs(r.date.getTime() - target) < Math.abs(base.date.getTime() - target)) base = r; });
+    // Need a baseline within ±2 days of "7 days ago" and a sane starting price.
+    if (!base || base === cur || Math.abs(base.date.getTime() - target) > 2 * DAY || base.price < 1) return;
+    const series = rows.filter(r => r.date.getTime() >= target).map(r => r.price);
+    tcgMovers.push({ name, cur: cur.price, abs: cur.price - base.price, pct: (cur.price - base.price) / base.price * 100, series });
+  });
+
+  // --- eBay ungraded median movers: daily medians (auction-free), same 7-day window ---
+  const listings = (clean_ebay_master || []).filter(d => d.label === "Ungraded" && !d.is_auction);
+  const medByCard = new Map();
+  listings.forEach(d => {
+    if (!medByCard.has(d.cardname)) medByCard.set(d.cardname, new Map());
+    const days = medByCard.get(d.cardname);
+    if (!days.has(d.date_pulled)) days.set(d.date_pulled, []);
+    days.get(d.date_pulled).push(d.clean_price);
+  });
+  const median = arr => { const p = [...arr].sort((a, b) => a - b); const m = Math.floor(p.length / 2); return p.length % 2 ? p[m] : (p[m - 1] + p[m]) / 2; };
+  const globalLatestMs = listings.length ? Math.max(...[...new Set(listings.map(d => d.date_pulled))].map(s => new Date(s + "T12:00:00").getTime())) : 0;
+  const ebayMovers = [];
+  medByCard.forEach((days, name) => {
+    // Only days with >=2 listings count — a single listing is not a median.
+    const meds = [...days.entries()].filter(([, v]) => v.length >= 2)
+      .map(([date, v]) => ({ ms: new Date(date + "T12:00:00").getTime(), med: median(v), n: v.length }))
+      .sort((a, b) => a.ms - b.ms);
+    if (meds.length < 2) return;
+    const cur = meds[meds.length - 1];
+    if (globalLatestMs - cur.ms > 2 * DAY) return; // card has gone stale
+    const target = cur.ms - 7 * DAY;
+    let base = null;
+    meds.forEach(r => { if (!base || Math.abs(r.ms - target) < Math.abs(base.ms - target)) base = r; });
+    if (!base || base === cur || Math.abs(base.ms - target) > 2 * DAY || base.med < 1) return;
+    const series = meds.filter(r => r.ms >= target).map(r => r.med);
+    ebayMovers.push({ name, cur: cur.med, abs: cur.med - base.med, pct: (cur.med - base.med) / base.med * 100, series, n: cur.n, nBase: base.n });
+  });
+
+  // --- Shared table builder: top 5 gainers + top 5 losers per source ---
+  const escAttr = s => String(s).replace(/"/g, '&quot;');
+  const money = v => '$' + Number(v).toFixed(2);
+  const moverRow = (d) => {
+    const up = d.pct >= 0;
+    const col = up ? 'var(--pos)' : 'var(--neg)';
+    const info = infoMap.get(d.name);
+    const tip = d.n != null
+      ? `Median of ${d.n} listing${d.n === 1 ? '' : 's'} today vs ${d.nBase} ~7 days ago · Open in Market Explorer →`
+      : 'Open in Market Explorer →';
+    return `<tr class="mover-row" data-cardname="${escAttr(d.name)}" title="${tip}">
+      <td class="mv-card"><div><img src="${info ? info.image_path : ''}" loading="lazy" onerror="this.style.display='none'"><span>${d.name}</span></div></td>
+      <td class="mv-price">${money(d.cur)}</td>
+      <td class="mv-delta" style="color:${col};">${up ? '▲' : '▼'} ${up ? '+' : '−'}$${Math.abs(d.abs).toFixed(2)}<span class="mv-pct">${up ? '+' : ''}${d.pct.toFixed(1)}%</span></td>
+      <td class="mv-trend">${spark(d.series, col)}</td>
+    </tr>`;
+  };
+  const groupHeader = (label, col) => `<tr class="mv-group"><td colspan="4" style="color:${col};">${label}</td></tr>`;
+  const emptyRow = `<tr><td colspan="4" class="mv-empty">No movement in this window.</td></tr>`;
+  const buildPanel = (sub, movers) => {
+    const gainers = movers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 5);
+    const losers = movers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5);
+    return `<div class="movers-panel">
+      <div class="movers-panel-sub" style="margin-bottom:10px;">${sub}</div>
+      <table class="movers-table">
+        <thead><tr><th>Card</th><th style="text-align:right;">Price</th><th style="text-align:right;">7D Change</th><th>Trend</th></tr></thead>
+        <tbody>
+          ${groupHeader('▲ Top gainers', 'var(--pos)')}
+          ${gainers.map(moverRow).join('') || emptyRow}
+          ${groupHeader('▼ Top losers', 'var(--neg)')}
+          ${losers.map(moverRow).join('') || emptyRow}
+        </tbody>
+      </table>
+    </div>`;
+  };
+
+  if (tcgMovers.length === 0 && ebayMovers.length === 0) {
+    return html`<div style="padding:20px; color:var(--text-muted); font-style:italic;">Awaiting price history — movers appear once a 7-day baseline exists.</div>`;
+  }
+
+  // Tabbed view: flip between the two sources in place instead of scrolling past both.
+  const wrap = document.createElement("div");
+  wrap.style.width = "100%";
+  wrap.innerHTML = `
+    <div class="seg-tabs">
+      <button class="seg-tab active" data-target="tcg">🎴 TCGplayer Price</button>
+      <button class="seg-tab" data-target="ebay">🛒 eBay Ungraded Median</button>
+    </div>
+    <div class="seg-pane" data-pane="tcg">${buildPanel('JustTCG daily market price · change vs ~7 days ago', tcgMovers)}</div>
+    <div class="seg-pane" data-pane="ebay" style="display:none;">${buildPanel('Daily median of ungraded fixed-price listings (auctions excluded) · hover a row for listing counts', ebayMovers)}</div>`;
+  wrap.querySelectorAll('.seg-tab').forEach(btn => btn.addEventListener('click', () => {
+    wrap.querySelectorAll('.seg-tab').forEach(b => b.classList.toggle('active', b === btn));
+    wrap.querySelectorAll('.seg-pane').forEach(p => { p.style.display = p.dataset.pane === btn.dataset.target ? '' : 'none'; });
+  }));
+  wrap.querySelectorAll('.mover-row').forEach(row => row.addEventListener('click', () => openInExplorer(row.dataset.cardname)));
   return wrap;
 }
 ```
@@ -139,7 +390,7 @@ safeTranspose = (data) => {
         <td style="padding:9px 8px; text-align:right; white-space:nowrap;">${pctBadge(d[probKey], probColor)}</td>
       </tr>`).join('');
     return `
-      <div style="flex:1; min-width:320px; background:var(--bg-card); border-radius:12px; padding:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.3);">
+      <div style="flex:1; min-width:min(320px, 100%); background:var(--bg-card); border-radius:12px; padding:18px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.3);">
         <div style="margin:0 0 12px 0; color:var(--text-muted); font-size:12px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">${subtitle}</div>
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
           <thead><tr style="border-bottom:2px solid var(--border-subtle);">
@@ -155,19 +406,26 @@ safeTranspose = (data) => {
 
   const topN = (pred, key) => [...rated].filter(pred).sort((a, b) => b[key] - a[key]).slice(0, 8);
 
-  const groupHtml = (title, accent, probKey) => `
-    <div style="width:100%;">
-      <h4 style="margin:6px 0 12px 0; color:${accent}; font-size:15px; text-transform:uppercase; letter-spacing:0.5px;">${title}</h4>
-      <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
-        ${buildTable('Enchanted &amp; Iconic', topN(isEnchIconic, probKey), probKey, accent)}
-        ${buildTable('Epic', topN(isEpic, probKey), probKey, accent)}
-      </div>
+  const groupHtml = (accent, probKey) => `
+    <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
+      ${buildTable('Enchanted &amp; Iconic', topN(isEnchIconic, probKey), probKey, accent)}
+      ${buildTable('Epic', topN(isEpic, probKey), probKey, accent)}
     </div>`;
 
+  // Tabbed view: flip between Buys and Sells in place instead of scrolling past both.
   const wrap = document.createElement("div");
-  wrap.style.cssText = "width:100%; display:flex; flex-direction:column; gap:26px;";
-  wrap.innerHTML = groupHtml('🟢 Top Cards to Buy', 'var(--accent-green)', 'p_buy')
-                 + groupHtml('🔴 Top Cards to Sell', 'var(--accent-red)', 'p_sell');
+  wrap.style.width = "100%";
+  wrap.innerHTML = `
+    <div class="seg-tabs">
+      <button class="seg-tab active" data-target="buy">🟢 Top Buys</button>
+      <button class="seg-tab" data-target="sell">🔴 Top Sells</button>
+    </div>
+    <div class="seg-pane" data-pane="buy">${groupHtml('var(--accent-green)', 'p_buy')}</div>
+    <div class="seg-pane" data-pane="sell" style="display:none;">${groupHtml('var(--accent-red)', 'p_sell')}</div>`;
+  wrap.querySelectorAll('.seg-tab').forEach(btn => btn.addEventListener('click', () => {
+    wrap.querySelectorAll('.seg-tab').forEach(b => b.classList.toggle('active', b === btn));
+    wrap.querySelectorAll('.seg-pane').forEach(p => { p.style.display = p.dataset.pane === btn.dataset.target ? '' : 'none'; });
+  }));
 
   // Whole-row deep link into the Market Explorer, plus hover affordance.
   wrap.querySelectorAll('.ov-card-row').forEach(row => {
@@ -254,136 +512,5 @@ safeTranspose = (data) => {
     </table>
     <div style="font-size:11px; color:var(--text-muted); margin-top:10px; font-style:italic;">Supply change compares today's pull (${latest})${baseline ? ' vs ' + baseline : ' — awaiting 7-day baseline'}. Counts are unique active listings per card.</div>`;
   return wrap;
-}
-```
-
-## Row
-
-```{ojs}
-//| echo: false
-//| output: false
-// ==============================================================================
-// SECTION 2.6: OBSERVABLE JAVASCRIPT INITIALIZATION & MOMENTUM CARDS
-// ==============================================================================
-
-movers_data = safeTranspose(ojs_movers)
-Plotly = require("plotly.js-dist-min@2.30.0")
-
-// Reconstruct incoming title pairs directly for linear search dictionary
-ebay_title_map = {
-  const map = new Map();
-  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
-    const ids = Array.from(ojs_ebay_titles.item_id);
-    const titles = Array.from(ojs_ebay_titles.listing_title);
-    for (let i = 0; i < ids.length; i++) {
-      if (ids[i] && titles[i]) map.set(String(ids[i]).trim(), titles[i]);
-    }
-  }
-  return map;
-}
-
-// Build a live eBay listing URL straight from the item_id (format: v1|<legacyId>|<var>).
-// The id already encodes the listing number, so no stored links / extra table is needed.
-ebayItemUrl = (item_id) => {
-  if (!item_id) return null;
-  const parts = String(item_id).split("|");
-  const legacy = parts.length > 1 ? parts[1] : parts[0];
-  if (!/^[0-9]+$/.test(legacy)) return null;
-  return `https://www.ebay.com/itm/${legacy}`;
-}
-
-// Deep-link a card from the Overview tables into the Market Explorer deep dive:
-// switch to the Explorer tab, prefill its search (filters to that exact cardname),
-// then auto-open the single matching row. Works for both desktop & mobile layouts.
-openInExplorer = (name) => {
-  if (!name) return;
-  const tab = document.getElementById('tab-market-explorer');
-  if (tab) tab.click();
-  setTimeout(() => {
-    document.querySelectorAll('.explorer-search').forEach(inp => {
-      inp.value = name;
-      inp.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    setTimeout(() => {
-      const pane = document.getElementById('market-explorer');
-      const rows = pane ? pane.querySelectorAll('tr.card-row') : [];
-      if (rows.length === 1) rows[0].click();
-      if (pane) pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 90);
-  }, 130);
-}
-
-// Global programmatic data sanitization step for raw listing objects
-clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
-  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
-  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
-  
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
-
-  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
-  let cleanGrade = "UNG";
-  if (numMatch && rawGrade !== "UNG") {
-    let parsed = parseFloat(numMatch[0]);
-    if (parsed > 0 && parsed <= 10) cleanGrade = parsed.toString();
-  }
-  
-  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
-  if (cleanCompany === "UNG") cleanGrade = "UNG";
-
-  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
-  let lang = d.card_language ? d.card_language : "English";
-  
-  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
-  // but excluded from all price/median math — auction current-bids are not clean price signal.
-  let is_auction = /AUCTION/i.test(d.listing_type || "");
-
-  return {
-    ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
-    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
-  };
-}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
-```
-
-```{ojs}
-//| echo: false
-// Render UI Top Flip Cards 
-{
-  if (movers_data.length === 0) return html`<div style='color:var(--text-muted); font-style:italic; text-align:center; padding: 20px;'>Awaiting initial database sync...</div>`;
-  const all_hist = (safeTranspose(ojs_hist) || []).map(d => ({ ...d, date: new Date(d.date + "T12:00:00") }));
-  const container = html`<div style="width: 100%; max-width: 1200px; margin: 0 auto;"><div id="cards-flex" style="display: flex; justify-content: space-around; background: var(--bg-card); padding: 25px 10px; border-radius: 12px; flex-wrap: wrap; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);"></div></div>`;
-  const flex_target = container.querySelector('#cards-flex');
-
-  movers_data.forEach(row => {
-    let p_c = row.pct >= 0 ? "green-text" : "red-text";
-    let sign = row.abs >= 0 ? "+" : "";
-    let arrow = row.pct >= 0 ? "▲" : "▼";
-    const wrapper = html`
-      <div class="flip-card-wrapper">
-        <div class="flip-card" onclick="this.querySelector('.flip-card-inner').classList.toggle('is-flipped');">
-          <div class="flip-card-inner">
-            <div class="flip-card-front" style="background-color: var(--bg-base); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px 10px;">
-              <div style="font-size: 20px; font-weight: 500; color: var(--accent-blue); text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px;">${row.Category}</div>
-              <img src="${row.image_path}" alt="${row.cardname}" loading="lazy" style="height: 210px; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);">
-              <div style="margin-top: 15px; font-size: 13px; font-weight: 600; color: var(--text-main); height: 40px; text-align: center; width: 100%; line-height: 1.4;">${row.cardname}</div>
-              <div style="margin-top: 8px; font-size: 18px; font-weight: 800; color: var(--accent-yellow);">$${row.market_price_cur.toFixed(2)}</div>
-              <div class="${p_c}" style="font-size: 14px; margin-top: 4px;">${arrow} ${sign}$${row.abs.toFixed(2)} (${row.pct.toFixed(1)}%)</div>
-            </div>
-            <div class="flip-card-back" id="back-${row.tcgplayer_id}">
-              <span style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; margin-bottom: 15px; font-weight: 700; font-size: 16px; color: var(--accent-blue);">${row.Category}</span>
-              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">Current Price</span>
-              <span style="font-size: 28px; font-weight: 800; color: var(--accent-yellow); margin-bottom: 20px;">$${row.market_price_cur.toFixed(2)}</span>
-              <span style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px;">7-Day Trend</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    const card_hist = all_hist.filter(d => d.cardname === row.cardname).filter(d => d.date >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).sort((a, b) => a.date - b.date); 
-    const sparkline = Plot.plot({ height: 120, width: 220, style: { background: "transparent", fontFamily: "Inter" }, x: { axis: null }, y: { axis: null }, marks: [ Plot.lineY(card_hist, {x: "date", y: "price", stroke: "var(--accent-blue)", strokeWidth: 3}), Plot.dot(card_hist.slice(-1), { x: "date", y: "price", fill: "var(--accent-yellow)", r: 5 }) ] });
-    wrapper.querySelector('#back-' + row.tcgplayer_id).appendChild(sparkline);
-    flex_target.appendChild(wrapper);
-  });
-  return container; 
 }
 ```

@@ -2,52 +2,102 @@
 
 ## Column {width="50%"}
 
-### 🃏 The Market & The Data
+### 🃏 The Basics
 
-**What exactly is Lorecaster predicting?**
-Lorecaster predicts the future secondary market prices of high-end, ungraded Disney Lorcana trading cards (specifically Epic, Enchanted, and Iconic rarities).
+<div class="guide-sec">🃏 The Basics</div>
 
-**Why only high-rarity cards?**
-Lorcana is both a collectible and a playable game. Lower-rarity cards fluctuate wildly based on what is currently winning tournaments (the "meta"). High-rarity cards are driven much more by collector demand, special artwork, and beloved characters, making their long-term trajectories a different beast to forecast. 
+**What is Lorecaster?**
+Lorecaster tracks the prices of high-end Disney Lorcana trading cards and estimates where those prices are headed over the next ~30 days. Think of it like a weather forecast, but for card prices: it won't be right every time, but it's an educated estimate based on patterns in the data — much better than guessing.
 
-**Why doesn't this track graded cards (PSA 9, PSA 10)?**
-Graded cards—cards certified for their condition by third-party companies—sell for massive premiums. The market for a PSA 10 is fundamentally different and much more volatile than the raw market. Consistent daily pricing data for graded Lorcana cards is currently too sparse to model accurately. 
+**Which cards does it cover?**
+Only the high-rarity collector cards: **Epic, Enchanted, and Iconic**. Cheaper cards rise and fall with whatever deck is winning tournaments that month, which is a very different (and noisier) thing to predict. High-rarity card prices are driven by collector demand — beloved characters, special artwork, scarcity — and those patterns are steadier.
 
 **Where does the data come from?**
-Pricing data is aggregated daily. We monitor eBay, which is the premier marketplace for high-end TCGs. We use a local LLM to actively clean and validate granular eBay listing data, helping us filter out seller typos, fake listings, or wildly unrealistic prices so the models only see real market signals.
+Two places, refreshed every morning:
 
-### 🧠 How the AI Works
+* **TCGplayer market price** — the "official going rate" for each card, collected daily via JustTCG.
+* **eBay listings** — every active listing for the tracked cards. An automated reader checks each listing's title and details, and throws out typos, fakes, wrong cards, and unrealistic prices so the numbers you see reflect real market activity.
 
-**How does the forecast actually get generated?**
-Lorecaster uses a multi-model ensemble approach to handle the chaos of the secondary market:
-* **The Hybrid GRU:** A custom-built PyTorch architecture that looks at two things at once: a card's historical price movements and its static DNA (like its ink color or rarity). By combining these, the model learns that an "Enchanted" card behaves very differently than a standard "Rare" card. 
-* **Chronos (by Amazon):** A foundation model that treats time-series data like a language problem. Just like ChatGPT guesses the next word in a sentence, Chronos looks at the shape of a price chart and guesses the next "token" (price) in the sequence. 
+**Why "ungraded" cards? What does that mean?**
+An ungraded (or "raw") card is one that hasn't been sent to a company like PSA to be professionally rated for condition. Graded cards sell at big premiums and trade in their own, much thinner market — there simply aren't enough daily graded sales to track reliably. Lorecaster forecasts the raw market, and shows the PSA 10 median as context where there's enough data.
 
-**What is the "Attention Mechanism"?**
-Not all days in a market are equal. Instead of looking at the last 30 days as a flat average, our GRU model uses an "Attention" layer. This allows the AI to prioritize sudden price shocks or major market shifts, ignoring quiet days and focusing heavily on the specific events that triggered a trend change.
+**How often does everything update?**
+Prices, forecasts, and Buy/Hold/Sell ratings refresh **every morning**. The prediction models themselves are rebuilt from scratch **once a week** so they keep up with new card sets and shifts in the market.
 
-**How often does the AI learn?**
-The dashboard updates with fresh prices and new 30-day forecasts every single morning. Behind the scenes, the PyTorch AI models are fully retrained from scratch once a week via GitHub Actions to ensure they adapt to new card sets and shifting market regimes.
+**Should I buy or sell based on this?**
+Treat it as one useful input, not a crystal ball. Forecasts are sometimes wrong — the dashboard is honest about how often (see "How do we know if the predictions are any good?"). This is a hobby analytics project, not financial advice.
+
+### 📖 Reading the Dashboard
+
+<div class="guide-sec">📖 Reading the Dashboard</div>
+
+**Market Movers (Overview tab)**
+The biggest 7-day price risers and fallers. Use the toggle to flip between two views: **TCGplayer Price** (the official market rate) and **eBay Ungraded Median** (what sellers are actually asking). Each row shows the price move in dollars and percent, plus a small 7-day trend line. Tap any row to jump straight to that card's full deep dive. One caution: eBay medians for rarely-listed cards are based on only a handful of listings — hover over a row to see how many listings are behind the number.
+
+**Buy / Hold / Sell signals**
+Every day, a model rates each card with three percentages that add up to 100% — the chance the price **rises** (Buy), **stays flat** (Hold), or **drops** (Sell) over roughly the next 3 weeks. A "BUY 70%" doesn't mean "the price will definitely rise" — it means that in situations that looked like this historically, prices rose about 7 times out of 10.
+
+**The "Model confidence" badge (top menu)**
+The badge in the navigation menu summarizes how sure the model is about today's calls, averaged across all cards. **Confident** (green) means today's ratings are decisive; **Cautious** (red) means the market looks murky and today's calls are closer to coin flips — size your trust accordingly.
+
+**TCG price vs. eBay median — why two prices?**
+They're two different marketplaces. TCGplayer is the reference rate; eBay is where much of the high-end action happens. The gap between them (the "spread") can be interesting: an eBay median well below the TCG price may point to deals — or to condition issues dragging listings down.
+
+**Supply Highlights**
+How many copies of each card are listed for sale. Supply matters: when lots of copies flood in, prices tend to soften; when listings dry up, scarcity supports the price.
+
+**Market Player tab**
+A fantasy-portfolio game: set a pretend budget, "buy" cards at today's real prices, and watch what the forecasts project your portfolio would be worth in 30 days. A fun, zero-risk way to get a feel for how the forecasts behave.
 
 ## Column {width="50%"}
 
-### 📊 Glossary: Advanced Risk Metrics
+### 🔮 How the Predictions Work (No AI Degree Needed)
 
-**Sample Entropy (Unpredictability)**
-* *What it means:* Measures how chaotic or random a card's daily price movement is. 
-* *How to read it:* A low number means the card's price moves in smooth, predictable patterns. A high number means the price is jittery, random, and highly susceptible to unpredictable daily swings.
+<div class="guide-sec">🔮 How the Predictions Work (No AI Degree Needed)</div>
 
-**Hurst Exponent (Momentum vs. Reversion)**
-* *What it means:* Tells us if a card is currently riding a consistent wave or if it's stuck in a rut.
-* *How to read it:*
-    * **Near 0.5:** The price is wandering randomly.
-    * **Above 0.5:** The card has *Momentum*. If it's trending up, it will likely keep going up. 
-    * **Below 0.5:** The card is *Mean-Reverting*. If it spikes up suddenly, it will likely snap back down soon.
+**Who's making these forecasts?**
+Two independent computer models, each with a different personality:
 
-**Volatility / CV (Risk Profile)**
-* *What it means:* The Coefficient of Variation measures how wide the price swings are relative to the card's total underlying value.
-* *How to read it:* Higher percentage = higher risk. A $200 card that fluctuates by $5 a day has low volatility. A $10 card that fluctuates by $5 a day has massive volatility. 
+* **GRU — the local specialist.** Built specifically for Lorcana, it studies each card's full price history *and* the card's traits (rarity, ink color, set). It has learned, for example, that Enchanted cards move differently than Epics.
+* **Chronos — the well-traveled generalist.** A model from Amazon that has studied millions of price charts and other time-based data from many fields. It doesn't know anything about Lorcana specifically — it recognizes the *shapes* that price charts make and predicts how those shapes usually continue.
 
-**30-Day Forecast Error (MdAPE)**
-* *What it means:* "Median Absolute Percentage Error." This is our model's backtested report card. 
-* *How to read it:* We force the AI to predict prices for historical dates it already knows, and then grade its accuracy. If the Chronos Acc says `±5.2%`, it means that historically, the Chronos model's 30-day forecast for this specific card is reliably within 5.2% of the actual outcome.
+**Why two models instead of one?**
+The same reason you'd want a second doctor's opinion. When both models agree a card is heading up, that's a stronger signal. When they disagree, the honest conclusion is "uncertain" — and you can see both opinions side by side on every card's chart.
+
+**How do we know if the predictions are any good?**
+We constantly test them on the past — this is called *backtesting*. The idea is simple: hide the most recent month of real prices from the model, ask it to "predict" that month, then compare its answer to what actually happened. Repeat over and over.
+
+Every card's deep dive shows the result as a **forecast error** chart. If a card shows an error of ±5%, the model's 30-day predictions for that card have typically landed within 5% of the real price. The shaded area on that chart is the **"no-change" baseline** — how accurate you'd be by lazily assuming the price never moves. The model only earns its keep where its bars are lower than that shade.
+
+**What makes the Buy/Hold/Sell percentages trustworthy?**
+Two habits, both visible on the Market Explorer:
+
+* **Calibration** — the percentages are tuned so they mean what they say. Across history, calls made with 70% confidence came true about 70% of the time. Uncalibrated models tend to be overconfident; this one is kept honest.
+* **Reliability** — a score for how well the model separates cards that rose from cards that fell, compared to a coin flip. It's shown in plain words (Strong / Fair / Modest / Weak) so you don't need to know the underlying statistic.
+
+**Do the models learn from their mistakes?**
+Yes — they're retrained from scratch every week on the latest data, so a shift in the market (a new set release, a reprint scare, a spike in demand) works its way into the forecasts within days.
+
+### 📚 Plain-English Glossary
+
+<div class="guide-sec">📚 Plain-English Glossary</div>
+
+**Market price (TCG)** — TCGplayer's daily going rate for a card; the closest thing to an "official" price.
+
+**Median** — the middle value: line up all the prices from cheapest to priciest and take the one in the center. Used instead of an average because one seller asking $9,999 for a $100 card would wreck an average but barely nudges a median.
+
+**eBay Ungraded Median (7D)** — the median asking price of raw (ungraded), fixed-price eBay listings over the last 7 days. Auction listings are excluded from all price math — a live bid of $5 says nothing about what the card will finally sell for (auctions still count toward supply).
+
+**7D Change** — how much a price moved versus roughly one week ago, in dollars and percent.
+
+**Volume / Listings (7D)** — how many distinct eBay listings for a card were seen in the last week, across all grades and listing types. A supply gauge: high volume = lots of copies competing for buyers.
+
+**Spread** — the gap between the TCGplayer price and the eBay ungraded median. A big spread means the two marketplaces disagree about what the card is worth.
+
+**PSA 10 Median (7D)** — the median price of copies graded a perfect 10 by PSA. Shown for context; these trade at a premium in their own market.
+
+**Forecast error (±%)** — the model's historical "typical miss" for that card's 30-day forecast. Smaller is better; compare it to the no-change baseline before trusting a forecast.
+
+**Buy / Hold / Sell probability** — the estimated chance a card's price meaningfully rises / stays put / drops over about the next 3 weeks. The three always sum to 100%, and the largest one becomes the card's headline call.
+
+**Model confidence** — how decisive today's calls are on average, shown in the top menu. Low confidence days aren't broken — they're the model honestly saying "the market is hard to read right now."

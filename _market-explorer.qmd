@@ -164,6 +164,15 @@
     return panel;
   }
 
+  // Compact per-card signal chip for list rows: today's call + its calibrated probability.
+  const sigChip = (d) => {
+    if (!d || !d.signal_call || d.p_buy == null) return '';
+    const call = String(d.signal_call).toLowerCase();
+    const p = call === 'buy' ? d.p_buy : call === 'sell' ? d.p_sell : d.p_hold;
+    const col = call === 'buy' ? 'var(--accent-green)' : call === 'sell' ? 'var(--accent-red)' : 'var(--accent-yellow)';
+    return `<span style="color:${col}; font-weight:800; white-space:nowrap;"> · ${call.toUpperCase()} ${Math.round(p * 100)}%</span>`;
+  };
+
   const page_wrapper = document.createElement("div");
   page_wrapper.style.width = "100%";
 
@@ -263,7 +272,7 @@
                     <img src="${d.image_path}" alt="${escaped_name}" loading="lazy" style="width: 42px; flex-shrink: 0; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
                     <div class="card-text-col">
                        <span class="card-name-text" style="font-size: 13px;">${d.cardname}</span>
-                       <span style="font-size: 11px; color:var(--text-muted); white-space: normal;">TCG: <span style="color:var(--accent-yellow); font-weight:700;">${t_price}</span> · eBay: <span style="color:var(--accent-blue); font-weight:700;">${e_price}</span></span>
+                       <span style="font-size: 11px; color:var(--text-muted); white-space: normal;">TCG: <span style="color:var(--accent-yellow); font-weight:700;">${t_price}</span> · eBay: <span style="color:var(--accent-blue); font-weight:700;">${e_price}</span>${sigChip(d)}</span>
                     </div>
                   </div>
                 </td>
@@ -708,7 +717,7 @@
                          <span class="card-name-text">${d.cardname}</span>
                          <div style="font-size: 11px; white-space: normal; line-height: 1.3;">
                             <span style="color:var(--text-muted);">TCG:</span> <span style="color:var(--accent-yellow); font-weight:700;">${t_price}</span> |
-                            <span style="color:var(--text-muted);">eBay Ungraded:</span> <span style="color:var(--accent-blue); font-weight:700;">${e_price}</span>
+                            <span style="color:var(--text-muted);">eBay Ungraded:</span> <span style="color:var(--accent-blue); font-weight:700;">${e_price}</span>${sigChip(d)}
                          </div>
                       </div>
                     </div>

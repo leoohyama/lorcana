@@ -77,13 +77,49 @@
   .green-text { color: var(--accent-green); font-weight: 700; }
   .red-text { color: var(--accent-red); font-weight: 700; }
   
-  /* Flex wrappers and structural grid definitions */
-  .flip-card-wrapper { display: flex; flex-direction: column; align-items: center; width: 260px; text-align: center; margin: 10px; }
-  .flip-card { perspective: 1000px; cursor: pointer; width: 100%; height: 380px; }
-  .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; }
-  .flip-card-inner.is-flipped { transform: rotateY(180deg); }
-  .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 12px; }
-  .flip-card-back { transform: rotateY(180deg); background-color: var(--bg-base); border: 2px solid var(--accent-blue); display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 15px 10px; text-align: center; }
+  /* Hero banner stat tiles (Market Overview) */
+  .hero-tiles { display: flex; gap: 20px; flex-wrap: wrap; width: 100%; }
+  .hero-tile { flex: 1; min-width: min(230px, 100%); background: linear-gradient(135deg, var(--bg-card), var(--bg-base)); border-top: 4px solid var(--border-subtle); border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+  .hero-tile-label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px; }
+  .hero-tile-value { font-size: 32px; font-weight: 800; margin-top: 8px; }
+  .hero-tile-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 600; }
+
+  /* Guide & FAQ section titles (dashboard theme drops ### card titles, so these live in the body) */
+  .guide-sec { font-size: 16px; font-weight: 800; color: var(--accent-blue); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; margin-bottom: 14px; }
+
+  /* Segmented tab switcher — flip between panes in place (movers, buy/sell signals) */
+  .seg-tabs { display: flex; gap: 4px; margin-bottom: 14px; background: var(--bg-base); border: 1px solid var(--border-subtle); padding: 4px; border-radius: 10px; width: fit-content; max-width: 100%; }
+  .seg-tab { padding: 8px 18px; border: none; border-radius: 7px; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif !important; transition: all 0.15s; white-space: nowrap; }
+  .seg-tab:hover { color: var(--text-main); }
+  .seg-tab.active { background: var(--bg-hover); color: var(--text-main); box-shadow: 0 2px 5px rgba(0,0,0,0.35); }
+  .seg-pane { width: 100%; }
+
+  /* 7-Day Market Movers — mover tables with inline sparklines */
+  .movers-panel { width: 100%; max-width: 100%; background: var(--bg-card); border-radius: 12px; padding: 18px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); overflow-x: hidden; }
+  .movers-panel-sub { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+  .movers-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .movers-table th { padding: 6px 8px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; border-bottom: 2px solid var(--border-subtle); font-weight: 600; }
+  .movers-table td { padding: 8px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+  .movers-table tr.mv-group td { padding: 12px 8px 5px 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: none; }
+  .movers-table tr.mover-row { cursor: pointer; transition: background-color 0.15s; }
+  .movers-table tr.mover-row:hover { background: var(--bg-base); }
+  .mv-card > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .mv-card img { height: 34px; border-radius: 4px; flex-shrink: 0; }
+  .mv-card span { color: var(--text-main); font-size: 12px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .mv-price { color: var(--price); font-weight: 700; white-space: nowrap; text-align: right; }
+  .mv-delta { font-weight: 800; white-space: nowrap; text-align: right; }
+  .mv-pct { display: block; font-size: 11px; font-weight: 600; opacity: 0.85; }
+  .mv-trend { width: 96px; }
+  .mv-empty { color: var(--text-muted); font-style: italic; padding: 12px 8px; }
+
+  /* Navbar model-confidence badge — lives in the menu on every page */
+  .nav-conf-badge { display: flex; align-items: center; gap: 8px; margin-left: auto; padding: 6px 14px; border: 1px solid var(--border-subtle); border-radius: 999px; background: rgba(15, 23, 42, 0.5); text-decoration: none !important; white-space: nowrap; cursor: pointer; transition: border-color 0.15s; }
+  .nav-conf-badge:hover { border-color: var(--brand); }
+  .nav-conf-badge .nav-conf-text { font-size: 13px !important; color: var(--text-muted); font-weight: 600 !important; }
+  .nav-conf-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  @media (max-width: 991px) {
+    .nav-conf-badge { margin: 10px 0 6px 0; width: fit-content; }
+  }
 
   /* Main Core Table Typography & Scroll Margins */
   .hover-table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 14px; text-align: left; }
@@ -144,7 +180,19 @@
     .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 45px !important; }
     .navbar-nav .nav-link, .navbar-title { font-size: 15px !important; }
     
-    .flip-card-wrapper { width: 100% !important; margin: 15px 0 !important; padding: 0 10px; box-sizing: border-box; }
+    .hero-tiles { gap: 12px; }
+    .hero-tile { padding: 14px 16px; }
+    .hero-tile-value { font-size: 24px; margin-top: 6px; }
+    .seg-tabs { width: 100%; box-sizing: border-box; }
+    .seg-tab { flex: 1; padding: 8px 10px; font-size: 12px; }
+    .movers-panel { padding: 14px 10px; }
+    .mv-delta { font-size: 12px; }
+    .movers-table td { padding: 7px 5px; overflow: hidden; }
+    .movers-table th { padding: 6px 5px; }
+    .mv-card > div { gap: 7px; }
+    .mv-card img { height: 30px; }
+    .mv-trend { width: auto; }
+    .mv-trend svg { width: 62px; height: 26px; }
     .momentum-box { font-size: 13px !important; padding: 12px !important; }
     .modal-content { padding: 15px !important; border-radius: 8px !important; }
     .hide-on-mobile { display: none !important; } 
@@ -157,6 +205,10 @@
     #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
     #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
     #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
+  }
+  @media (max-width: 560px) {
+    /* Phones: drop the Price column — the 7D change column already carries the $ move */
+    .movers-table th:nth-child(2), .movers-table td.mv-price { display: none; }
   }
 </style>
 ```
