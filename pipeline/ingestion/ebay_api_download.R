@@ -58,10 +58,11 @@ get_ebay_active_listings <- function(card_name, version, rarity, token, coll_num
   )
 
   fetch_and_parse <- function(query_params, source_name) {
-    # Price filtering pushed to API to conserve execution runtime & bandwidth.
-    # priceCurrency is REQUIRED for the price bound to take effect; without it eBay
-    # silently ignores the whole price filter and returns everything (incl. sub-$20).
-    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION},price:[20.00..],priceCurrency:USD"
+    # No price floor: the historical dataset (pre 2026-07-08) was collected without
+    # one (eBay ignored the old price:[20.00..] filter because priceCurrency was
+    # missing), and cheap cards — Epics especially, median ~$5 — live under $20.
+    # Adding a floor here creates a regime break in listing volume.
+    query_params$filter <- "buyingOptions:{FIXED_PRICE|AUCTION}"
     query_params$limit <- 200 
     
     all_pages <- list()
