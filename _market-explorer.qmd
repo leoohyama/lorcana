@@ -164,6 +164,28 @@
     return panel;
   }
 
+  // Plain-language accuracy readout shown under the forecast plot: backtested
+  // typical error (MdAPE) at 7 / 21 / 30 days per model, as a wrapping row of
+  // chips. Replaces the old error-horizon bar chart, which users found too
+  // technical (and a side table, which clipped in compare mode).
+  function accuracyStatsHTML(metrics_data) {
+    const val = (model, h) => {
+      const m = metrics_data.find(d => d.model === model && d.horizon === h);
+      return (m && m.mdape != null)
+        ? `<span style="color:var(--text-main); font-weight:800; white-space:nowrap;">±${(m.mdape * 100).toFixed(1)}%</span>`
+        : '<span style="color:var(--text-muted);">—</span>';
+    };
+    const box = (h) => `
+      <div style="flex:1; min-width:120px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:9px 12px;">
+        <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:4px;">${h} days out</div>
+        <div style="display:flex; justify-content:space-between; gap:8px; font-size:12px;"><span style="color:var(--series-chronos, #fbbf24); font-weight:600;">Chronos</span>${val('Chronos', h)}</div>
+        <div style="display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-top:2px;"><span style="color:var(--series-gru, #22d3ee); font-weight:600;">GRU</span>${val('GRU', h)}</div>
+      </div>`;
+    return `
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">${[7, 21, 30].map(box).join('')}</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:6px; line-height:1.5;">Typical miss of each model's past forecasts for this card — smaller is more reliable. ±5% on a $100 card ≈ within $5.</div>`;
+  }
+
   // Compact per-card signal chip for list rows: today's call + its calibrated probability.
   const sigChip = (d) => {
     if (!d || !d.signal_call || d.p_buy == null) return '';
@@ -400,45 +422,45 @@
       let eb_vols = vol_dates.map(date => vol_grouped[date]);
 
       const trace_ebay_med = { x: eb_dates, y: eb_meds, mode: 'lines+markers', name: 'eBay Median', line: {color: '#c084fc', width: 2}, marker: {size: 5}, hovertemplate: 'eBay Med: $%{y:.2f}<extra></extra>' };
-      const trace_ebay_vol = { x: vol_dates, y: eb_vols, type: 'bar', name: 'eBay Vol', yaxis: 'y2', opacity: 0.15, marker: {color: '#c084fc'}, hovertemplate: 'Vol: %{y}<extra></extra>', showlegend: false };
+      const trace_ebay_vol = { x: vol_dates, y: eb_vols, type: 'bar', name: 'Daily Listings', yaxis: 'y2', opacity: 0.35, marker: {color: '#c084fc'}, hovertemplate: 'Listings: %{y}<extra></extra>' };
 
+      // Forecast plot holds only TCG history + model lines, so its y-axis always
+      // fits the forecast band; the eBay series live in their own panel below.
       const layout_graph = {
         dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: 11 },
         xaxis: { gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true },
-        yaxis: { title: {text: 'Price ($)', font: {size: 11}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true },
-        yaxis2: { overlaying: 'y', side: 'right', showgrid: false, fixedrange: true },
-        margin: { l: 50, r: 40, t: 10, b: 60 },
+        yaxis: { title: {text: 'Price ($)', font: {size: 11}}, gridcolor: '#334155', tickprefix: '$', fixedrange: true },
+        margin: { l: 50, r: 10, t: 10, b: 60 },
         hovermode: 'x unified',
         hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 12 } },
         legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center', font: {size: 10}, itemwidth: 30 }
       };
 
+      const metrics_data = all_metrics.filter(d => d.tcgplayer_id === card_info.tcgplayer_id);
+
       const graph_panel = document.createElement("div");
       graph_panel.className = "modal-panel";
-      graph_panel.innerHTML = `<h4 class="panel-title">Price Forecast & Market Context</h4><div class="graph-main" style="width:100%; height:300px;"></div>`;
+      graph_panel.innerHTML = `<h4 class="panel-title">Price Forecast (30-Day Outlook)</h4>
+        <div class="graph-main" style="width:100%; height:300px;"></div>
+        <div style="margin-top:12px;">${accuracyStatsHTML(metrics_data)}</div>`;
       wrapper.appendChild(graph_panel);
 
-      // ===== Model Diagnostics (with naive market baseline) =====
-      const metrics_data = all_metrics.filter(d => d.tcgplayer_id === card_info.tcgplayer_id);
-      let err_c = metrics_data.filter(d => d.model === "Chronos").sort((a,b)=>a.horizon - b.horizon);
-      let err_g = metrics_data.filter(d => d.model === "GRU").sort((a,b)=>a.horizon - b.horizon);
-
-      const trace_base = err_c.length > 0 ? { x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive_mdape), type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', name: 'Naive Baseline', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' } : null;
-      const trace_err_c = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos Err', marker: {color: '#fbbf24'} };
-      const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Err', marker: {color: '#22d3ee'} };
-
-      const layout_err = {
-        dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: 10},
-        xaxis: {title: {text:'Days (Horizon)', font:{size: 11}}, gridcolor: '#334155', fixedrange: true},
-        yaxis: {title: {text: 'MdAPE Error', font:{size: 11}}, gridcolor: '#334155', tickformat: '.0%', fixedrange: true},
-        margin: {l: 45, r: 10, t: 10, b: 55}, barmode: 'group', showlegend: true,
-        legend: {orientation: 'h', y: -0.35, x: 0.5, xanchor: 'center', font: {size: 10}, itemwidth: 30}
+      // ===== eBay Median Price & Volume (own scale, decoupled from the forecast) =====
+      const layout_ebay_trend = {
+        dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: 11 },
+        xaxis: { gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true },
+        yaxis: { title: {text: 'Median Price ($)', font: {size: 11}}, gridcolor: '#334155', tickprefix: '$', fixedrange: true },
+        yaxis2: { title: {text: 'Listings', font: {size: 11}}, overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero', fixedrange: true },
+        margin: { l: 50, r: 45, t: 10, b: 60 },
+        hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: 12 } },
+        legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center', font: {size: 10}, itemwidth: 30 }
       };
 
-      const err_panel = document.createElement("div");
-      err_panel.className = "modal-panel";
-      err_panel.innerHTML = `<h4 class="panel-title">Model Diagnostics (Backtested Error)</h4><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;">Lower bars = higher accuracy. Shaded background is the naive market baseline (guessing 0% change).</div><div class="graph-err" style="width:100%; height:220px;"></div>`;
-      wrapper.appendChild(err_panel);
+      const trend_panel = document.createElement("div");
+      trend_panel.className = "modal-panel";
+      trend_panel.innerHTML = `<h4 class="panel-title">eBay Median Price & Active Volume</h4><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">Median of ungraded fixed-price listings (line) and total daily listings across all grades (bars).</div><div class="graph-ebay-trend" style="width:100%; height:260px;"></div>`;
+      wrapper.appendChild(trend_panel);
 
       // ===== eBay Inventory Explorer (filters + stacked supply + live listing titles) =====
       const modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
@@ -529,8 +551,13 @@
 
       // Defer Plotly execution so DOM can mount
       setTimeout(() => {
-        Plotly.newPlot(graph_panel.querySelector('.graph-main'), [trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
-        Plotly.newPlot(err_panel.querySelector('.graph-err'), [trace_base, trace_err_c, trace_err_g].filter(Boolean), layout_err, {responsive: true, displayModeBar: false});
+        Plotly.newPlot(graph_panel.querySelector('.graph-main'), [trace_hist, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
+        const trend_target = trend_panel.querySelector('.graph-ebay-trend');
+        if (eb_dates.length || vol_dates.length) {
+          Plotly.newPlot(trend_target, [trace_ebay_vol, trace_ebay_med], layout_ebay_trend, {responsive: true, displayModeBar: false});
+        } else {
+          trend_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted); font-style:italic;'>No validated eBay listings in the last 40 days.</div>";
+        }
         renderEbayDetails();
       }, 50);
 
@@ -608,15 +635,16 @@
       
         <div class="modal-top-grid">
            <div class="modal-panel">
-              <h4 class="panel-title">Price Forecast & Market Context</h4>
+              <h4 class="panel-title">Price Forecast (30-Day Outlook)</h4>
               <div id="modal-graph-target" class="modal-graph-main"></div>
+              <div id="modal-acc-target" style="margin-top: 12px;"></div>
            </div>
            <div class="modal-panel">
-              <h4 class="panel-title">Model Diagnostics (30D Error)</h4>
+              <h4 class="panel-title">eBay Median Price & Active Volume</h4>
               <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;">
-                 Lower bars = Higher Accuracy. Shaded background represents Naive Market Baseline (Guessing 0% change).
+                 Median of ungraded fixed-price listings (line) and total daily listings across all grades (bars).
               </div>
-              <div id="modal-error-target" class="modal-graph-err"></div>
+              <div id="modal-ebay-trend-target" class="modal-graph-err"></div>
            </div>
         </div>
 
@@ -870,36 +898,35 @@
       let eb_vols = vol_dates.map(date => vol_grouped[date]);
 
       const trace_ebay_med = { x: eb_dates, y: eb_meds, mode: 'lines+markers', name: 'eBay Median', line: {color: '#c084fc', width: 2}, marker: {size: 6}, hovertemplate: 'eBay Med: $%{y:.2f}<extra></extra>' };
-      const trace_ebay_vol = { x: vol_dates, y: eb_vols, type: 'bar', name: 'eBay Vol', yaxis: 'y2', opacity: 0.15, marker: {color: '#c084fc'}, hovertemplate: 'Vol: %{y}<extra></extra>', showlegend: false };
+      const trace_ebay_vol = { x: vol_dates, y: eb_vols, type: 'bar', name: 'Daily Listings', yaxis: 'y2', opacity: 0.35, marker: {color: '#c084fc'}, hovertemplate: 'Listings: %{y}<extra></extra>' };
 
-      const all_traces = [trace_ebay_vol, trace_hist, trace_ebay_med, trace_c, trace_g];
+      // Forecast plot holds only TCG history + model lines, so its y-axis always
+      // fits the forecast band; the eBay series render in their own panel.
+      const all_traces = [trace_hist, trace_c, trace_g];
 
       const layout_graph = {
         dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 9 : 12 },
         xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-        yaxis: { title: {text: isMobile ? '' : 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-        yaxis2: { title: '', overlaying: 'y', side: 'right', showgrid: false, fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
-        margin: { l: 50, r: 40, t: 20, b: 80 },
+        yaxis: { title: {text: isMobile ? '' : 'Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+        margin: { l: 50, r: 20, t: 20, b: 80 },
         hovermode: 'x unified',
         hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 11 : 14 } },
         legend: { orientation: 'h', y: isMobile ? -0.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
       };
 
-      // Error Diagnostics Chart
+      // Forecast accuracy readout (replaces the old error-horizon bar chart)
       const metrics_data = all_metrics.filter(d => d.tcgplayer_id === card_info.tcgplayer_id);
-      let err_c = metrics_data.filter(d => d.model === "Chronos").sort((a,b)=>a.horizon - b.horizon);
-      let err_g = metrics_data.filter(d => d.model === "GRU").sort((a,b)=>a.horizon - b.horizon);
-    
-      const trace_base = err_c.length > 0 ? { x: err_c.map(d => d.horizon), y: err_c.map(d => d.naive_mdape), type: 'scatter', mode: 'none', fill: 'tozeroy', fillcolor: 'rgba(255, 255, 255, 0.15)', name: 'Naive Baseline', hovertemplate: 'Baseline: %{y:.1%}<extra></extra>' } : null;
-      const trace_err_c = { x: err_c.map(d => d.horizon), y: err_c.map(d => d.mdape), type: 'bar', name: 'Chronos Err', marker: {color: '#fbbf24'} };
-      const trace_err_g = { x: err_g.map(d => d.horizon), y: err_g.map(d => d.mdape), type: 'bar', name: 'GRU Err', marker: {color: '#22d3ee'} };
+      document.getElementById('modal-acc-target').innerHTML = accuracyStatsHTML(metrics_data);
 
-      const layout_err = { 
-        dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: {color: '#f8fafc', family:'Inter', size: isMobile ? 9 : 12}, 
-        xaxis: {title: {text:'Days (Horizon)', font:{size: isMobile ? 10 : 14}}, gridcolor: '#334155', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-        yaxis: {title: {text: isMobile ? '' : 'MdAPE Error', font:{size: isMobile ? 10 : 14}}, gridcolor: '#334155', tickformat: '.0%', fixedrange: true, tickfont: {size: isMobile ? 9 : 12}}, 
-        margin: {l: isMobile ? 35 : 50, r: isMobile ? 15 : 20, t: isMobile ? 10 : 10, b: isMobile ? 70 : 40}, barmode: 'group', showlegend: true, 
-        legend: {orientation: 'h', y: isMobile ? -0.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30}
+      const layout_ebay_trend = {
+        dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 9 : 12 },
+        xaxis: { title: '', gridcolor: '#334155', linecolor: '#334155', hoverformat: '%b %d', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+        yaxis: { title: {text: isMobile ? '' : 'Median Price ($)', font: {size: isMobile ? 10 : 13}}, gridcolor: '#334155', tickprefix: '$', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+        yaxis2: { title: {text: isMobile ? '' : 'Listings', font: {size: isMobile ? 10 : 13}}, overlaying: 'y', side: 'right', showgrid: false, rangemode: 'tozero', fixedrange: true, tickfont: {size: isMobile ? 9 : 12} },
+        margin: { l: isMobile ? 35 : 50, r: isMobile ? 30 : 45, t: isMobile ? 10 : 10, b: isMobile ? 70 : 40 },
+        hovermode: 'x unified',
+        hoverlabel: { bgcolor: '#0f172a', bordercolor: '#475569', font: { color: '#f8fafc', size: isMobile ? 11 : 14 } },
+        legend: { orientation: 'h', y: isMobile ? -0.3 : 1.15, x: 0.5, xanchor: 'center', font: {size: isMobile ? 9 : 12}, itemwidth: 30 }
       };
 
       // Extract dynamic dropdown criteria unique to specific selected card
@@ -995,7 +1022,12 @@
     
       setTimeout(() => {
         Plotly.newPlot(document.getElementById('modal-graph-target'), all_traces, layout_graph, {responsive: true, displayModeBar: false});
-        Plotly.newPlot(document.getElementById('modal-error-target'), [trace_base, trace_err_c, trace_err_g].filter(Boolean), layout_err, {responsive: true, displayModeBar: false});
+        const trend_target = document.getElementById('modal-ebay-trend-target');
+        if (eb_dates.length || vol_dates.length) {
+          Plotly.newPlot(trend_target, [trace_ebay_vol, trace_ebay_med], layout_ebay_trend, {responsive: true, displayModeBar: false});
+        } else {
+          trend_target.innerHTML = "<div style='padding:40px; text-align:center; color:var(--text-muted); font-style:italic;'>No validated eBay listings in the last 40 days.</div>";
+        }
         renderEbayDetails();
       }, 50); 
     });
