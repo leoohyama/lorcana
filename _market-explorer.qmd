@@ -69,15 +69,11 @@
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
     const cur_price = d.current_price || 0;
     const live_c = c_fcst.filter(f => f.model === "Chronos").sort((a,b)=>a.date-b.date);
-    const live_g = c_fcst.filter(f => f.model === "GRU").sort((a,b)=>a.date-b.date);
     const c_pred = live_c.length > 0 ? live_c[live_c.length - 1].price : null;
-    const g_pred = live_g.length > 0 ? live_g[live_g.length - 1].price : null;
     const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
-    const g_pct = (g_pred !== null && cur_price > 0) ? ((g_pred - cur_price) / cur_price) * 100 : null;
 
     const card_metrics = all_metrics.filter(m => m.tcgplayer_id === d.tcgplayer_id && m.horizon === 30);
     const c_err = card_metrics.find(m => m.model === "Chronos");
-    const g_err = card_metrics.find(m => m.model === "GRU");
 
     // Price medians: ungraded (or PSA 10), auction-free — clean price signal only.
     let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded" && !e.is_auction);
@@ -88,8 +84,8 @@
     let totalCount = count7dUnique(clean_ebay_master.filter(e => e.cardname === d.cardname));
 
     return {
-      ...d, c_pred_30d: c_pred, c_pct_30d: c_pct, g_pred_30d: g_pred, g_pct_30d: g_pct,
-      c_err_30d: c_err ? c_err.mdape * 100 : null, g_err_30d: g_err ? g_err.mdape * 100 : null,
+      ...d, c_pred_30d: c_pred, c_pct_30d: c_pct,
+      c_err_30d: c_err ? c_err.mdape * 100 : null,
       recent_ebay_med: raw_stats.median, totalCount: totalCount, psa_10_med: psa_stats.median, delta: delta,
       signal_score: (d.p_buy != null && d.p_sell != null) ? (d.p_buy - d.p_sell) : null
     };
@@ -179,7 +175,6 @@
       <div style="flex:1; min-width:120px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:9px 12px;">
         <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:4px;">${h} days out</div>
         <div style="display:flex; justify-content:space-between; gap:8px; font-size:12px;"><span style="color:var(--series-chronos, #fbbf24); font-weight:600;">Chronos</span>${val('Chronos', h)}</div>
-        <div style="display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-top:2px;"><span style="color:var(--series-gru, #22d3ee); font-weight:600;">GRU</span>${val('GRU', h)}</div>
       </div>`;
     return `
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">${[7, 21, 30].map(box).join('')}</div>
@@ -277,7 +272,6 @@
             <tr>
               ${th('cardname', 'Card', 'sticky-card-col', 'Card name, version, rarity, and collector number.')}
               ${th('c_pct_30d', 'Chronos', '', 'Projected 30-day price change from the Chronos model vs. the current market price.')}
-              ${th('g_pct_30d', 'GRU', '', 'Projected 30-day price change from the Hybrid GRU model vs. the current market price.')}
             </tr>
           </thead>
           <tbody>
@@ -299,7 +293,6 @@
                   </div>
                 </td>
                 <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td>
-                <td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
               </tr>
               `;
             }).join('')}
@@ -319,7 +312,6 @@
       const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
       const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
       const live_c = c_fcst.filter(d => d.model === "Chronos");
-      const live_g = c_fcst.filter(d => d.model === "GRU");
 
       // Calculate TCGplayer rolling 30D baseline shift
       let tcg_pct_30d = null;
@@ -403,7 +395,6 @@
       // ===== Price Forecast & Market Context (TCG history + eBay median + eBay volume + models) =====
       const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'TCGplayer', line: {color: '#f8fafc', width: 3}, hovertemplate: 'TCG: $%{y:.2f}<extra></extra>' };
       const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
-      const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
 
       // eBay median line: ungraded, auction-free (clean price signal).
       let raw_ungraded = pricedCardListings.filter(d => d.label === "Ungraded");
@@ -551,7 +542,7 @@
 
       // Defer Plotly execution so DOM can mount
       setTimeout(() => {
-        Plotly.newPlot(graph_panel.querySelector('.graph-main'), [trace_hist, trace_c, trace_g], layout_graph, {responsive: true, displayModeBar: false});
+        Plotly.newPlot(graph_panel.querySelector('.graph-main'), [trace_hist, trace_c], layout_graph, {responsive: true, displayModeBar: false});
         const trend_target = trend_panel.querySelector('.graph-ebay-trend');
         if (eb_dates.length || vol_dates.length) {
           Plotly.newPlot(trend_target, [trace_ebay_vol, trace_ebay_med], layout_ebay_trend, {responsive: true, displayModeBar: false});
@@ -721,7 +712,6 @@
               <tr>
                 ${th('cardname', 'Card Identifier', 'sticky-card-col', 'Card name, version, rarity, and collector number.')}
                 ${th('c_pct_30d', 'Chronos (30D)', '', 'Projected 30-day price change from the Chronos model vs. the current market price.')}
-                ${th('g_pct_30d', 'GRU (30D)', '', 'Projected 30-day price change from the Hybrid GRU model vs. the current market price.')}
                 ${th('delta', 'Market Spread', 'hide-on-mobile', 'Absolute gap between the current TCG market price and the recent median ungraded eBay sale price.')}
                 ${th('totalCount', 'eBay 7D Vol', 'hide-on-mobile', 'Count of unique validated eBay listings seen in the last 7 days — all grades and both auction and fixed-price/best-offer listings.')}
                 ${th('psa_10_med', 'PSA 10 (7D)', 'hide-on-mobile', 'Median graded PSA 10 eBay price over the last 7 days.')}
@@ -750,7 +740,7 @@
                       </div>
                     </div>
                   </td>
-                  <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td><td>${formatPct(d.g_pct_30d, d.g_pred_30d)}</td>
+                  <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td>
                   <td class="hide-on-mobile">${diff_txt}</td>
                   <td class="hide-on-mobile"><span style="background: var(--bg-base); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); color: var(--accent-cyan); font-weight: 700;">${d.totalCount}</span></td>
                   <td class="hide-on-mobile">${psa_txt}</td>
@@ -784,7 +774,6 @@
       const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
       const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
       const live_c = c_fcst.filter(d => d.model === "Chronos");
-      const live_g = c_fcst.filter(d => d.model === "GRU");
 
       // Calculate TCGplayer rolling 30D baseline shift values
       let tcg_pct_30d = null;
@@ -878,7 +867,6 @@
 
       const trace_hist = { x: c_hist.map(d => d.date), y: c_hist.map(d => d.price), mode: 'lines', name: 'TCGplayer', line: {color: '#f8fafc', width: 3}, hovertemplate: 'TCG: $%{y:.2f}<extra></extra>' };
       const trace_c = { x: live_c.map(d => d.date), y: live_c.map(d => d.price), mode: 'lines', name: 'Chronos', line: {color: '#fbbf24', width: 3, dash: 'dash'}, hovertemplate: 'Chronos: $%{y:.2f}<extra></extra>' };
-      const trace_g = { x: live_g.map(d => d.date), y: live_g.map(d => d.price), mode: 'lines', name: 'GRU', line: {color: '#22d3ee', width: 3, dash: 'dash'}, hovertemplate: 'GRU: $%{y:.2f}<extra></extra>' };
     
       // Extract inline historical trendlines for main composite plot.
       // Median line: ungraded, auction-free (clean price signal).
@@ -902,7 +890,7 @@
 
       // Forecast plot holds only TCG history + model lines, so its y-axis always
       // fits the forecast band; the eBay series render in their own panel.
-      const all_traces = [trace_hist, trace_c, trace_g];
+      const all_traces = [trace_hist, trace_c];
 
       const layout_graph = {
         dragmode: false, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#f8fafc', family: 'Inter', size: isMobile ? 9 : 12 },

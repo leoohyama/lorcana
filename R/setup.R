@@ -91,7 +91,10 @@ latest_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id
 past_prices <- dbGetQuery(con, "SELECT DISTINCT ON (tcgplayer_id) tcgplayer_id, market_price, pull_date FROM justtcg_prices WHERE pull_date <= CURRENT_DATE - INTERVAL '7 days' ORDER BY tcgplayer_id, pull_date DESC")
 hist_data <- dbGetQuery(con, "SELECT tcgplayer_id, pull_date, market_price FROM justtcg_prices WHERE pull_date >= CURRENT_DATE - INTERVAL '90 days'")
 chronos_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, conf_low, conf_high, run_id FROM chronos_predictions WHERE run_id = (SELECT MAX(run_id) FROM chronos_predictions)")
-gru_pred <- dbGetQuery(con, "SELECT card_id as tcgplayer_id, target_date, pred_price, run_id FROM gru_predictions WHERE run_id = (SELECT MAX(run_id) FROM gru_predictions)")
+# NOTE: GRU forecasts are still generated & stored in `gru_predictions`, but are
+# no longer surfaced on the front end (removed 2026-07 to avoid the confusing
+# opposite-trend line vs. Chronos). Re-add the gru_pred query + forecast_flat
+# branch below to restore it.
 metrics_df <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, samp_ent_30d, hurst_30d, cv_30d, skewness_30d FROM card_ts_metrics"), error = function(e) data.frame())
 backtest_metrics <- tryCatch(dbGetQuery(con, "SELECT tcgplayer_id, model, horizon, mdape, naive_mdape, min_err, max_err, sample_size FROM model_backtest_metrics"), error = function(e) data.frame())
 buy_signals <- tryCatch(dbGetQuery(con, "SELECT CAST(card_id AS INTEGER) AS tcgplayer_id, p_buy, p_hold, p_sell, call AS signal_call FROM buy_hold_sell_scores WHERE run_date = (SELECT MAX(run_date) FROM buy_hold_sell_scores)"), error = function(e) data.frame())
@@ -112,7 +115,7 @@ if(nrow(momentum) > 0) {
   movers <- bind_rows(momentum %>% arrange(desc(pct)) %>% slice(1) %>% mutate(Category = "Top % Gainer"), momentum %>% arrange(pct) %>% slice(1) %>% mutate(Category = "Top % Loser"), momentum %>% arrange(desc(abs)) %>% slice(1) %>% mutate(Category = "Top $Gainer"), momentum %>% arrange(abs) %>% slice(1) %>% mutate(Category = "Top$ Loser"))
 } else { movers <- data.frame() }
 
-forecast_flat <- bind_rows(chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos") %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id), gru_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "GRU", conf_low = NA, conf_high = NA) %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id)) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
+forecast_flat <- chronos_pred %>% mutate(tcgplayer_id = as.integer(tcgplayer_id)) %>% left_join(master_dict, by = "tcgplayer_id") %>% mutate(model = "Chronos") %>% select(cardname, date = target_date, model, price = pred_price, conf_low, conf_high, run_id) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 hist_flat <- hist_data %>% left_join(master_dict, by = "tcgplayer_id") %>% select(cardname, date = pull_date, price = market_price) %>% mutate(date = as.character(date)) %>% drop_na(cardname)
 if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgplayer_id)
 unified <- master_dict %>% left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>% left_join(metrics_df, by="tcgplayer_id")

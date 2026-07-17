@@ -56,13 +56,12 @@ A fantasy-portfolio game: set a pretend budget, "buy" cards at today's real pric
 <div class="guide-sec">🔮 How the Predictions Work (No AI Degree Needed)</div>
 
 **Who's making these forecasts?**
-Two independent computer models, each with a different personality:
+A foundation time-series model with a well-traveled generalist's eye:
 
-* **GRU — the local specialist.** Built specifically for Lorcana, it studies each card's full price history *and* the card's traits (rarity, ink color, set). It has learned, for example, that Enchanted cards move differently than Epics.
 * **Chronos — the well-traveled generalist.** A model from Amazon that has studied millions of price charts and other time-based data from many fields. It doesn't know anything about Lorcana specifically — it recognizes the *shapes* that price charts make and predicts how those shapes usually continue.
 
-**Why two models instead of one?**
-The same reason you'd want a second doctor's opinion. When both models agree a card is heading up, that's a stronger signal. When they disagree, the honest conclusion is "uncertain" — and you can see both opinions side by side on every card's chart.
+**How should I read a single forecast?**
+Treat it as one informed opinion, not a guarantee. It's most useful alongside the card's backtest error and the current market context — a forecast on a card whose past predictions have landed within a few percent is worth far more than one on a wildly unpredictable card.
 
 **How do we know if the predictions are any good?**
 We constantly test them on the past — this is called *backtesting*. The idea is simple: hide the most recent month of real prices from the model, ask it to "predict" that month, then compare its answer to what actually happened. Repeat over and over.

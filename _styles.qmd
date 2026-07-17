@@ -29,7 +29,6 @@
 
     /* Model-series identity — fixed, do not reassign (validated CVD-safe) */
     --series-tcg: var(--text-main);     /* TCGplayer history — neutral reference line */
-    --series-gru: var(--accent-cyan);   /* GRU forecast */
     --series-chronos: var(--accent-yellow); /* Chronos forecast */
     --series-ebay: var(--accent-purple);    /* eBay median / volume */
 

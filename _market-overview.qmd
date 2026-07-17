@@ -56,7 +56,6 @@ safeTranspose = (data) => {
     const tot = up + down;
     return { pct: tot ? Math.round((up / tot) * 100) : null, up, down, tot };
   };
-  const gru = outlookFor("GRU");
   const chr = outlookFor("Chronos");
   const outlookRow = (label, o) => {
     if (o.pct === null) return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">${label}</span><span style="font-size:18px; font-weight:800; color:var(--text-muted);">—</span></div>`;
@@ -85,7 +84,7 @@ safeTranspose = (data) => {
       <span style="color:var(--accent-red);">Sell ${pctOf('sell')}%</span>
     </div>`;
 
-  const outlookBorder = gru.pct === null ? 'var(--text-muted)' : (gru.pct >= 50 ? 'var(--accent-green)' : 'var(--accent-red)');
+  const outlookBorder = chr.pct === null ? 'var(--text-muted)' : (chr.pct >= 50 ? 'var(--accent-green)' : 'var(--accent-red)');
 
   const wrap = document.createElement("div");
   wrap.style.width = "100%";
@@ -98,7 +97,7 @@ safeTranspose = (data) => {
       ${tile('var(--accent-blue)', 'Cards Tracked', bigVal(formatNum(cardsTracked)), subTxt('High-rarity cards priced daily'))}
       ${tile('var(--accent-cyan)', 'Total Unique Listings', bigVal(formatNum(totalListings)), subTxt('Distinct eBay listings collected to date'))}
       ${tile('var(--accent-purple)', 'Market Signal', splitBar + splitLegend, subTxt(formatNum(rated.length) + ' cards rated today'))}
-      ${tile(outlookBorder, '30-Day Outlook', outlookRow('GRU', gru) + outlookRow('Chronos', chr), subTxt('Share of cards forecast above current price'))}
+      ${tile(outlookBorder, '30-Day Outlook', outlookRow('Chronos', chr), subTxt('Share of cards forecast above current price'))}
     </div>`;
   return wrap;
 }

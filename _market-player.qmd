@@ -7,7 +7,7 @@
 // ==============================================================================
 // SECTION 6: MARKET PLAYER — fantasy budget game on live forecasts
 //   Set a USD budget, "buy" cards at current JustTCG market prices, and watch
-//   the projected 30-day payout (Chronos / GRU) update live. Pure client-side:
+//   the projected 30-day payout (Chronos) update live. Pure client-side:
 //   state lives in the browser (localStorage), no server involved.
 // ==============================================================================
 {
@@ -89,7 +89,6 @@
   .mp-model-pills { display: inline-flex; gap: 6px; margin-left: auto; }
   .mp-model-pill { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-muted); font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.15s; }
   .mp-model-pill.active-chronos { border-color: var(--series-chronos); color: var(--series-chronos); background: rgba(251,191,36,0.1); }
-  .mp-model-pill.active-gru { border-color: var(--series-gru); color: var(--series-gru); background: rgba(34,211,238,0.1); }
 
   .mp-hero { font-size: 30px; font-weight: 800; color: var(--text-main); line-height: 1.1; }
   .mp-hero-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
@@ -138,14 +137,13 @@
     document.head.appendChild(st);
   }
 
-  const MODELS = { Chronos: { color: '#fbbf24', band: 'rgba(251,191,36,0.13)' },
-                   GRU:     { color: '#22d3ee', band: 'rgba(34,211,238,0.13)' } };
+  const MODELS = { Chronos: { color: '#fbbf24', band: 'rgba(251,191,36,0.13)' } };
   const LS_KEY = "lorecaster_market_player_v1";
   const fmtUSD = v => (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const escAttr = s => String(s).replace(/"/g, "&quot;");
 
   // ----- Data prep: sellable cards + per-model forecast series ---------------
-  const fcstByModel = { Chronos: new Map(), GRU: new Map() };
+  const fcstByModel = { Chronos: new Map() };
   (safeTranspose(ojs_forecast) || []).forEach(f => {
     const m = fcstByModel[f.model];
     if (!m) return;
@@ -295,7 +293,6 @@
             <h4 class="mp-panel-title" style="margin:0; border:none; padding:0;">📈 30-Day Payout</h4>
             <span class="mp-model-pills">
               <button class="mp-model-pill" data-m="Chronos">CHRONOS</button>
-              <button class="mp-model-pill" data-m="GRU">GRU</button>
             </span>
           </div>
           <div class="mp-payout-body" style="margin-top:12px;"></div>
@@ -582,7 +579,6 @@
     els.pills.forEach(p => {
       const on = p.dataset.m === state.model;
       p.classList.toggle("active-chronos", on && state.model === "Chronos");
-      p.classList.toggle("active-gru", on && state.model === "GRU");
     });
   }
 
