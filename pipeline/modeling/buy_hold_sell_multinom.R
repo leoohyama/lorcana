@@ -54,12 +54,14 @@ TEST_DAYS        <- 60       # future holdout window (also split into monthly wa
 CAL_DAYS         <- 60       # size of the recent slice used to (re)fit the calibrator
 SWEEP            <- as.logical(Sys.getenv("BHS_SWEEP", "TRUE"))
 PUSH             <- as.logical(Sys.getenv("BHS_PUSH", "TRUE"))
+USE_CHRONOS      <- as.logical(Sys.getenv("BHS_CHRONOS", "TRUE"))  # stack Chronos-2 forecast features
 
 PRED <- c("log_price", "mom_7", "mom_14", "mom_30", "ma_gap_7", "ma_gap_30",
           "vol_14", "vol_30", "cv_30", "skew_30", "ac1_30",
           "pos_range", "pct_from_ath", "pct_from_atl", "pos_range_90",
           "log_active", "churn_rate", "net_flow", "ebay_prem",
           "days_since_release", "cost", "rarity", "ink_clean")
+CHR_PRED <- c("chr_exp_ret", "chr_spread", "chr_p_up", "chr_p_dn")
 
 # ============================================================================
 # 1. PULL DATA
@@ -111,7 +113,42 @@ ebay <- dbGetQuery(con, "
   LEFT JOIN newl ON active.ebay_id=newl.ebay_id AND active.d=newl.d
   LEFT JOIN reml ON active.ebay_id=reml.ebay_id AND active.d=reml.d
   LEFT JOIN med  ON active.ebay_id=med.ebay_id  AND active.d=med.d")
+
+# Chronos-2 forecast summary features (rolling-origin backfill + daily runs).
+# Leakage-safe by construction: features at origin_date only use data <= origin.
+chr_feats <- tryCatch(
+  dbGetQuery(con, "SELECT origin_date, card_id, horizon, exp_ret, spread,
+                          p_up07, p_dn07, p_up10, p_dn10
+                   FROM chronos_stack_features"),
+  error = function(e) data.frame())
 dbDisconnect(con, shutdown = TRUE)
+if (USE_CHRONOS && nrow(chr_feats) == 0) {
+  message("   (chronos_stack_features empty/missing -> running WITHOUT Chronos features)")
+  USE_CHRONOS <- FALSE
+}
+if (USE_CHRONOS) {
+  chr_feats <- chr_feats %>%
+    mutate(card_id = as.character(card_id), origin_date = as_date(origin_date))
+  PRED <- c(PRED, CHR_PRED)
+}
+
+# As-of join: each (card, day) gets the most recent forecast made on/before that
+# day, capped at 10 days stale (weekly backfill era) so imputation handles the rest.
+attach_chronos <- function(df, h, thr) {
+  if (!USE_CHRONOS) return(df)
+  key <- if (abs(thr - 0.07) <= abs(thr - 0.10)) "07" else "10"  # nearest stored threshold
+  ch <- chr_feats %>% filter(horizon == h) %>%
+    transmute(card_id, origin_date,
+              chr_exp_ret = exp_ret, chr_spread = spread,
+              chr_p_up = .data[[paste0("p_up", key)]],
+              chr_p_dn = .data[[paste0("p_dn", key)]])
+  df %>%
+    left_join(ch, by = join_by(card_id, closest(date >= origin_date))) %>%
+    mutate(chr_stale = as.integer(date - origin_date),
+           across(all_of(CHR_PRED),
+                  ~ if_else(!is.na(chr_stale) & chr_stale <= 10, .x, NA_real_))) %>%
+    select(-origin_date, -chr_stale)
+}
 
 static <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   filter(!str_detect(set_name, "Promo")) %>%
@@ -250,7 +287,7 @@ if (SWEEP) {
   message("3. Sweeping horizon x threshold...")
   grid_cfg <- expand_grid(h = c(14L, 21L, 30L), thr = c(0.07, 0.10))
   res <- pmap_dfr(grid_cfg, function(h, thr) {
-    lab <- make_labeled(feat_train, h, thr, thr) %>% filter(!is.na(fwd_ret))
+    lab <- make_labeled(attach_chronos(feat_train, h, thr), h, thr, thr) %>% filter(!is.na(fwd_ret))
     max_d <- max(lab$date); ts <- max_d - TEST_DAYS; te <- ts - h
     tr <- lab %>% filter(date <= te)
     tb <- tune_best(tr, grid_levels = c(5, 3))
@@ -281,7 +318,8 @@ if (SWEEP) {
 # ============================================================================
 message("4. Final model on chosen config...")
 HORIZON_DAYS <- choose$h; BUY_THR <- choose$buy; SELL_THR <- choose$sell; EMBARGO <- HORIZON_DAYS
-labeled <- make_labeled(feat_train, HORIZON_DAYS, BUY_THR, SELL_THR) %>% filter(!is.na(fwd_ret))
+labeled <- make_labeled(attach_chronos(feat_train, HORIZON_DAYS, BUY_THR),
+                        HORIZON_DAYS, BUY_THR, SELL_THR) %>% filter(!is.na(fwd_ret))
 max_date <- max(labeled$date); test_start <- max_date - TEST_DAYS; train_end <- test_start - EMBARGO
 tb <- tune_best(labeled %>% filter(date <= train_end))
 ev <- walkforward_eval(labeled, tb$wf, tb$best, train_end, test_start)
@@ -320,6 +358,7 @@ clamp_norm <- function(df) {  # keep each prob in [0.01, 0.98], renormalize -> n
 }
 
 score_df <- feat %>% group_by(card_id) %>% slice_max(date, n = 1) %>% ungroup() %>%
+  attach_chronos(HORIZON_DAYS, BUY_THR) %>%
   select(card_id, name, date, all_of(PRED))
 scored <- augment(deploy_model, score_df) %>% cal_apply(cal_deploy) %>% clamp_norm() %>%
   left_join(hist_tbl, by = "card_id") %>%

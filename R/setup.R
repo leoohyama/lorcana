@@ -121,6 +121,18 @@ if(nrow(metrics_df) > 0) metrics_df$tcgplayer_id <- as.integer(metrics_df$tcgpla
 unified <- master_dict %>% left_join(latest_prices %>% rename(current_price = market_price), by="tcgplayer_id") %>% left_join(metrics_df, by="tcgplayer_id")
 if (nrow(buy_signals) > 0) unified <- unified %>% left_join(buy_signals, by = "tcgplayer_id")
 
+# --- 1.10.1 Anchor gap (hype gauge) ---
+# Latest per-card deviation of the eBay ask premium from that card's own norm,
+# computed leakage-safe in pipeline/preprocessing/chronos_data_processing.R and
+# committed daily as data/chronos_ready_prices.csv. Positive = asks running hot.
+anchor_gaps <- tryCatch(
+  read_csv("data/chronos_ready_prices.csv", show_col_types = FALSE) %>%
+    mutate(tcgplayer_id = as.integer(card_id)) %>%
+    group_by(tcgplayer_id) %>% slice_max(date, n = 1, with_ties = FALSE) %>% ungroup() %>%
+    select(tcgplayer_id, anchor_gap),
+  error = function(e) data.frame())
+if (nrow(anchor_gaps) > 0) unified <- unified %>% left_join(anchor_gaps, by = "tcgplayer_id")
+
 if(nrow(raw_ebay_sql) > 0) {
   ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id), listing_type = replace_na(as.character(listing_type), "")) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language, listing_type)
 } else { ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character(), listing_type=character()) }

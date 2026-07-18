@@ -35,10 +35,12 @@ jobs:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/inference/daily_inference_gru.py
 
-      - name: 🚀 4. Run Chronos Future Inference
+      # Chronos-2 on TCG prices with eBay covariates. Also writes today's row of
+      # chronos_stack_features, which the downstream buy/hold/sell model stacks in.
+      - name: 🚀 4. Run Chronos-2 Future Inference
         env:
           MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
-        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/modeling/chronos_transfer_learning.py
+        run: /Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python pipeline/modeling/chronos2_inference.py
 
       - name: 🧮 5. Calculate Live Residuals (MotherDuck)
         env:

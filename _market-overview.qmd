@@ -31,7 +31,6 @@ safeTranspose = (data) => {
 
   // --- Market-pulse aggregates (computed client-side from live signals & forecasts) ---
   const info = safeTranspose(ojs_info) || [];
-  const fcst = safeTranspose(ojs_forecast) || [];
 
   const priceByCard = new Map(info.filter(d => d.current_price).map(d => [d.cardname, d.current_price]));
   const cardsTracked = priceByCard.size;
@@ -44,24 +43,25 @@ safeTranspose = (data) => {
   const ratedTot = rated.length || 1;
   const pctOf = k => Math.round((tally[k] / ratedTot) * 100);
 
-  // 30-day outlook per model: share of forecast cards projected above current price
-  const outlookFor = (modelName) => {
-    const byCard = new Map();
-    fcst.filter(f => f.model === modelName && f.price != null).forEach(f => {
-      const prev = byCard.get(f.cardname);
-      if (!prev || f.date > prev.date) byCard.set(f.cardname, f);
-    });
-    let up = 0, down = 0;
-    byCard.forEach((f, name) => { const cp = priceByCard.get(name); if (cp) { if (f.price > cp) up++; else if (f.price < cp) down++; } });
-    const tot = up + down;
-    return { pct: tot ? Math.round((up / tot) * 100) : null, up, down, tot };
-  };
-  const chr = outlookFor("Chronos");
-  const outlookRow = (label, o) => {
-    if (o.pct === null) return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">${label}</span><span style="font-size:18px; font-weight:800; color:var(--text-muted);">—</span></div>`;
-    const up = o.pct >= 50;
-    const col = up ? 'var(--accent-green)' : 'var(--accent-red)';
-    return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">${label} <span style="opacity:0.7;">(${o.up}↑/${o.down}↓)</span></span><span style="font-size:20px; font-weight:800; color:${col};">${up ? '▲' : '▼'} ${o.pct}%</span></div>`;
+  // Hype gauge: how eBay asks sit vs each card's OWN normal premium over TCG.
+  // anchor_gap is in log units; > +5% = running hot (hype), < -5% = running cold.
+  const gaps = info.filter(d => d.anchor_gap != null && isFinite(d.anchor_gap))
+                   .map(d => Math.expm1(d.anchor_gap));
+  const hypeStats = (() => {
+    if (!gaps.length) return null;
+    const hot = gaps.filter(g => g > 0.05).length;
+    const cold = gaps.filter(g => g < -0.05).length;
+    const sorted = [...gaps].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    return { med, hot, cold, n: gaps.length };
+  })();
+  const hypeRow = (s) => {
+    if (!s) return `<div style="margin-top:8px; font-size:18px; font-weight:800; color:var(--text-muted);">—</div>`;
+    const up = s.med >= 0;
+    const col = up ? 'var(--accent-red)' : 'var(--accent-green)';  // hot asks = froth, not good news
+    return `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;">
+      <span style="font-size:12px; color:var(--text-muted); font-weight:600;">${s.hot} hot / ${s.cold} cold</span>
+      <span style="font-size:20px; font-weight:800; color:${col};">${up ? '▲' : '▼'} ${Math.abs(s.med * 100).toFixed(1)}%</span></div>`;
   };
 
   const tile = (border, label, valueHTML, subHTML) => `
@@ -84,7 +84,7 @@ safeTranspose = (data) => {
       <span style="color:var(--accent-red);">Sell ${pctOf('sell')}%</span>
     </div>`;
 
-  const outlookBorder = chr.pct === null ? 'var(--text-muted)' : (chr.pct >= 50 ? 'var(--accent-green)' : 'var(--accent-red)');
+  const outlookBorder = !hypeStats ? 'var(--text-muted)' : (hypeStats.med >= 0 ? 'var(--accent-red)' : 'var(--accent-green)');
 
   const wrap = document.createElement("div");
   wrap.style.width = "100%";
@@ -97,7 +97,7 @@ safeTranspose = (data) => {
       ${tile('var(--accent-blue)', 'Cards Tracked', bigVal(formatNum(cardsTracked)), subTxt('High-rarity cards priced daily'))}
       ${tile('var(--accent-cyan)', 'Total Unique Listings', bigVal(formatNum(totalListings)), subTxt('Distinct eBay listings collected to date'))}
       ${tile('var(--accent-purple)', 'Market Signal', splitBar + splitLegend, subTxt(formatNum(rated.length) + ' cards rated today'))}
-      ${tile(outlookBorder, '30-Day Outlook', outlookRow('Chronos', chr), subTxt('Share of cards forecast above current price'))}
+      ${tile(outlookBorder, 'eBay Hype Gauge', hypeRow(hypeStats), subTxt('Median gap between eBay asks and each card\'s usual premium — hot asks tend to correct'))}
     </div>`;
   return wrap;
 }

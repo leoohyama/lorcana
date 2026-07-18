@@ -79,8 +79,8 @@ The public site at **[lorecaster.ink](http://lorecaster.ink)** is a **Quarto das
 
 | Page | What it shows |
 | --- | --- |
-| **Market Overview** | Top-line market health, daily market velocity (listing churn vs. inflow), and headline movers. |
-| **Market Explorer** | Per-card drill-down: price history, the 30-day forecast with confidence bands, and eBay listing context. |
+| **Market Overview** | Top-line market health, the buy/hold/sell market split, the **eBay Hype Gauge** (how asks sit vs. each card's usual premium), daily market velocity (listing churn vs. inflow), and headline movers. |
+| **Market Explorer** | Per-card drill-down: the calibrated **Buy/Hold/Sell signal** (the headline call), price history, the 30-day Chronos-2 forecast band that feeds it, a per-card hype readout, and eBay listing context. |
 | **Dashboard Guide & FAQ** | Plain-language explanation of the market, how the AI cleaning works, and a glossary of the advanced risk metrics. |
 | **Support the Project!** | Project background and ways to support it. |
 
@@ -190,7 +190,7 @@ The pipeline moves data through six stages, mirrored by the `pipeline/` folder l
 
 **3. Preprocessing** — `pipeline/preprocessing/`
 - **`preprocessing.R`** pulls prices for cards with **≥180 days** of history, fills temporal gaps (forward-fill across missing days), scales features, derives the per-card **eBay churn rate + coverage mask** (see [eBay Churn Signal](#the-ebay-churn-signal)), and writes the model-ready matrix to `data/pytorch/lorcana_pytorch_ready.csv`.
-- **`chronos_data_processing.R`** builds a lighter dataset for cards with **≥90 days** of history (`data/chronos_ready_prices.csv`) so newer cards can still be forecast by the zero-shot transformer.
+- **`chronos_data_processing.R`** builds the Chronos-2 dataset for cards with **≥90 days** of history (`data/chronos_ready_prices.csv`): the TCG price target plus four leakage-safe **eBay covariates** per card/day — the **anchor gap** (how far the eBay ask median sits from that card's own historical premium over TCG), listing volume, churn rate, and net listing flow. Covariates are `NA` before eBay coverage begins; Chronos-2 handles missing covariates natively.
 
 **4. Forecasting** — `pipeline/modeling/` + `pipeline/inference/`
 - Daily inference and weekly training run the PyTorch models and push predictions to the `gru_predictions` and `chronos_predictions` tables. See [Forecasting Models](#forecasting-models).
@@ -212,10 +212,11 @@ The pipeline moves data through six stages, mirrored by the `pipeline/` folder l
 | `justtcg_prices` | `pull_daily_prices.R` | Daily market prices per card |
 | `lorcana_active_listings` | `ebay_api_download.R` | Raw eBay active-listing float |
 | `llm_listing_metadata` | `run_gemma_cleaner.R`, `dedupe_gemma4.R` | LLM match/grade metadata per listing |
-| `gru_predictions` | `daily_inference_gru.py` | 30-day GRU forecasts |
+| `gru_predictions` | `daily_inference_gru.py` | 30-day GRU forecasts (pipeline-only; not surfaced on the dashboard) |
 | `buy_hold_sell_scores` | `buy_hold_sell_multinom.R` | Daily calibrated buy/hold/sell probabilities per card |
 | `buy_hold_sell_metrics` | `buy_hold_sell_multinom.R` | Per-run model health (AUC, Brier, today's avg confidence) |
-| `chronos_predictions` | `chronos_transfer_learning.py` | 30-day Chronos forecasts |
+| `chronos_predictions` | `chronos2_inference.py` | 30-day Chronos-2 quantile forecasts (fan chart) |
+| `chronos_stack_features` | `chronos2_inference.py` (daily) + `chronos2_backfill_features.py` (historical) | Per-origin forecast summaries (expected return, spread, move probabilities) stacked into the buy/hold/sell model |
 | `model_residuals_live` | `update_residuals.R` | Live prediction-vs-actual residuals |
 | `card_ts_metrics` | `update_ts_metrics.R` | Entropy, Hurst, skew, autocorrelation, volatility |
 | `model_performance_history` / `model_runs` | `model_diagnostics.R` | Backtest performance history |
@@ -245,9 +246,26 @@ The eBay + cleaning jobs are chained sequentially (scrape → clean → dedupe) 
 
 ## Forecasting Models
 
-Price forecasting is treated as a **multi-modal time-series problem**. Two architectures run side by side, chosen for complementary strengths.
+Since **2026-07-18** the models are organized as a **two-layer stack with a single headline output**: a zero-shot foundation forecaster (Chronos-2) produces a probabilistic price path, and a calibrated decision model (multinomial logistic) folds that forecast — together with market-structure features — into one **Buy / Hold / Sell** call per card. The dashboard leads with the call; the forecast band is shown as the evidence behind it, not as a competing opinion.
 
-### 1. Hybrid Gated Recurrent Unit (GRU) — the primary model
+```mermaid
+graph TD
+    A[JustTCG daily prices<br><em>TCG market price — the anchor</em>] --> C
+    B[eBay listing float<br><em>anchor gap · volume · churn · net flow</em>] --> C
+    C[<strong>Chronos-2</strong><br>zero-shot probabilistic forecast<br>TCG target + eBay covariates]
+    C -->|quantile fan chart| F[chronos_predictions<br><em>dashboard forecast band</em>]
+    C -->|forecast summary features<br>exp. return · spread · P&#40;±7%&#41; · P&#40;±10%&#41;| D
+    A -->|momentum · volatility ·<br>high/low position| D
+    B -->|listing volume · churn ·<br>eBay premium| D
+    D[<strong>Buy/Hold/Sell multinomial</strong><br>glmnet + beta calibration<br>walk-forward validated]
+    D -->|calibrated P&#40;buy&#41;/P&#40;hold&#41;/P&#40;sell&#41;| E[buy_hold_sell_scores<br><em>the dashboard headline</em>]
+```
+
+Why this shape (from the 2026-07 market-anatomy study in `exploration/softmax_report/`): **TCGplayer leads and eBay follows** — weekly Granger TCG→eBay ≈ 0.24 vs. eBay→TCG ≈ 0.02, and the eBay/TCG gap corrects almost entirely from the eBay side. eBay ask medians are a queue of hopeful asks (~+100% median premium) whose day-to-day moves are dominated by listing-composition noise, so they make a poor *forecast target* but a useful *covariate and hype gauge*. Chronos therefore models the TCG price (anchored to actual sales) and reads the eBay market structure as context.
+
+### 1. Hybrid Gated Recurrent Unit (GRU) — pipeline-only since 2026-07-17
+
+> **Status:** the GRU still trains weekly and infers daily (its predictions land in `gru_predictions` and feed the in-database residual tracking), but its forecast line was **removed from the dashboard on 2026-07-17** — showing two independent forecast lines that could disagree confused readers more than it informed them. It remains in the pipeline as a benchmark and a candidate feature source.
 
 A custom **PyTorch** model that ingests both temporal data (historical prices) and static metadata (set, rarity, ink color). By concatenating static embeddings with recurrent outputs, it contextualizes price movement — learning, for example, that an "Enchanted" card's volatility behaves differently from a "Rare" card's.
 
@@ -283,22 +301,30 @@ Price history alone tells you *where* a card has been, not how hard it's being b
 - **No look-ahead:** the most recent pull date is excluded from churn (every still-live listing would falsely look "removed" until the next pull is observed — right-censoring).
 - **Measured lift:** rolling-origin A/B (churn on vs. off) shows churn improves **directional accuracy across every horizon** for both windows, and on the **30-day model** it also cuts magnitude error (wMAPE −1.8 to −2.1 pp at the 6–30-day horizons). The 30-day window is therefore the production served model.
 
-### 2. Pre-trained Transformer (Amazon Chronos) — the cold-start model
+### 2. Chronos-2 (Amazon) — the covariate-informed forecaster
 
-**[Chronos](https://github.com/amazon-science/chronos-forecasting)** is a time-series forecasting framework built on language-model architectures.
-- **Mechanism:** it tokenizes price values and uses a transformer to predict the next tokens in the sequence.
-- **Why it's here:** solid **zero-shot** forecasting out of the box, which is invaluable for **newly released cards** that lack the history required to train the GRU effectively (hence the 90-day preprocessing threshold vs. the GRU's 180).
+**[Chronos-2](https://github.com/amazon-science/chronos-forecasting)** (`amazon/chronos-2`, upgraded from Chronos v1 on 2026-07-18) is a pre-trained, zero-shot time-series foundation model that — unlike v1 — natively supports **covariates** and returns **quantile forecasts** directly.
 
-Running both lets the dashboard compare them and surface **model divergence** as its own signal (see [Monitoring & Health](#monitoring--health)).
+- **Target:** the daily **TCG market price** (sales-anchored, the series that leads the market).
+- **Covariates (past-only, all leakage-safe):** the **anchor gap**, listing volume, churn rate, and net listing flow from the eBay float. Missing values (pre-eBay-era days) are handled natively.
+- **Why zero-shot matters here:** newer cards get sensible forecasts from ~90 days of history (vs. the GRU's 180-day training bar), and there are no weights to retrain or overfit.
+- **Speed:** forecasting all ~245 cards takes ~7 seconds on the MacBook runner's MPS GPU — ~50× faster than the v1 setup.
 
-### 3. Buy / Hold / Sell Signal — calibrated multinomial logistic
+Each daily run (`pipeline/modeling/chronos2_inference.py`, shared helpers in `chronos2_common.py`) writes two outputs:
+1. **`chronos_predictions`** — the median / 10th / 90th-percentile fan chart shown on the dashboard (schema unchanged from v1, so residual tracking history stays continuous).
+2. **`chronos_stack_features`** — per-card forecast summaries for the decision layer: expected return, forecast spread (q90−q10), and the probability of a ±7% / ±10% move at 7/14/21/30-day horizons, read off the quantile curve.
 
-Where the GRU and Chronos answer *"what will the price be?"*, this model answers the decision question directly: *"is now a good time to **buy**, **hold**, or **sell**?"* It is a **regularized multinomial logistic regression** (R, **tidymodels** + `glmnet`) that emits three **calibrated probabilities per card that sum to 1** — chosen deliberately because logistic regression yields interpretable coefficients and honest, well-calibrated probabilities rather than a black-box score.
+A one-time **rolling-origin backfill** (`chronos2_backfill_features.py`) regenerated these features at ~152 historical origins (weekly before eBay coverage, daily after — Jul 2025 → present), each origin's context truncated at that date, so the decision layer trains on features distributed exactly like the ones it sees in production.
+
+### 3. Buy / Hold / Sell Signal — the calibrated decision layer
+
+Where Chronos-2 answers *"where might the price go?"*, this model answers the decision question directly: *"is now a good time to **buy**, **hold**, or **sell**?"* It is a **regularized multinomial logistic regression** (R, **tidymodels** + `glmnet`) that emits three **calibrated probabilities per card that sum to 1** — chosen deliberately because logistic regression yields interpretable coefficients and honest, well-calibrated probabilities rather than a black-box score. Since 2026-07-18 it **stacks the Chronos-2 forecast features** (`chronos_stack_features`, as-of joined with ≤10-day staleness, toggleable via `BHS_CHRONOS`) alongside its own market-structure predictors, which is why a rising forecast and a HOLD call can no longer genuinely contradict each other: the call has already read the forecast.
 
 - **Label (looks ~3 weeks forward):** `sell` if the price is likely to fall (≤ −7%), `buy` if it is likely to rise **and** the card is currently near a low (≥ +7% **and** in the bottom half of its all-time range), `hold` otherwise. Horizon and thresholds were picked by a walk-forward sweep (21 days / ±7% gave the best balanced AUC).
-- **Predictors (all leakage-safe, as of day t):** TCG price dynamics (momentum, moving-average gaps, volatility, skew), each card's **all-time high/low position**, and — where eBay data exists — **listing volume, churn, and the eBay/TCG premium** (imputed on the older pre-eBay days). The `card_ts_metrics` snapshot is deliberately *not* used as a feature, since applying today's 30-day stats to a historical row would leak the future; the equivalent stats are recomputed per-day from the price series instead.
+- **Predictors (all leakage-safe, as of day t):** TCG price dynamics (momentum, moving-average gaps, volatility, skew), each card's **all-time high/low position**, — where eBay data exists — **listing volume, churn, and the eBay/TCG premium** (imputed on the older pre-eBay days), and the **Chronos-2 forecast features** (expected 21-day return, forecast spread, P(±7%) up/down). The `card_ts_metrics` snapshot is deliberately *not* used as a feature, since applying today's 30-day stats to a historical row would leak the future; the equivalent stats are recomputed per-day from the price series instead.
+- **On feature overlap (not circularity):** the eBay series appear both as Chronos-2 covariates and as direct predictors here, but no target information flows backward — every feature at day *t* uses only data ≤ *t*, and Chronos-2 is zero-shot (never fitted to this dataset's labels), so the classic stacking-leakage failure mode doesn't apply. Empirically the forecast features carry mostly *new* information (corr of expected return vs. 7-day momentum ≈ 0.29, vs. 30-day ≈ 0.08), and the lasso penalty prunes whatever is redundant; the out-of-sample AUC gain is the proof it nets out positive.
 - **Calibration:** probabilities are refit each run with **beta calibration** (isotonic fallback) on the most recent slice, and the walk-forward holdout re-calibrates per window to track regime shift — so a reported 70% really means ~70%.
-- **Honest performance:** strictly time-based validation with an embargo gap. Walk-forward macro-AUC ≈ **0.71** (a real but modest edge — 3-week moves are hard), calibrated Brier ≈ 0.22. The probabilities are trustworthy enough to *rank and size* decisions, not to bet the farm on a single card.
+- **Honest performance:** strictly time-based validation with an embargo gap. Walk-forward macro-AUC ≈ **0.74 with the stacked Chronos-2 features vs. 0.72 without** (same config, same windows; log-loss also improves) — a real but modest edge, because 3-week moves are hard. Calibrated Brier ≈ 0.22. The probabilities are trustworthy enough to *rank and size* decisions, not to bet the farm on a single card.
 - **Output:** `pipeline/modeling/buy_hold_sell_multinom.R` fits, calibrates, scores the latest day for every card, writes `data/pytorch/buy_hold_sell_scores.csv`, and pushes to the `buy_hold_sell_scores` table. Each run also records model-health metrics (AUC, Brier, and today's average confidence) to `buy_hold_sell_metrics`. The dashboard surfaces the three probabilities inside each card's deep-dive (with a hold-confidence colour gradient and a per-card confidence read-out), plus a global model-health card that puts the AUC/calibration into plain language.
 
 ---
@@ -323,15 +349,15 @@ All are wrapped in **safe-math guards** (minimum length, zero-variance checks, `
 
 ## Automation & Scheduling
 
-Everything is orchestrated by **six GitHub Actions workflows**, all on the self-hosted MacBook runner. Two daily "chains" fan out from the morning scrape, plus a weekly retrain. Times are UTC.
+Everything is orchestrated by **seven GitHub Actions workflows**, all on the self-hosted MacBook runner. Two daily "chains" fan out from the morning scrape, plus a weekly retrain. Times are UTC.
 
 | Workflow | Trigger | Runs |
 | --- | --- | --- |
 | **JustTCG Daily Price Pull** | daily `04:23` | `pipeline/ingestion/pull_daily_prices.R` |
 | **eBay Daily Market Float** | daily `04:23` | eBay scrape → Gemma clean → Gemma dedupe (3 chained jobs) |
 | **Update Time Series Metrics** | daily `04:30` | `pipeline/postprocessing/update_ts_metrics.R` |
-| **Daily Lorcana Market Inference** | after *JustTCG Price Pull* succeeds | preprocess → GRU + Chronos inference → residuals → backtest metrics |
-| **Daily Buy/Hold/Sell Signal** | after *eBay Market Float* succeeds | refit calibrated logistic on fresh price + eBay data → push buy/hold/sell probabilities |
+| **Daily Lorcana Market Inference** | after *JustTCG Price Pull* succeeds | preprocess → GRU + Chronos-2 inference (fan chart + stack features) → residuals → backtest metrics |
+| **Daily Buy/Hold/Sell Signal** | after *eBay Market Float* succeeds | refit calibrated logistic on fresh price + eBay + Chronos-2 forecast features → push buy/hold/sell probabilities |
 | **Daily Dashboard Render** | after *eBay Market Float* succeeds | `quarto render index.qmd`, commit to `docs/` |
 | **Weekly Lorcana Training** | Sundays `04:26` | preprocess → train GRU + Chronos backtests → diagnostics → back up weights |
 
@@ -351,7 +377,7 @@ The GRU engine follows a strict separation between **evaluation** and **producti
 
 ## Monitoring & Health
 
-- **Model Divergence:** tracking how far the Hybrid GRU and Chronos predictions drift apart — wide divergence flags uncertainty.
+- **Model Divergence:** the GRU and Chronos-2 residuals are both tracked in-database (`model_residuals_live` / `model_performance_history`), so how far the two drift apart remains an uncertainty flag — even though only the Chronos-2 forecast is surfaced on the dashboard.
 - **Data Integrity:** monitoring the "Match" rate coming out of Gemma. A sudden drop usually means eBay listing patterns or seller jargon have shifted, requiring a prompt adjustment.
 - **Outlier Detection:** flagging cards whose predictions diverge sharply from realized prices, which usually points to a data flaw or an unpredictable market buyout.
 
@@ -377,7 +403,8 @@ lorcana/
 │   ├── cleaning/                 # run_gemma_cleaner.R, dedupe_gemma4.R
 │   ├── preprocessing/            # preprocessing.R, chronos_data_processing.R
 │   ├── modeling/                 # train_lorcana_model.py, model_testing_gru.py,
-│   │                             #   chronos_transfer_learning.py, chronos_backtest.py,
+│   │                             #   chronos2_common.py, chronos2_inference.py,
+│   │                             #   chronos2_backfill_features.py, chronos_backtest.py,
 │   │                             #   buy_hold_sell_multinom.R (buy/hold/sell logistic)
 │   ├── inference/                # daily_inference_gru.py
 │   └── postprocessing/           # update_residuals.R, update_ts_metrics.R,
@@ -385,7 +412,7 @@ lorcana/
 │
 ├── exploration/                  # Ad-hoc analysis & experiments (softmax.R, etc.)
 ├── archive/shiny_app/            # Deprecated Shiny app (kept for reference)
-└── .github/workflows/            # 6 GitHub Actions workflows (see Automation)
+└── .github/workflows/            # 7 GitHub Actions workflows (see Automation)
 ```
 
 ---
@@ -395,7 +422,7 @@ lorcana/
 | Layer | Tools |
 | --- | --- |
 | **Languages** | R, Python (developed in [Positron](https://positron.posit.co/), which runs both) |
-| **Data / ML (Python)** | PyTorch, pandas, NumPy, Amazon Chronos, duckdb, python-dotenv |
+| **Data / ML (Python)** | PyTorch, pandas, NumPy, Amazon Chronos-2 (`chronos-forecasting` ≥ 2.x), duckdb, python-dotenv |
 | **Data / stats (R)** | tidyverse, DBI + duckdb, httr, jsonlite, `pracma`, `moments`, lubridate |
 | **ML (R)** | tidymodels (`parsnip`, `recipes`, `rsample`, `tune`, `yardstick`), `glmnet`, `probably` + `betacal` (calibration), `slider` |
 | **LLM cleaning** | Ollama serving Gemma (`gemma4:e2b`), local on the runner |
@@ -411,13 +438,16 @@ lorcana/
 - [ ] **Modularize `index.qmd`** into smaller, maintainable components.
 - [ ] **Diffusion Transformers & Sentiment:** Begin experimenting with diffusion transformer models and using LLMs to capture textual market sentiment.
 - [ ] **Rework the landing page** to include more interesting statistics.
-- [x] **Buy vs. Sell decision maker** leveraging the models and market metrics — shipped as a calibrated buy/hold/sell logistic (see [Forecasting Models](#forecasting-models)); next up is folding the GRU/Chronos forecasts in as features.
+- [x] **Buy vs. Sell decision maker** leveraging the models and market metrics — shipped as a calibrated buy/hold/sell logistic (see [Forecasting Models](#forecasting-models)).
+- [x] **Fold the forecasts into the decision maker** — done 2026-07-18: Chronos-2 forecast features are stacked into the buy/hold/sell model (walk-forward AUC 0.715 → 0.737).
 
 ---
 
 ## Changelog
 *(significant changes only)*
 
+- **2026-07-18** — **Chronos-2 upgrade + model stacking.** Replaced Chronos v1 with **Chronos-2** forecasting the TCG price with four eBay covariates (anchor gap, listing volume, churn, net flow) — ~50× faster (~7s for all cards) with native quantile output. Each run now also writes forecast-summary features (`chronos_stack_features`), which the buy/hold/sell multinomial **stacks as predictors** (after a ~152-origin rolling backfill for training data): walk-forward macro-AUC improved **0.715 → 0.737**, log-loss 0.701 → 0.692. The dashboard now leads with the single buy/hold/sell call (which has already read the forecast — no more "rising forecast but HOLD" contradictions), and the overview's Chronos outlook tile was replaced by an **eBay Hype Gauge** built on the anchor gap, with a per-card hype readout in each deep-dive. The weekly Chronos backtest was ported to Chronos-2 as well; the v1 script moved to `archive/`.
+- **2026-07-17** — **GRU removed from the front end.** The GRU forecast line and model pills were dropped from the dashboard: two independent forecast lines that could disagree confused readers more than they informed them. The GRU still trains weekly and infers daily (`gru_predictions`, residual tracking) as a pipeline-only benchmark.
 - **2026-07-12** — Added a **Buy / Hold / Sell signal**: a calibrated multinomial logistic (tidymodels + `glmnet`) in `pipeline/modeling/buy_hold_sell_multinom.R` emitting three probabilities per card from TCG price dynamics, all-time high/low position, and eBay volume/churn/premium. Walk-forward tuned (21d / ±7%) and beta-calibrated; scores land in the `buy_hold_sell_scores` table, refresh via the new **Daily Buy/Hold/Sell Signal** workflow, and appear in each card's dashboard deep-dive.
 - **2026-07-12** — Added an **eBay churn signal** to the GRU: `preprocessing.R` now derives a per-card, per-day listing churn rate + coverage mask, and the GRU temporal branch went from 2 to 4 input channels (`USE_EBAY_FEATURES` flag). Rolling-origin A/B showed churn lifts directional accuracy at every horizon and cuts wMAPE on the 30-day model, so **daily inference now serves the 30-day window**.
 - **2026-07-06** — Reorganized root-level scripts into `pipeline/{ingestion,cleaning,preprocessing,modeling,inference,postprocessing}` and `exploration/`, matching the data-pipeline stages above; updated all GitHub Actions workflows to the new paths.

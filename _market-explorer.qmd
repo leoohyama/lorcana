@@ -141,6 +141,43 @@
                 <div style="font-size:22px; font-weight:800; color:var(--text-main);">${Math.round(prob * 100)}%</div>
               </div>`;
     };
+    // Per-card hype gauge: eBay asks vs this card's own usual premium over TCG.
+    // Center-zero linear meter (clamped at ±40%): the fill grows left (cold,
+    // green) or right (hot, red) from the neutral tick, so direction reads from
+    // geometry and text, never color alone.
+    const hypeChip = (() => {
+      if (ci.anchor_gap == null || !isFinite(ci.anchor_gap)) return '';
+      const g = Math.expm1(ci.anchor_gap);
+      const CLAMP = 0.40;
+      const gc = Math.max(-CLAMP, Math.min(CLAMP, g));
+      const pos = 50 + (gc / CLAMP) * 50;              // marker position, % of track
+      const hot = g > 0.05, cold = g < -0.05;
+      const col = hot ? 'var(--accent-red)' : cold ? 'var(--accent-green)' : 'var(--text-muted)';
+      const fillL = Math.min(50, pos), fillW = Math.abs(pos - 50);
+      const desc = hot
+        ? 'asks are running hot — historically they correct back toward the TCG price rather than pull it up'
+        : cold ? "asks are running cold vs. their norm — sellers aren't reaching"
+        : "asks are in line with this card's usual premium";
+      const tip = `eBay asking prices are ${Math.abs(g * 100).toFixed(0)}% ${g >= 0 ? 'above' : 'below'} this card's own historical premium over the TCG price (gauge clamps at ±40%)`;
+      return `
+        <div style="margin-top:12px;" title="${tip}">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+            <span style="font-size:10px; letter-spacing:1px; font-weight:800; color:var(--text-muted);">EBAY HYPE GAUGE</span>
+            <span style="font-size:12px; font-weight:800; color:var(--text-main);">${g >= 0 ? '+' : '−'}${Math.abs(g * 100).toFixed(0)}% <span style="font-weight:600; color:var(--text-muted);">vs normal</span></span>
+          </div>
+          <div style="position:relative; height:10px; border-radius:5px; background:rgba(148,163,184,0.15);">
+            <div style="position:absolute; left:${fillL}%; width:${fillW}%; top:0; height:100%; background:${col};
+                        border-radius:${pos < 50 ? '5px 0 0 5px' : '0 5px 5px 0'};"></div>
+            <div style="position:absolute; left:50%; top:-2px; width:2px; height:14px; margin-left:-1px; background:var(--border-subtle);"></div>
+            <div style="position:absolute; left:${pos}%; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px;
+                        border-radius:50%; background:${col}; border:2px solid var(--bg-card);"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:9px; letter-spacing:0.5px; color:var(--text-muted); margin-top:3px;">
+            <span>▼ COLD</span><span>normal</span><span>HOT ▲</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); line-height:1.45; margin-top:4px;">eBay ${desc}.</div>
+        </div>`;
+    })();
     const panel = document.createElement("div");
     panel.className = "modal-panel";
     panel.style.padding = "12px 15px";
@@ -150,13 +187,16 @@
       <div style="font-size:11px; color:var(--text-muted); line-height:1.5; margin-bottom:10px;">
         <b style="color:var(--text-main);">Want this card?</b> A high <b style="color:var(--accent-green);">BUY</b> means the price is expected to rise over the next ~3 weeks — buying sooner may cost less.
         <b style="color:var(--text-main);">Already own it?</b> A high <b style="color:var(--accent-red);">SELL</b> means a price drop is likely — selling now may lock in more value.
-        A high <b style="color:var(--accent-yellow);">HOLD</b> means no meaningful move is expected either way.
+        A high <b style="color:var(--accent-yellow);">HOLD</b> means no meaningful move is expected either way —
+        including when a price is rising but the card is already expensive vs. its own range.
+        This signal already folds in the Chronos price forecast below, plus eBay supply and hype — it is the actionable call.
       </div>
       <div style="display:flex; gap:8px;">
         ${pill('BUY',  ci.p_buy,  '34,197,94',  'var(--accent-green)',  'buy')}
         ${pill('HOLD', ci.p_hold, '245,158,11', 'var(--accent-yellow)', 'hold')}
         ${pill('SELL', ci.p_sell, '239,68,68',  'var(--accent-red)',    'sell')}
-      </div>`;
+      </div>
+      ${hypeChip}`;
     return panel;
   }
 
@@ -271,7 +311,7 @@
           <thead>
             <tr>
               ${th('cardname', 'Card', 'sticky-card-col', 'Card name, version, rarity, and collector number.')}
-              ${th('c_pct_30d', 'Chronos', '', 'Projected 30-day price change from the Chronos model vs. the current market price.')}
+              ${th('c_pct_30d', 'Chronos', '', 'Projected 30-day price change from the Chronos-2 forecast (an input to the Buy/Hold/Sell signal, not a separate call). A rising forecast with a HOLD usually means the card is already expensive vs. its range.')}
             </tr>
           </thead>
           <tbody>
@@ -711,7 +751,7 @@
             <thead>
               <tr>
                 ${th('cardname', 'Card Identifier', 'sticky-card-col', 'Card name, version, rarity, and collector number.')}
-                ${th('c_pct_30d', 'Chronos (30D)', '', 'Projected 30-day price change from the Chronos model vs. the current market price.')}
+                ${th('c_pct_30d', 'Chronos (30D)', '', 'Projected 30-day price change from the Chronos-2 forecast (an input to the Buy/Hold/Sell signal, not a separate call). A rising forecast with a HOLD usually means the card is already expensive vs. its range.')}
                 ${th('delta', 'Market Spread', 'hide-on-mobile', 'Absolute gap between the current TCG market price and the recent median ungraded eBay sale price.')}
                 ${th('totalCount', 'eBay 7D Vol', 'hide-on-mobile', 'Count of unique validated eBay listings seen in the last 7 days — all grades and both auction and fixed-price/best-offer listings.')}
                 ${th('psa_10_med', 'PSA 10 (7D)', 'hide-on-mobile', 'Median graded PSA 10 eBay price over the last 7 days.')}

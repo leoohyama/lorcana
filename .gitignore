@@ -6,3 +6,4 @@
 .claude/
 CLAUDE.md
 CLAUDE.local.md
+__pycache__/

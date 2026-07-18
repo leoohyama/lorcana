@@ -56,12 +56,16 @@ A fantasy-portfolio game: set a pretend budget, "buy" cards at today's real pric
 <div class="guide-sec">🔮 How the Predictions Work (No AI Degree Needed)</div>
 
 **Who's making these forecasts?**
-A foundation time-series model with a well-traveled generalist's eye:
+Two layers working together, not competing:
 
-* **Chronos — the well-traveled generalist.** A model from Amazon that has studied millions of price charts and other time-based data from many fields. It doesn't know anything about Lorcana specifically — it recognizes the *shapes* that price charts make and predicts how those shapes usually continue.
+* **Chronos-2 — the well-traveled generalist.** A forecasting model from Amazon that has studied millions of price charts and other time-based data from many fields. It doesn't know anything about Lorcana specifically — it recognizes the *shapes* that price charts make and predicts how those shapes usually continue. Ours also watches each card's eBay market structure (listing supply, churn, and how far asks sit above their usual premium) as extra context.
+* **The Buy/Hold/Sell signal — the decision maker.** A calibrated statistical model that takes the Chronos-2 forecast *plus* everything it knows about the card (price position vs. its own highs and lows, momentum, eBay supply and hype) and turns it all into one actionable call.
+
+**Why does a card sometimes show a rising forecast but a HOLD?**
+Because "the price will drift up" and "this is a good buy" are different questions. A BUY also requires the card to be reasonably cheap versus its own range — a card that's rising but already near its all-time high is usually rated HOLD. The forecast line answers *where the price may go*; the signal answers *what to do about it*. When in doubt, trust the signal — it has already read the forecast.
 
 **How should I read a single forecast?**
-Treat it as one informed opinion, not a guarantee. It's most useful alongside the card's backtest error and the current market context — a forecast on a card whose past predictions have landed within a few percent is worth far more than one on a wildly unpredictable card.
+Treat it as one informed opinion, not a guarantee. It's most useful alongside the card's backtest error and the current market context — a forecast on a card whose past predictions have landed within a few percent is worth far more than one on a wildly unpredictable card. Note the forecast tracks the TCGplayer market price (anchored to actual sales), not eBay asking prices — asks mostly tell us about seller hopes, which is why they feed the hype gauge instead.
 
 **How do we know if the predictions are any good?**
 We constantly test them on the past — this is called *backtesting*. The idea is simple: hide the most recent month of real prices from the model, ask it to "predict" that month, then compare its answer to what actually happened. Repeat over and over.
@@ -100,3 +104,5 @@ Yes — they're retrained from scratch every week on the latest data, so a shift
 **Buy / Hold / Sell probability** — the estimated chance a card's price meaningfully rises / stays put / drops over about the next 3 weeks. The three always sum to 100%, and the largest one becomes the card's headline call.
 
 **Model confidence** — how decisive today's calls are on average, shown in the top menu. Low confidence days aren't broken — they're the model honestly saying "the market is hard to read right now."
+
+**eBay Hype Gauge / anchor gap** — how far a card's eBay asking prices sit above (or below) that card's *own* usual premium over the TCG price. Asks running unusually hot have historically corrected back toward the TCG price rather than pulled it up — so a hot gauge is a caution flag, not a green light.
