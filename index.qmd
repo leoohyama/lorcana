@@ -8,6 +8,10 @@ format:
     scrolling: true
     orientation: columns
     include-in-header: google-analytics.html
+    nav-buttons:
+      - text: "Experimental"
+        href: experimental.html
+        icon: flask
 execute:
   echo: false
   warning: false

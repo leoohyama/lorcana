@@ -96,6 +96,27 @@ the latent residual says "this card is cheap vs *its structural peers*".
   (blue↔red, gray at Δ=0). Importable; also runs standalone on dummy data.
 - `precompute_embeddings.py` — Stage A: one-off frozen ResNet-50 pass over
   `data/enchanteds/images` → `vision_embeddings.parquet`.
+- `pull_wikipedia.py` — one-off: resolve each character to a Wikipedia article
+  (Disney-context fuzzy match) and pull 12-month pageviews →
+  `characters_wikipedia.csv`. Re-run only when the character roster changes.
+- `build_experimental.py` — assembles the per-card dataset (raw stats from
+  `final_data.rds` via `card_raw_stats.csv`, wiki fame, image paths, pricing +
+  reconciliation provenance) and writes **`../../experimental.qmd`** — the
+  self-contained "Fair Value Lab" page for the Quarto site (renders to
+  `docs/experimental.html`). Data is embedded inline so the daily site build
+  never touches MotherDuck. Rebuild after any pipeline rerun.
+
+## Fair Value Lab (Quarto site, Experimental)
+
+A separate site page (linked from the main dashboard's navbar as
+"Experimental", `nav-buttons` in `index.qmd`) so the abstract latent-pricing
+concept isn't front-and-center for general users. Styled with the site's
+`_styles.qmd` (darkly, Inter). Features: plain-language definitions of **true
+value / fair value / mispricing**; a searchable master–detail card explorer;
+per-card detail with image, radial stat dials (cost/strength/willpower/lore),
+a diverging mispricing gauge, price-signal bars, the true-value reconciliation
+provenance, and the Wikipedia fame block (with match-quality flag). It is a
+**static snapshot** (dated on the page), not live like the main dashboard.
 - `reconcile_true_value.py` — **Block A**: reconcile eBay raw/graded asks +
   JustTCG into one true value per card (+ grade premium ladder, staleness).
   Run this first. Outputs `true_value.parquet`, `premium_ladder.csv`,
@@ -219,11 +240,37 @@ a *current* mispricing tool, not a time series:
   gave **zero OOF lift**. Scarcity is real and already captured; left out to
   keep the model lean.
 
+### Wikipedia character fame (`pull_wikipedia.py`)
+Pulled 12-month Wikipedia article pageviews per character as an exogenous
+demand-side fame proxy (to challenge the printing-count popularity signal).
+Coverage: **109 characters, 100% matched, 92 to their own character page**;
+the rest fall back to a film/list page (flagged `page_type`, noisier — a film
+page draws more views than the character alone). Resolution uses Disney-context
+search scored toward "fictional character" pages, with overrides for
+wrong-franchise namesakes (Pegasus/Goliath hit Marvel list-pages; fixed to
+Hercules/Gargoyles). Findings:
+- Fame **validates** the hypothesis: `corr(pageviews, empirical character
+  premium) = +0.24` — famous characters do command more.
+- But it's a **weak feature**: +0.003 OOF R², and *worse* than printing
+  counts as a standalone popularity proxy (0.65 vs 0.70). General cultural
+  fame ≠ Lorcana-specific desirability, which the publisher's print choices
+  already encode. Kept in the model as a minor external signal
+  (`wiki_log_pageviews`); the empirical LOO character effect remains the
+  primary character-premium signal.
+
+### Release age is a recency premium, not scarcity
+Refreshed `days_since_release` from `released_at` (replaces the stale z-scored
+`days_since_launch`; same signal, −1.0 correlated). Empirically the sign is
+**opposite the out-of-print-scarcity intuition**: `corr(days_since_release,
+value) = −0.44` — **newer cards are pricier**. A launch recency/hype premium
+dominates; Lorcana is young enough (oldest ~3 yr / 1,066 days) that old sets
+haven't gone truly scarce. Worth revisiting as sets age out of rotation.
+
 ### Remaining limitation / next step
-Censored (upper-bound) ask treatment; pulling excluded non-Enchanted printings
-into the character-premium estimate (Elsa has only 2 cards here, so +69% is
-shrunk from thin data); optional gtrendsR search-interest as an external
-fan-demand check (not installed on this machine).
+Censored (upper-bound) ask treatment; using `wiki_log_pageviews` as a fame
+*prior* for singleton characters the LOO effect can't estimate (121 of them);
+pulling excluded non-Enchanted printings into the character-premium estimate
+(Elsa has only 2 cards here, so +69% is shrunk from thin data).
 
 ## Earlier structural-only run (superseded)
 

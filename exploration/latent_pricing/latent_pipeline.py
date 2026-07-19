@@ -59,7 +59,11 @@ TABULAR_COLS = [
     "type_clean_Action", "type_clean_Action Song", "type_clean_Character",
     "type_clean_Item", "type_clean_Location",
     "rarity_Enchanted", "rarity_Epic", "rarity_Iconic",
-    "days_since_launch",
+    # release age (fresh from released_at). Empirically NEWER cards are pricier
+    # (corr -0.44 of days-since-release with value): a recency/hype premium
+    # dominates the out-of-print-scarcity effect - Lorcana is still young
+    # enough (oldest ~3yr) that old sets haven't gone truly scarce.
+    "days_since_release",
 ]
 # Demand block. Deliberately excludes any price LEVEL or near-copy of it.
 # - popularity: how often a character is printed / premium-treated (publisher
@@ -75,7 +79,14 @@ TABULAR_COLS = [
 # right sign in isolation (-0.18 vs +0.26 for the raw count) but is a linear
 # combination of two features already here, so Ridge forms it implicitly and
 # adding it explicitly gave no OOF lift - left out to keep the model lean.
-POPULARITY_COLS = ["log_n_printings", "log_n_premium"]
+# wiki_log_pageviews: exogenous Wikipedia fame (12-mo article pageviews per
+# character, from pull_wikipedia.py). Validates the fame->premium direction
+# (+0.24 corr with the empirical character premium) but is a WEAK feature:
+# +0.003 OOF R2, and a WORSE popularity proxy than printing counts on its own
+# (0.65 vs 0.70) - general cultural fame != Lorcana-specific desirability,
+# which the publisher's printing choices already encode. Kept as a valid but
+# minor external signal.
+POPULARITY_COLS = ["log_n_printings", "log_n_premium", "wiki_log_pageviews"]
 ACTIVITY_COLS = ["cv_30d", "hurst_30d", "log_n_listings", "log_median_age"]
 DEMAND_COLS = POPULARITY_COLS + ACTIVITY_COLS
 
@@ -87,6 +98,7 @@ def build_dataset() -> pd.DataFrame:
     tv = pd.read_parquet(HERE / "true_value.parquet")            # Block A target
     ts = pd.read_parquet(HERE / "card_ts_metrics.parquet")
     obs = pd.read_parquet(HERE / "listing_observations.parquet")
+    wiki = pd.read_csv(HERE / "characters_wikipedia.csv")        # exogenous fame
 
     # character popularity from the FULL card pool, before any filtering
     premium = tab[["rarity_Enchanted", "rarity_Epic", "rarity_Iconic",
@@ -97,6 +109,13 @@ def build_dataset() -> pd.DataFrame:
               .reset_index())
     pop["log_n_printings"] = np.log1p(pop.n_printings)
     pop["log_n_premium"] = np.log1p(pop.n_premium)
+
+    # fresh release age from released_at (as of today) - replaces the stale,
+    # z-scored days_since_launch. Newer cards are pricier here (see comment on
+    # TABULAR_COLS), so this carries a recency-premium effect, not scarcity.
+    names = names.copy()
+    names["days_since_release"] = (
+        pd.Timestamp.now().normalize() - pd.to_datetime(names.released_at)).dt.days
 
     # market-activity block from card_ts_metrics + listing depth / turnover.
     # eBay listings only (drop the single JustTCG obs) for the depth count.
@@ -109,8 +128,11 @@ def build_dataset() -> pd.DataFrame:
     liq["log_median_age"] = np.log1p(liq.median_age)
 
     df = (
-        tab.merge(pop[["character_id", *POPULARITY_COLS]], on="character_id")
-           .merge(names, on="id")
+        tab.drop(columns=["days_since_launch"])
+           .merge(pop[["character_id", "log_n_printings", "log_n_premium"]],
+                  on="character_id")
+           .merge(names[["id", "name", "version", "set_name", "rarity",
+                         "tcgplayer_id", "days_since_release"]], on="id")
            .merge(tv[["card_id", "true_log_value", "true_value_usd",
                       "true_value_se"]], left_on="id", right_on="card_id")
            .merge(vis, on="id")
@@ -118,11 +140,15 @@ def build_dataset() -> pd.DataFrame:
                   on="tcgplayer_id", how="left")
            .merge(liq[["card_id", "log_n_listings", "log_median_age"]],
                   on="card_id", how="left")
+           .merge(wiki[["character", "log_pageviews"]].rename(
+                  columns={"log_pageviews": "wiki_log_pageviews"}),
+                  left_on="name", right_on="character", how="left")
     )
     df = df[df.rarity.isin(UNIVERSE_RARITIES)].reset_index(drop=True)
 
-    # median-impute the few cards missing activity metrics (keeps them in play)
-    for c in ACTIVITY_COLS:
+    # median-impute cards missing activity/fame (non-character cards have no
+    # Wikipedia fame; a few cards lack activity metrics) so they stay in play.
+    for c in ACTIVITY_COLS + ["wiki_log_pageviews"]:
         df[c] = df[c].fillna(df[c].median())
 
     df["y"] = df.true_log_value  # regression target = reconciled true value
