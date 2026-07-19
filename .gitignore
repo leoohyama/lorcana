@@ -11,3 +11,6 @@
 CLAUDE.md
 CLAUDE.local.md
 __pycache__/
+
+# root build artifact only (leading slash); the committed copy lives in docs/
+/experimental_cards.json

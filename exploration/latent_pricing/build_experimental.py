@@ -104,6 +104,7 @@ format:
 resources:
   - "data/enchanteds/images/"
   - "lorecaster_logo.png"
+  - "experimental_cards.json"
 ---
 
 {{< include _styles.qmd >}}
@@ -223,7 +224,7 @@ resources:
   </div>
   <div class="fv-disclaim"><b>Experimental &mdash;</b> a research view of a latent-pricing model, not investment
     advice. "Fair value" is a statistical estimate with real uncertainty; treat large gaps as questions to
-    investigate, not signals to act on. Static snapshot as of __SNAPSHOT__ (the main dashboard is live).</div>
+    investigate, not signals to act on. Static snapshot as of <span id="fv-snap">&hellip;</span> (the main dashboard is live).</div>
 
   <div class="fv-controls">
     <input id="fv-search" placeholder="Search a card or character&hellip;">
@@ -242,7 +243,9 @@ resources:
 </div>
 
 <script>
-const FVDATA = __DATA__;
+// Data lives in a separate experimental_cards.json (fetched at load) so the
+// daily refresh rewrites only that small file, not this whole page.
+let FVDATA = [];
 const usd = v => v==null ? "&mdash;" : "$" + (v>=1000 ? Math.round(v).toLocaleString()
   : v>=100 ? Math.round(v) : v.toFixed(v<10?2:1));
 const pct = v => (v>=0?"+":"") + Math.round(v*100) + "%";
@@ -369,8 +372,15 @@ function renderList(){
 }
 document.getElementById("fv-search").oninput=renderList;
 document.getElementById("fv-sort").onchange=renderList;
-selected=[...FVDATA].sort((a,b)=>a.mispricing_pct-b.mispricing_pct)[0];
-renderList(); renderDetail(selected);
+fetch("experimental_cards.json").then(r=>r.json()).then(data=>{
+  FVDATA=data.cards;
+  const s=document.getElementById("fv-snap"); if(s) s.textContent=data.snapshot;
+  selected=[...FVDATA].sort((a,b)=>a.mispricing_pct-b.mispricing_pct)[0];
+  renderList(); renderDetail(selected);
+}).catch(e=>{
+  document.getElementById("fv-detail").innerHTML=
+    '<p class="empty">Could not load card data (experimental_cards.json).</p>';
+});
 </script>
 ```
 '''
@@ -378,10 +388,17 @@ renderList(); renderDetail(selected);
 
 def write_qmd():
     data = assemble()
-    out = (QMD.replace("__DATA__", json.dumps(data))
-              .replace("__SNAPSHOT__", pd.Timestamp.now().strftime("%b %-d, %Y")))
-    (ROOT / "experimental.qmd").write_text(out)
-    print(f"wrote experimental.qmd ({len(out):,} bytes, {len(data)} cards)")
+    # data (+ snapshot date) -> its own file (small daily diff); page shell ->
+    # fully STATIC qmd that fetches it, so daily refreshes never rewrite the
+    # page. Also drop the json into docs/ so a data-only refresh needs no
+    # re-render - just this one file re-committed.
+    payload = json.dumps({
+        "snapshot": pd.Timestamp.now().strftime("%b %-d, %Y"), "cards": data})
+    (ROOT / "experimental_cards.json").write_text(payload)
+    (ROOT / "docs" / "experimental_cards.json").write_text(payload)
+    (ROOT / "experimental.qmd").write_text(QMD)
+    print(f"wrote experimental.qmd (static shell {len(QMD):,} b) + "
+          f"experimental_cards.json ({len(data)} cards)")
 
 
 if __name__ == "__main__":

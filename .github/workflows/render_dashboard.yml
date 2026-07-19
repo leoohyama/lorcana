@@ -26,13 +26,31 @@ jobs:
       # We deleted BOTH the R setup and Quarto setup steps!
       # It will instantly use the R and Quarto installations already living on your Mac.
 
-      - name: 📊 Render Dashboard        
-        env:          
-          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}        
+      - name: 📊 Render Dashboard
+        env:
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
         run: quarto render index.qmd
 
-      - name: 🚀 Commit and Push        
-        uses: stefanzweifel/git-auto-commit-action@v5        
-        with:          
-          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"          
+      # Refresh the experimental Fair Value Lab off today's eBay + JustTCG.
+      # Only true value + fair value are recomputed; the ResNet art embeddings
+      # (vision_embeddings.parquet) and Wikipedia fame are frozen, so no torch
+      # and no image decode here. Writes docs/experimental_cards.json, which
+      # the static page fetches. continue-on-error keeps a latent-pipeline
+      # hiccup from ever blocking the main dashboard render/commit; a failed
+      # run just leaves yesterday's data in place. && chaining means a failed
+      # reconcile never publishes stale numbers as if fresh.
+      - name: 🧪 Refresh Fair Value Lab (latent pricing)
+        continue-on-error: true
+        env:
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+        run: |
+          PY=/Users/leoohyama/opt/miniconda3/envs/lorcana-ml/bin/python
+          $PY exploration/latent_pricing/reconcile_true_value.py \
+            && $PY exploration/latent_pricing/latent_pipeline.py \
+            && $PY exploration/latent_pricing/build_experimental.py
+
+      - name: 🚀 Commit and Push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🌐 Auto-render: Daily Quarto dashboard update"
           file_pattern: 'docs/*'
