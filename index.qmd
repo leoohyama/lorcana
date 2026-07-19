@@ -31,8 +31,10 @@ resources:
 # ==============================================================================
 source("R/setup.R", local = knitr::knit_global())
 
-# Broadcast In-Memory Data Structures to OJS Space
-ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay = ebay_master, ojs_ebay_titles = ebay_title_dict, ojs_metrics = backtest_metrics, ojs_global_stats = global_stats, ojs_churn = daily_churn, ojs_signal_metrics = signal_metrics)
+# Broadcast In-Memory Data Structures to OJS Space.
+# eBay ships pre-aggregated (see R/setup.R §1.11): per-day price arrays + dims
+# + per-card 7d unique counts + latest-day item rows — not raw listings.
+ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_flat, ojs_info = unified, ojs_ebay_daily = ebay_daily, ojs_ebay_dims = ebay_dims, ojs_ebay_counts = ebay_counts, ojs_ebay_card_days = ebay_card_days, ojs_ebay_today = ebay_today, ojs_metrics = backtest_metrics, ojs_global_stats = global_stats, ojs_churn = daily_churn, ojs_signal_metrics = signal_metrics)
 ```
 
 {{< include _styles.qmd >}}

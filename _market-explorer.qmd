@@ -17,36 +17,25 @@
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  // Structural pricing calculator
+  // Structural pricing calculator: IQR-trimmed median over the trailing 7 days
+  // (window ends at the subset's own latest pull). Unique-listing counts moved
+  // to the backend (ebay_counts_map) — flat rows no longer carry item_ids.
   function getMedianAndCount(listings) {
-      if(listings.length === 0) return { median: null, count: 0 };
+      if(listings.length === 0) return { median: null };
       let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
       let max_date_ms = new Date(max_date_str).getTime();
       let recent_listings = listings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000));
-      let unique_ids = new Set(recent_listings.map(e => e.item_id));
-      let count = unique_ids.size;
       let prices = recent_listings.map(e => e.clean_price).sort((a,b) => a - b);
-      if (prices.length === 0) return { median: null, count: 0 };
+      if (prices.length === 0) return { median: null };
       if (prices.length < 4) {
          let mid = Math.floor(prices.length/2);
-         return { median: prices.length % 2 !== 0 ? prices[mid] : (prices[mid-1] + prices[mid])/2, count: count };
+         return { median: prices.length % 2 !== 0 ? prices[mid] : (prices[mid-1] + prices[mid])/2 };
       }
       let q1 = prices[Math.floor(prices.length * 0.25)], q3 = prices[Math.floor(prices.length * 0.75)];
       let filtered = prices.filter(p => p >= q1 && p <= q3);
-      if(filtered.length === 0) return { median: null, count: count };
+      if(filtered.length === 0) return { median: null };
       let mid = Math.floor(filtered.length/2);
-      return { median: filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2, count: count };
-  }
-
-  // Count-only helper: unique item_ids seen in the last 7 days. Unlike getMedianAndCount
-  // this is fed the FULL listing set (all grades + auctions) so the volume figure reflects
-  // total market supply, independent of the auction-free / ungraded-only price median.
-  function count7dUnique(listings) {
-      if(listings.length === 0) return 0;
-      let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
-      let max_date_ms = new Date(max_date_str).getTime();
-      let recent = listings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000));
-      return new Set(recent.map(e => e.item_id)).size;
+      return { median: filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2 };
   }
 
   // Rolling 7-day median ending at an arbitrary timestamp (for 30D shift indicators)
@@ -80,8 +69,10 @@
     let raw_stats = getMedianAndCount(card_ebay_raw);
     let psa_stats = getMedianAndCount(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10" && !e.is_auction));
     let delta = (raw_stats.median !== null && d.current_price) ? Math.abs(raw_stats.median - d.current_price) : null;
-    // 7D volume: ALL listings for the card — every grade + auctions — count only.
-    let totalCount = count7dUnique(clean_ebay_master.filter(e => e.cardname === d.cardname));
+    // 7D volume: ALL listings for the card — every grade + auctions. Unique
+    // item counting needs listing identity, so it's precomputed in R
+    // (ojs_ebay_counts -> ebay_counts_map); same trailing-7-day window.
+    let totalCount = ebay_counts_map.get(d.cardname) || 0;
 
     return {
       ...d, c_pred_30d: c_pred, c_pct_30d: c_pct,
@@ -553,9 +544,15 @@
           }, {responsive: true, displayModeBar: false});
         }
 
-        // Current-day listings only — the links table holds just the latest pull.
-        let latest_pull = scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
-        let r_7d = scopedListings.filter(e => e.date_pulled === latest_pull);
+        // Current-day listings only — item-level rows (with ids + titles) come
+        // from ebay_today_master: each (label×lang×auction) group's latest-day
+        // rows. Taking the max date across the SCOPED rows and filtering to it
+        // reproduces the old full-data "latest pull in scope" behaviour.
+        const scopedToday = ebay_today_master.filter(d => d.cardname === cardname &&
+          (selLang === "All" || d.card_language === selLang) &&
+          (selComp === "All" || d.grading_company === selComp));
+        let latest_pull = scopedToday.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
+        let r_7d = scopedToday.filter(e => e.date_pulled === latest_pull);
 
         const buildListHTML = (title, lbl) => {
            let subset = r_7d.filter(d => d.label === lbl);
@@ -1017,9 +1014,13 @@
           }, {responsive: true, displayModeBar: false});
         }
 
-        // Current-day listings only — the links table holds just the latest pull.
-        let latest_pull = scopedListings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
-        let r_7d = scopedListings.filter(e => e.date_pulled === latest_pull);
+        // Current-day listings only — item-level rows (ids + titles) from
+        // ebay_today_master; same scoped "latest pull" reproduction as desktop.
+        const scopedToday = ebay_today_master.filter(d => d.cardname === cardname &&
+          (selLang === "All" || d.card_language === selLang) &&
+          (selComp === "All" || d.grading_company === selComp));
+        let latest_pull = scopedToday.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, "2000-01-01");
+        let r_7d = scopedToday.filter(e => e.date_pulled === latest_pull);
       
         const buildListHTML = (title, lbl) => {
            let subset = r_7d.filter(d => d.label === lbl);

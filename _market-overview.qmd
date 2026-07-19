@@ -116,18 +116,8 @@ safeTranspose = (data) => {
 
 Plotly = require("plotly.js-dist-min@2.30.0")
 
-// Reconstruct incoming title pairs directly for linear search dictionary
-ebay_title_map = {
-  const map = new Map();
-  if (ojs_ebay_titles && ojs_ebay_titles.item_id && ojs_ebay_titles.listing_title) {
-    const ids = Array.from(ojs_ebay_titles.item_id);
-    const titles = Array.from(ojs_ebay_titles.listing_title);
-    for (let i = 0; i < ids.length; i++) {
-      if (ids[i] && titles[i]) map.set(String(ids[i]).trim(), titles[i]);
-    }
-  }
-  return map;
-}
+// (listing-title lookup now derives from ojs_ebay_today — see the eBay data
+// plumbing section below, which defines ebay_title_map.)
 
 // Build a live eBay listing URL straight from the item_id (format: v1|<legacyId>|<var>).
 // The id already encodes the listing number, so no stored links / extra table is needed.
@@ -160,36 +150,64 @@ openInExplorer = (name) => {
   }, 130);
 }
 
-// Global programmatic data sanitization step for raw listing objects
-clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
-  let rawGrade = d.grade_val ? d.grade_val.toString().replace(/['"]/g, '').trim() : "UNG";
-  let rawComp = d.grading_company ? d.grading_company.toString().replace(/['"]/g, '').trim() : "UNG";
+// ==============================================================================
+// eBay data plumbing. The backend (R/setup.R §1.11) now ships pre-aggregated
+// structures instead of ~200k raw listing rows: label cleaning already applied
+// (exact R port of the old JS logic, verified 80/80 against it in-browser).
+//   ojs_ebay_dims   — dictionaries: cards / dates / labels / langs
+//   ojs_ebay_daily  — per card×day×label×auction×lang: price array + unique n
+//   ojs_ebay_counts — per card: unique listings in its trailing 7 days
+//   ojs_ebay_today  — per group's latest-day item rows (listings tables)
+// ==============================================================================
+ebay_dims = {
+  const d = (typeof ojs_ebay_dims !== 'undefined' && ojs_ebay_dims) ? ojs_ebay_dims : {};
+  const arr = x => Array.isArray(x) ? x : (x == null ? [] : [x]);
+  return { cards: arr(d.cards), dates: arr(d.dates), labels: arr(d.labels), langs: arr(d.langs) };
+}
 
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawComp)) rawComp = "UNG";
-  if (/^(NA|N\/A|NONE|NULL|UNG|UNGRADED)$/i.test(rawGrade)) rawGrade = "UNG";
-
-  let numMatch = rawGrade.match(/\b([1-9](\.[0-9]+)?|10(\.0+)?)\b/);
-  let cleanGrade = "UNG";
-  if (numMatch && rawGrade !== "UNG") {
-    let parsed = parseFloat(numMatch[0]);
-    if (parsed > 0 && parsed <= 10) cleanGrade = parsed.toString();
-  }
-
-  let cleanCompany = (cleanGrade === "UNG" || rawComp === "UNG") ? "UNG" : rawComp;
-  if (cleanCompany === "UNG") cleanGrade = "UNG";
-
-  let label = cleanCompany === 'UNG' ? 'Ungraded' : `${cleanCompany} ${cleanGrade}`;
-  let lang = d.card_language ? d.card_language : "English";
-
-  // Auction listings (listing_type contains "AUCTION") are counted toward supply/volume
-  // but excluded from all price/median math — auction current-bids are not clean price signal.
-  let is_auction = /AUCTION/i.test(d.listing_type || "");
-
+// Grouped per-day rows. grading_company is recoverable from the label
+// ("Ungraded" -> UNG).
+ebay_group_rows = (safeTranspose(ojs_ebay_daily) || []).map(d => {
+  const label = ebay_dims.labels[d.li];
   return {
-    ...d, grade_val: cleanGrade, grading_company: cleanCompany, clean_price: +d.price_val, card_language: lang,
-    label: label, is_auction: is_auction, hover_text: `<b>${d.cardname}</b><br>${label}<br>$${d.price_val}<br>Date: ${d.date_pulled}`
+    cardname: ebay_dims.cards[d.ci], date_pulled: ebay_dims.dates[d.di],
+    label: label, grading_company: label === "Ungraded" ? "UNG" : label.split(" ")[0],
+    card_language: ebay_dims.langs[d.gi], is_auction: !!d.a,
+    prices: String(d.p).split("|").map(Number)
   };
-}).filter(d => !isNaN(d.clean_price) && d.clean_price > 0 && !(d.grading_company === "PSA" && String(d.grade_val).includes(".")));
+});
+
+// Per (card x day): true unique listing counts (item-identity dedup done in R).
+ebay_card_day_rows = (safeTranspose(ojs_ebay_card_days) || []).map(d => ({
+  cardname: ebay_dims.cards[d.ci], date_pulled: ebay_dims.dates[d.di], n: d.n
+}));
+
+// Flat listing rows (one per price, duplicates preserved) — every median /
+// volume computation downstream operates on these exactly as it did on the
+// raw feed. Only item_id is gone; unique counts come from `u` / ojs_ebay_counts.
+clean_ebay_master = ebay_group_rows.flatMap(g => g.prices.map(v => ({
+  cardname: g.cardname, date_pulled: g.date_pulled, label: g.label,
+  grading_company: g.grading_company, card_language: g.card_language,
+  is_auction: g.is_auction, clean_price: v
+})));
+
+// Per-card "unique validated listings, trailing 7 days" (the eBay 7D Vol column).
+ebay_counts_map = new Map((safeTranspose(ojs_ebay_counts) || [])
+  .map(d => [ebay_dims.cards[d.ci], d.n7]));
+
+// Latest-day item rows per (card×lang×label×auction) group, for the
+// "today's listings" tables — these carry real item_ids and titles.
+ebay_today_master = (safeTranspose(ojs_ebay_today) || []).map(d => {
+  const label = ebay_dims.labels[d.li];
+  return {
+    cardname: ebay_dims.cards[d.ci], date_pulled: ebay_dims.dates[d.di],
+    label: label, grading_company: label === "Ungraded" ? "UNG" : label.split(" ")[0],
+    card_language: ebay_dims.langs[d.gi], is_auction: !!d.a,
+    item_id: d.item_id, clean_price: +d.price, listing_title: d.title
+  };
+});
+
+ebay_title_map = new Map(ebay_today_master.map(d => [String(d.item_id).trim(), d.listing_title]));
 
 // Navbar menu badge: today's Buy/Hold/Sell model confidence, always visible.
 // Clicking it jumps to the Market Explorer, which carries the full health readout.
@@ -446,10 +464,10 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
 // SECTION 2.5.6: SUPPLY HIGHLIGHTS — listing-count movers & extremes
 // ==============================================================================
 {
-  const listings = clean_ebay_master || [];
-  if (listings.length === 0) return html`<div style="padding:20px; color:var(--text-muted); font-style:italic;">Awaiting listing data...</div>`;
+  const groups = ebay_group_rows || [];
+  if (groups.length === 0) return html`<div style="padding:20px; color:var(--text-muted); font-style:italic;">Awaiting listing data...</div>`;
 
-  const dates = [...new Set(listings.map(d => d.date_pulled))].sort();
+  const dates = [...new Set(groups.map(d => d.date_pulled))].sort();
   const latest = dates[dates.length - 1];
   const latestMs = new Date(latest).getTime();
   // Baseline = the most recent pull that is at least 7 days before the latest pull.
@@ -458,14 +476,10 @@ clean_ebay_master = (safeTranspose(ojs_ebay) || []).map(d => {
     if (new Date(dates[i]).getTime() <= latestMs - 7 * 24 * 60 * 60 * 1000) { baseline = dates[i]; break; }
   }
 
+  // Unique listings per card on a date (item-identity dedup precomputed in R).
   const uniqOn = (date) => {
-    const m = new Map();
-    listings.filter(d => d.date_pulled === date).forEach(d => {
-      if (!m.has(d.cardname)) m.set(d.cardname, new Set());
-      m.get(d.cardname).add(d.item_id);
-    });
     const out = new Map();
-    m.forEach((s, k) => out.set(k, s.size));
+    ebay_card_day_rows.filter(d => d.date_pulled === date).forEach(d => out.set(d.cardname, d.n));
     return out;
   };
   const todayCounts = uniqOn(latest);

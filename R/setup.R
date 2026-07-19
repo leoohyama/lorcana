@@ -102,10 +102,37 @@ signal_metrics <- tryCatch(dbGetQuery(con, "SELECT horizon, auc, brier, logloss,
 
 # --- 1.9 Fetch Validated eBay Datasets (Extended Window to 40 Days) ---
 # NOTE: auctions are intentionally retained here (no listing_type filter). The
-# `is_auction` flag derived from listing_type in OJS EXCLUDES auctions from all
+# `is_auction` flag derived from listing_type EXCLUDES auctions from all
 # price/median math while INCLUDING them in listing counts and supply volumes.
 raw_ebay_sql <- tryCatch(dbGetQuery(con, "SELECT a.item_id::text AS item_id, a.price_val, a.listing_type, DATE(a.date_pulled) as date_pulled, l.id, l.grading_company, l.grade_val, l.card_language FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '40 days' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
 raw_ebay_titles <- tryCatch(dbGetQuery(con, "SELECT DISTINCT ON (a.item_id) a.item_id::text AS item_id, a.listing_title FROM lorcana_active_listings a INNER JOIN llm_listing_metadata l ON a.item_id::text = l.item_id WHERE l.is_valid IS TRUE AND a.price_val > 0 AND a.date_pulled >= CURRENT_DATE - INTERVAL '7 days' AND a.listing_title IS NOT NULL"), error = function(e) data.frame())
+
+# --- 1.9.1 Listing label cleaning (exact R port of the former OJS logic) ---
+# Verified 80/80 against the JS implementation evaluated in-browser (2026-07-19).
+# JS \b word-boundaries are replaced with [A-Za-z0-9_] lookarounds because
+# stringi's \b fails silently on this machine.
+clean_listing_labels <- function(grading_company, grade_val) {
+  raw_comp  <- str_trim(str_replace_all(coalesce(as.character(grading_company), "UNG"), "['\"]", ""))
+  raw_grade <- str_trim(str_replace_all(coalesce(as.character(grade_val), "UNG"), "['\"]", ""))
+  raw_comp[raw_comp == ""]   <- "UNG"
+  raw_grade[raw_grade == ""] <- "UNG"
+  raw_comp[str_detect(raw_comp, regex("^(NA|N/A|NONE|NULL|UNG|UNGRADED)$", ignore_case = TRUE))] <- "UNG"
+  raw_grade[str_detect(raw_grade, regex("^(NA|N/A|NONE|NULL|UNG|UNGRADED)$", ignore_case = TRUE))] <- "UNG"
+  num <- str_extract(raw_grade, regex("(?<![A-Za-z0-9_])([1-9](\\.[0-9]+)?|10(\\.0+)?)(?![A-Za-z0-9_])"))
+  parsed <- suppressWarnings(as.numeric(num))
+  clean_grade <- ifelse(!is.na(parsed) & raw_grade != "UNG" & parsed > 0 & parsed <= 10,
+                        vapply(parsed, function(x) format(x, trim = TRUE, drop0trailing = TRUE, scientific = FALSE), ""),
+                        "UNG")
+  clean_grade[is.na(clean_grade)] <- "UNG"
+  clean_comp <- ifelse(clean_grade == "UNG" | raw_comp == "UNG", "UNG", raw_comp)
+  clean_grade <- ifelse(clean_comp == "UNG", "UNG", clean_grade)
+  tibble(
+    grading_company = clean_comp,
+    grade_val = clean_grade,
+    label = ifelse(clean_comp == "UNG", "Ungraded", paste(clean_comp, clean_grade)),
+    psa_fractional = clean_comp == "PSA" & str_detect(clean_grade, fixed("."))
+  )
+}
 
 dbDisconnect(con)
 
@@ -133,8 +160,89 @@ anchor_gaps <- tryCatch(
   error = function(e) data.frame())
 if (nrow(anchor_gaps) > 0) unified <- unified %>% left_join(anchor_gaps, by = "tcgplayer_id")
 
-if(nrow(raw_ebay_sql) > 0) {
-  ebay_master <- raw_ebay_sql %>% mutate(id = as.character(id)) %>% inner_join(master_dict %>% select(id, cardname), by = "id") %>% mutate(grade_val = replace_na(as.character(grade_val), "UNG"), grading_company = replace_na(as.character(grading_company), "UNG"), card_language = replace_na(as.character(card_language), "English"), date_pulled = as.character(date_pulled), price_val = round(as.numeric(price_val), 2), item_id = as.character(item_id), listing_type = replace_na(as.character(listing_type), "")) %>% select(item_id, cardname, date_pulled, price_val, grading_company, grade_val, card_language, listing_type)
-} else { ebay_master <- data.frame(item_id=character(), cardname=character(), date_pulled=character(), price_val=numeric(), grading_company=character(), grade_val=character(), card_language=character(), listing_type=character()) }
+# --- 1.11 Aggregate eBay listings for the front end -------------------------
+# Replaces the former raw ojs_ebay feed (~200k rows / 32 MB embedded in the
+# page) with compact pre-aggregated structures (~2-3 MB). The OJS keeps its
+# exact median math by exploding per-day price arrays client-side; only the
+# cross-date UNIQUE-listing counts (which need item identity) are precomputed
+# here. Duplicate same-day rows are kept inside the price arrays (medians see
+# them, exactly as before); `u` counts distinct item_ids per group per day.
+if (nrow(raw_ebay_sql) > 0) {
+  ebay_clean <- raw_ebay_sql %>%
+    mutate(id = as.character(id)) %>%
+    inner_join(master_dict %>% select(id, cardname), by = "id") %>%
+    bind_cols(clean_listing_labels(.$grading_company, .$grade_val) %>%
+                select(-grading_company, -grade_val)) %>%
+    mutate(
+      card_language = replace_na(as.character(card_language), "English"),
+      date_pulled = as.character(date_pulled),
+      clean_price = round(as.numeric(price_val), 2),
+      item_id = as.character(item_id),
+      is_auction = str_detect(replace_na(as.character(listing_type), ""), regex("AUCTION", ignore_case = TRUE))
+    ) %>%
+    # same row-drop the OJS applied: fractional PSA grades are suspect listings
+    filter(!psa_fractional, !is.na(clean_price), clean_price > 0)
 
-if(nrow(raw_ebay_titles) > 0) { ebay_title_dict <- raw_ebay_titles %>% mutate(item_id = as.character(item_id), listing_title = replace_na(as.character(listing_title), "Unknown Title")) } else { ebay_title_dict <- data.frame(item_id=character(), listing_title=character()) }
+  # dimension dictionaries (0-based indexes for direct JS array access)
+  dim_cards  <- sort(unique(ebay_clean$cardname))
+  dim_dates  <- sort(unique(ebay_clean$date_pulled))
+  dim_labels <- sort(unique(ebay_clean$label))
+  dim_langs  <- sort(unique(ebay_clean$card_language))
+  ebay_dims <- list(cards = I(dim_cards), dates = I(dim_dates),
+                    labels = I(dim_labels), langs = I(dim_langs))
+
+  # per (card x day x label x auction-flag x language): all prices (dupes kept,
+  # exactly as the old raw feed fed the median math)
+  ebay_daily <- ebay_clean %>%
+    group_by(cardname, date_pulled, label, is_auction, card_language) %>%
+    summarise(
+      p = paste(vapply(clean_price, function(x) format(x, trim = TRUE, drop0trailing = TRUE, scientific = FALSE), ""), collapse = "|"),
+      .groups = "drop") %>%
+    transmute(
+      ci = match(cardname, dim_cards) - 1L, di = match(date_pulled, dim_dates) - 1L,
+      li = match(label, dim_labels) - 1L, gi = match(card_language, dim_langs) - 1L,
+      a = as.integer(is_auction), p = p)
+
+  # per (card x day): TRUE unique listing count (item-identity dedup across all
+  # labels/languages/listing-types — an item can double-list under two
+  # listing_types the same day, so this can't be summed from group rows).
+  ebay_card_days <- ebay_clean %>%
+    group_by(cardname, date_pulled) %>%
+    summarise(n = n_distinct(item_id), .groups = "drop") %>%
+    transmute(ci = match(cardname, dim_cards) - 1L,
+              di = match(date_pulled, dim_dates) - 1L, n = as.integer(n))
+
+  # per card: unique listings in the 7 days ending at the card's latest pull
+  # (all grades, auctions included) — the master table's "eBay 7D Vol".
+  ebay_counts <- ebay_clean %>%
+    mutate(d = as.Date(date_pulled)) %>%
+    group_by(cardname) %>%
+    summarise(n7 = n_distinct(item_id[d >= max(d) - 7]), .groups = "drop") %>%
+    transmute(ci = match(cardname, dim_cards) - 1L, n7 = as.integer(n7))
+
+  # per (card x language x label x auction-flag): that group's latest-day item
+  # rows, for the "today's listings" tables. The modal computes its own scoped
+  # latest date from these, reproducing the old full-data behaviour exactly.
+  title_lookup <- if (nrow(raw_ebay_titles) > 0) {
+    raw_ebay_titles %>% mutate(item_id = as.character(item_id))
+  } else { data.frame(item_id = character(), listing_title = character()) }
+  ebay_today <- ebay_clean %>%
+    group_by(cardname, card_language, label, is_auction) %>%
+    filter(date_pulled == max(date_pulled)) %>% ungroup() %>%
+    left_join(title_lookup, by = "item_id") %>%
+    mutate(listing_title = replace_na(as.character(listing_title), "Unknown Title")) %>%
+    transmute(
+      ci = match(cardname, dim_cards) - 1L, di = match(date_pulled, dim_dates) - 1L,
+      li = match(label, dim_labels) - 1L, gi = match(card_language, dim_langs) - 1L,
+      a = as.integer(is_auction), item_id = item_id,
+      price = clean_price, title = listing_title)
+} else {
+  ebay_dims <- list(cards = I(character()), dates = I(character()),
+                    labels = I(character()), langs = I(character()))
+  ebay_daily <- data.frame(ci = integer(), di = integer(), li = integer(),
+                           gi = integer(), a = integer(), p = character())
+  ebay_card_days <- data.frame(ci = integer(), di = integer(), n = integer())
+  ebay_counts <- data.frame(ci = integer(), n7 = integer())
+  ebay_today <- data.frame(ci = integer(), di = integer(), li = integer(), gi = integer(),
+                           a = integer(), item_id = character(), price = numeric(), title = character())
+}
