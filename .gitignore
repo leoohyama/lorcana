@@ -2,6 +2,10 @@
 /.quarto/
 **/*.quarto_ipynb
 
+# macOS Finder metadata (churns constantly; a cross-machine conflict source)
+.DS_Store
+**/.DS_Store
+
 # Local Claude Code tooling (never share)
 .claude/
 CLAUDE.md
