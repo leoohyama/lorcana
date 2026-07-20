@@ -233,14 +233,37 @@ recipe_for <- function(train_df) {
     step_zv(all_predictors()) %>% step_normalize(all_numeric_predictors())
 }
 
-# beta calibration is smoothest but its uniroot fit can fail on degenerate
-# slices; fall back to isotonic (always solvable) so daily runs never crash.
+# Clip predicted probabilities off exact 0/1 before calibrating. glmnet can emit
+# probs at ~1.0 (near class separation); those blow up beta's internal log(1-p)
+# (-> beta fails) and give isotonic exact ties it collapses into a 0/1 step. A
+# tiny inward clip keeps every calibrator well-conditioned. Records which method
+# was actually used in the returned object's attributes for the health check.
+CAL_EPS <- 1e-3
+clip_preds <- function(df) {
+  cols <- c(".pred_buy", ".pred_hold", ".pred_sell")
+  m <- as.matrix(df[cols]); m <- pmin(pmax(m, CAL_EPS), 1 - CAL_EPS); m <- m / rowSums(m)
+  df[cols] <- m; df
+}
+
+# Calibrator cascade, smoothest first: beta (parametric, no saturation) ->
+# bootstrapped isotonic (averages many isotonic fits, so far fewer step ties than
+# plain isotonic) -> plain isotonic (always solvable, last resort). Whichever
+# succeeds is tagged via attr(, "cal_method") so downstream can flag a fallback.
 fit_calibrator <- function(preds_df) {
+  preds_df <- clip_preds(preds_df)
+  tag <- function(obj, m) { attr(obj, "cal_method") <- m; obj }
   tryCatch(
-    cal_estimate_beta(preds_df, truth = label, estimate = dplyr::starts_with(".pred_")),
-    error = function(e) {
-      message("   (beta calibration failed -> isotonic fallback)")
-      cal_estimate_isotonic(preds_df, truth = label, estimate = dplyr::starts_with(".pred_"))
+    tag(cal_estimate_beta(preds_df, truth = label, estimate = dplyr::starts_with(".pred_")), "beta"),
+    error = function(e1) {
+      message("   (beta calibration failed: ", conditionMessage(e1), " -> isotonic_boot)")
+      tryCatch(
+        tag(cal_estimate_isotonic_boot(preds_df, truth = label,
+                                       estimate = dplyr::starts_with(".pred_")), "isotonic_boot"),
+        error = function(e2) {
+          message("   (isotonic_boot failed: ", conditionMessage(e2), " -> isotonic)")
+          tag(cal_estimate_isotonic(preds_df, truth = label,
+                                    estimate = dplyr::starts_with(".pred_")), "isotonic")
+        })
     })
 }
 
@@ -269,7 +292,7 @@ walkforward_eval <- function(labeled, wf, best, train_end, test_start) {
     cal_slice <- labeled %>% filter(date < min(chunk$date), date >= min(chunk$date) - CAL_DAYS)
     if (nrow(cal_slice) < 200) next
     cmod <- fit_calibrator(augment(mfit, cal_slice))
-    out[[as.character(m)]] <- cal_apply(augment(mfit, chunk), cmod)
+    out[[as.character(m)]] <- cal_apply(clip_preds(augment(mfit, chunk)), cmod)
   }
   pooled <- bind_rows(out)
   list(mfit = mfit,
@@ -351,16 +374,40 @@ cal_cut      <- max(labeled$date) - CAL_DAYS
 deploy_model <- fit(finalize_workflow(tb$wf, tb$best), data = labeled %>% filter(date <= cal_cut))
 cal_deploy   <- fit_calibrator(augment(deploy_model, labeled %>% filter(date > cal_cut)))
 
-clamp_norm <- function(df) {  # keep each prob in [0.01, 0.98], renormalize -> no degenerate 0/1
+CLAMP_LO <- 0.01; CLAMP_HI <- 0.98
+clamp_norm <- function(df) {  # keep each prob in [CLAMP_LO, CLAMP_HI], renormalize -> no degenerate 0/1
   m <- as.matrix(df[c(".pred_buy", ".pred_hold", ".pred_sell")])
-  m <- pmin(pmax(m, 0.01), 0.98); m <- m / rowSums(m)
+  m <- pmin(pmax(m, CLAMP_LO), CLAMP_HI); m <- m / rowSums(m)
   df$.pred_buy <- m[, 1]; df$.pred_hold <- m[, 2]; df$.pred_sell <- m[, 3]; df
+}
+
+# SAFETY GATE: returns a character vector of problems (empty = healthy). A broken
+# calibrator (e.g. isotonic collapsing a wide raw range into a 0/1 step) shows up
+# as a large mass of cards pinned at the clamp ceiling -- healthy runs sit near
+# ~0.4% (1/283); the 2026-07-20 incident hit 15.5%. We refuse to publish when the
+# output carries this signature so degenerate probabilities never reach the dash.
+MAX_CEILING_FRAC <- 0.08   # fail if >8% of cards are pinned at the clamp ceiling
+validate_scores <- function(s) {
+  probs <- as.matrix(s[c("p_buy", "p_hold", "p_sell")])
+  issues <- character(0)
+  if (any(!is.finite(probs)))
+    issues <- c(issues, sprintf("%d non-finite probabilities", sum(!is.finite(probs))))
+  bad_sum <- abs(rowSums(probs) - 1) > 0.02          # NA on any non-finite row (already flagged above)
+  if (any(bad_sum, na.rm = TRUE))
+    issues <- c(issues, sprintf("%d rows whose probabilities do not sum to 1", sum(bad_sum, na.rm = TRUE)))
+  maxp <- do.call(pmax, as.data.frame(probs))
+  frac_ceiling <- mean(maxp >= CLAMP_HI - 1e-6, na.rm = TRUE)
+  if (isTRUE(frac_ceiling > MAX_CEILING_FRAC))
+    issues <- c(issues, sprintf(
+      "%.1f%% of cards pinned at the clamp ceiling %.2f (limit %.0f%%) -- calibration-saturation signature",
+      100 * frac_ceiling, CLAMP_HI, 100 * MAX_CEILING_FRAC))
+  issues
 }
 
 score_df <- feat %>% group_by(card_id) %>% slice_max(date, n = 1) %>% ungroup() %>%
   attach_chronos(HORIZON_DAYS, BUY_THR) %>%
   select(card_id, name, date, all_of(PRED))
-scored <- augment(deploy_model, score_df) %>% cal_apply(cal_deploy) %>% clamp_norm() %>%
+scored <- augment(deploy_model, score_df) %>% clip_preds() %>% cal_apply(cal_deploy) %>% clamp_norm() %>%
   left_join(hist_tbl, by = "card_id") %>%
   transmute(card_id, name, score_date = date, horizon = HORIZON_DAYS,
             p_buy = round(.pred_buy, 3), p_hold = round(.pred_hold, 3), p_sell = round(.pred_sell, 3),
@@ -371,6 +418,24 @@ scored <- augment(deploy_model, score_df) %>% cal_apply(cal_deploy) %>% clamp_no
 # today's decisiveness: how peaked the calls are (0.33 = coin-flip, 1 = certain)
 avg_conf <- mean(pmax(scored$p_buy, scored$p_hold, scored$p_sell))
 n_new    <- sum(scored$is_new)
+
+# --- SAFETY GATE: never publish degenerate scores -------------------------
+# Runs BEFORE the CSV write and the MotherDuck push, so a bad run leaves both the
+# committed CSV and the live table untouched, and fails the job loudly (non-zero
+# exit) instead of silently overwriting good data on the dashboard.
+cal_method <- attr(cal_deploy, "cal_method") %||% "unknown"
+message(sprintf("   deploy calibrator: %s | cards at clamp ceiling: %d/%d",
+                cal_method, sum(pmax(scored$p_buy, scored$p_hold, scored$p_sell) >= CLAMP_HI - 1e-6),
+                nrow(scored)))
+issues <- validate_scores(scored)
+if (length(issues) > 0) {
+  reject_path <- "data/pytorch/buy_hold_sell_scores_REJECTED.csv"  # not auto-committed; for inspection
+  write_csv(scored, reject_path)
+  message("\n!! SCORE VALIDATION FAILED -- refusing to publish (last-good CSV + MotherDuck rows preserved):")
+  for (p in issues) message("     - ", p)
+  stop(sprintf("Degenerate scores (calibrator=%s); wrote %s for inspection. Not overwriting production data.",
+               cal_method, reject_path))
+}
 
 write_csv(scored, "data/pytorch/buy_hold_sell_scores.csv")
 cat(sprintf("\nScored %d cards (%d new / outside training universe) -> data/pytorch/buy_hold_sell_scores.csv (avg confidence %.1f%%)\n",

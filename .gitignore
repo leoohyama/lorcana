@@ -14,3 +14,4 @@ __pycache__/
 
 # root build artifact only (leading slash); the committed copy lives in docs/
 /experimental_cards.json
+data/pytorch/buy_hold_sell_scores_REJECTED.csv
