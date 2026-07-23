@@ -17,27 +17,6 @@
   const t_ago = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const t_fut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  // Structural pricing calculator: IQR-trimmed median over the trailing 7 days
-  // (window ends at the subset's own latest pull). Unique-listing counts moved
-  // to the backend (ebay_counts_map) — flat rows no longer carry item_ids.
-  function getMedianAndCount(listings) {
-      if(listings.length === 0) return { median: null };
-      let max_date_str = listings.reduce((max, p) => p.date_pulled > max ? p.date_pulled : max, listings[0].date_pulled);
-      let max_date_ms = new Date(max_date_str).getTime();
-      let recent_listings = listings.filter(e => (max_date_ms - new Date(e.date_pulled).getTime()) <= (7 * 24 * 60 * 60 * 1000));
-      let prices = recent_listings.map(e => e.clean_price).sort((a,b) => a - b);
-      if (prices.length === 0) return { median: null };
-      if (prices.length < 4) {
-         let mid = Math.floor(prices.length/2);
-         return { median: prices.length % 2 !== 0 ? prices[mid] : (prices[mid-1] + prices[mid])/2 };
-      }
-      let q1 = prices[Math.floor(prices.length * 0.25)], q3 = prices[Math.floor(prices.length * 0.75)];
-      let filtered = prices.filter(p => p >= q1 && p <= q3);
-      if(filtered.length === 0) return { median: null };
-      let mid = Math.floor(filtered.length/2);
-      return { median: filtered.length % 2 !== 0 ? filtered[mid] : (filtered[mid-1] + filtered[mid])/2 };
-  }
-
   // Rolling 7-day median ending at an arbitrary timestamp (for 30D shift indicators)
   function get7DayMedianAtTime(listings, end_timestamp) {
      const start_timestamp = end_timestamp - (7 * 24 * 60 * 60 * 1000);
@@ -53,6 +32,18 @@
      return filtered.length > 0 ? filtered[Math.floor(filtered.length/2)] : prices[Math.floor(prices.length/2)];
   }
 
+  // Median price of the single most recent pull date (the header now shows the
+  // latest-date price rather than a trailing-7-day median). Pass listings already
+  // scoped to a label + auction-free.
+  function getLatestDateMedian(listings) {
+     if (!listings || listings.length === 0) return null;
+     let maxDate = listings.reduce((m, p) => p.date_pulled > m ? p.date_pulled : m, listings[0].date_pulled);
+     let prices = listings.filter(e => e.date_pulled === maxDate).map(e => e.clean_price).sort((a,b) => a - b);
+     if (prices.length === 0) return null;
+     let mid = Math.floor(prices.length / 2);
+     return prices.length % 2 !== 0 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+  }
+
   // Construct Primary Master Core table rows data mapping
   let unified_data = (safeTranspose(ojs_info) || []).map(d => {
     const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
@@ -64,11 +55,10 @@
     const card_metrics = all_metrics.filter(m => m.tcgplayer_id === d.tcgplayer_id && m.horizon === 30);
     const c_err = card_metrics.find(m => m.model === "Chronos");
 
-    // Price medians: ungraded (or PSA 10), auction-free — clean price signal only.
-    let card_ebay_raw = clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded" && !e.is_auction);
-    let raw_stats = getMedianAndCount(card_ebay_raw);
-    let psa_stats = getMedianAndCount(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10" && !e.is_auction));
-    let delta = (raw_stats.median !== null && d.current_price) ? Math.abs(raw_stats.median - d.current_price) : null;
+    // Latest-date prices: ungraded (or PSA 10), auction-free — the list mirrors
+    // the deep-dive header, which shows the most recent pull rather than a 7D median.
+    let latest_ung = getLatestDateMedian(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded" && !e.is_auction));
+    let latest_psa = getLatestDateMedian(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10" && !e.is_auction));
     // 7D volume: ALL listings for the card — every grade + auctions. Unique
     // item counting needs listing identity, so it's precomputed in R
     // (ojs_ebay_counts -> ebay_counts_map); same trailing-7-day window.
@@ -77,7 +67,7 @@
     return {
       ...d, c_pred_30d: c_pred, c_pct_30d: c_pct,
       c_err_30d: c_err ? c_err.mdape * 100 : null,
-      recent_ebay_med: raw_stats.median, totalCount: totalCount, psa_10_med: psa_stats.median, delta: delta,
+      recent_ebay_med: latest_ung, totalCount: totalCount, psa_10_med: latest_psa,
       signal_score: (d.p_buy != null && d.p_sell != null) ? (d.p_buy - d.p_sell) : null
     };
   });
@@ -126,18 +116,22 @@
     const pill = (label, prob, rgb, accent, key) => {
       const a = (0.12 + 0.88 * prob).toFixed(2);
       const sel = ci.signal_call === key;
-      return `<div style="flex:1; text-align:center; padding:10px 6px; border-radius:8px;
+      return `<div style="flex:1; text-align:center; padding:6px 4px; border-radius:7px;
                  background:rgba(${rgb},${a}); border:${sel ? '2px' : '1px'} solid rgba(${rgb},${sel ? 0.9 : 0.3});">
-                <div style="font-size:11px; letter-spacing:1px; color:${accent}; font-weight:800;">${label}</div>
-                <div style="font-size:22px; font-weight:800; color:var(--text-main);">${Math.round(prob * 100)}%</div>
+                <div style="font-size:10px; letter-spacing:0.5px; color:${accent}; font-weight:800;">${label}</div>
+                <div style="font-size:16px; font-weight:800; color:var(--text-main);">${Math.round(prob * 100)}%</div>
               </div>`;
     };
-    // Per-card hype gauge: eBay asks vs this card's own usual premium over TCG.
-    // Center-zero linear meter (clamped at ±40%): the fill grows left (cold,
-    // green) or right (hot, red) from the neutral tick, so direction reads from
-    // geometry and text, never color alone.
+    // Per-card hype gauge, condensed to one slim row: eBay asks vs this card's
+    // own usual premium over TCG. A center-zero mini-meter (clamped at ±40%)
+    // fills left (cold) or right (hot) from the neutral tick, so direction reads
+    // from geometry + text, never color alone. Always rendered — a muted "no
+    // data" variant keeps two compared cards the same height. Full explanation
+    // lives in the title tooltip to keep the footprint small.
     const hypeChip = (() => {
-      if (ci.anchor_gap == null || !isFinite(ci.anchor_gap)) return '';
+      if (ci.anchor_gap == null || !isFinite(ci.anchor_gap)) {
+        return `<div class="hype-chip hype-nodata"><span class="hype-lbl">EBAY HYPE</span><span class="hype-val">no data</span></div>`;
+      }
       const g = Math.expm1(ci.anchor_gap);
       const CLAMP = 0.40;
       const gc = Math.max(-CLAMP, Math.min(CLAMP, g));
@@ -145,28 +139,22 @@
       const hot = g > 0.05, cold = g < -0.05;
       const col = hot ? 'var(--accent-red)' : cold ? 'var(--accent-green)' : 'var(--text-muted)';
       const fillL = Math.min(50, pos), fillW = Math.abs(pos - 50);
+      const word = hot ? 'HOT' : cold ? 'COLD' : 'NORMAL';
+      const icon = hot ? '🔥' : cold ? '❄️' : '•';
       const desc = hot
-        ? 'asks are running hot — historically they correct back toward the TCG price rather than pull it up'
-        : cold ? "asks are running cold vs. their norm — sellers aren't reaching"
-        : "asks are in line with this card's usual premium";
-      const tip = `eBay asking prices are ${Math.abs(g * 100).toFixed(0)}% ${g >= 0 ? 'above' : 'below'} this card's own historical premium over the TCG price (gauge clamps at ±40%)`;
+        ? 'Running hot — asks historically correct back toward the TCG price rather than pull it up.'
+        : cold ? "Running cold vs. their norm — sellers aren't reaching."
+        : "In line with this card's usual premium.";
+      const tip = `eBay asking prices are ${Math.abs(g * 100).toFixed(0)}% ${g >= 0 ? 'above' : 'below'} this card's own historical premium over the TCG price. ${desc} (gauge clamps at ±40%)`;
       return `
-        <div style="margin-top:12px;" title="${tip}">
-          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
-            <span style="font-size:10px; letter-spacing:1px; font-weight:800; color:var(--text-muted);">EBAY HYPE GAUGE</span>
-            <span style="font-size:12px; font-weight:800; color:var(--text-main);">${g >= 0 ? '+' : '−'}${Math.abs(g * 100).toFixed(0)}% <span style="font-weight:600; color:var(--text-muted);">vs normal</span></span>
+        <div class="hype-chip" title="${tip}">
+          <span class="hype-lbl">${icon} EBAY HYPE</span>
+          <div class="hype-meter">
+            <div class="hype-fill" style="left:${fillL}%; width:${fillW}%; background:${col};"></div>
+            <div class="hype-tick"></div>
+            <div class="hype-dot" style="left:${pos}%; background:${col};"></div>
           </div>
-          <div style="position:relative; height:10px; border-radius:5px; background:rgba(148,163,184,0.15);">
-            <div style="position:absolute; left:${fillL}%; width:${fillW}%; top:0; height:100%; background:${col};
-                        border-radius:${pos < 50 ? '5px 0 0 5px' : '0 5px 5px 0'};"></div>
-            <div style="position:absolute; left:50%; top:-2px; width:2px; height:14px; margin-left:-1px; background:var(--border-subtle);"></div>
-            <div style="position:absolute; left:${pos}%; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px;
-                        border-radius:50%; background:${col}; border:2px solid var(--bg-card);"></div>
-          </div>
-          <div style="display:flex; justify-content:space-between; font-size:9px; letter-spacing:0.5px; color:var(--text-muted); margin-top:3px;">
-            <span>▼ COLD</span><span>normal</span><span>HOT ▲</span>
-          </div>
-          <div style="font-size:11px; color:var(--text-muted); line-height:1.45; margin-top:4px;">eBay ${desc}.</div>
+          <span class="hype-val" style="color:${col};">${g >= 0 ? '+' : '−'}${Math.abs(g * 100).toFixed(0)}% ${word}</span>
         </div>`;
     })();
     const panel = document.createElement("div");
@@ -361,18 +349,10 @@
       // Auction-free view drives every price/median figure; masterCardListings (incl auctions) drives volume.
       const pricedCardListings = masterCardListings.filter(d => !d.is_auction);
 
-      // Calculate rolling 30D eBay median shifts
-      const cur_eb_ungraded = card_info.recent_ebay_med;
-      const cur_eb_psa10 = card_info.psa_10_med;
-      let eb_ung_pct = null, eb_psa_pct = null;
-      const raw_dates = masterCardListings.map(d => new Date(d.date_pulled + "T12:00:00").getTime());
-      if (raw_dates.length > 0) {
-        const past_end = Math.max(...raw_dates) - (30 * 24 * 60 * 60 * 1000);
-        const past_eb_ungraded = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "Ungraded"), past_end);
-        const past_eb_psa10 = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "PSA 10"), past_end);
-        if (cur_eb_ungraded && past_eb_ungraded) eb_ung_pct = ((cur_eb_ungraded - past_eb_ungraded) / past_eb_ungraded) * 100;
-        if (cur_eb_psa10 && past_eb_psa10) eb_psa_pct = ((cur_eb_psa10 - past_eb_psa10) / past_eb_psa10) * 100;
-      }
+      // Header prices reflect the latest pull date (ungraded + PSA 10),
+      // auction-free. The trailing-7-day medians still power the eBay trend plot.
+      const cur_eb_ungraded = getLatestDateMedian(pricedCardListings.filter(d => d.label === "Ungraded"));
+      const cur_eb_psa10 = getLatestDateMedian(pricedCardListings.filter(d => d.label === "PSA 10"));
 
       const formatHeaderIndicator = (pct) => {
          if (pct === null || pct === undefined || isNaN(pct)) return '<span style="font-size:11px; color:var(--text-muted); font-weight:400; margin-left:4px;">(--)</span>';
@@ -384,7 +364,6 @@
       const t_p = card_info.current_price ? `$${card_info.current_price.toFixed(2)}` : 'N/A';
       const e_p = cur_eb_ungraded ? `$${cur_eb_ungraded.toFixed(2)}` : 'N/A';
       const p_p = cur_eb_psa10 ? `$${cur_eb_psa10.toFixed(2)}` : 'N/A';
-      const spread_txt = card_info.delta !== null ? `$${card_info.delta.toFixed(2)}` : 'N/A';
 
       // ===== Header: card image + identity + summary metric cards =====
       const header = document.createElement("div");
@@ -398,21 +377,21 @@
           </div>
           <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Set: <span style="color:var(--text-main);">${card_info.set_name}</span> | Rarity: <span style="color:var(--accent-cyan);">${card_info.rarity}</span></div>
           <div class="modal-metrics-summary-row" style="margin-top:0;">
-             <div class="modal-metric-card" style="min-width: 130px; padding: 8px 12px;">
+             <div class="modal-metric-card" style="min-width: 118px; padding: 8px 12px;">
                 <div class="modal-metric-card-label">TCG Market</div>
                 <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--accent-yellow);">${t_p}</span>${formatHeaderIndicator(tcg_pct_30d)}</div>
              </div>
-             <div class="modal-metric-card" style="min-width: 130px; padding: 8px 12px;">
-                <div class="modal-metric-card-label">eBay Ungraded (7D)</div>
-                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--accent-blue);">${e_p}</span>${formatHeaderIndicator(eb_ung_pct)}</div>
+             <div class="modal-metric-card" style="min-width: 118px; padding: 8px 12px;">
+                <div class="modal-metric-card-label">eBay Ungraded · latest</div>
+                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--accent-blue);">${e_p}</span></div>
              </div>
-             <div class="modal-metric-card" style="min-width: 130px; padding: 8px 12px;">
-                <div class="modal-metric-card-label">PSA 10 Median (7D)</div>
-                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--text-main);">${p_p}</span>${formatHeaderIndicator(eb_psa_pct)}</div>
+             <div class="modal-metric-card" style="min-width: 118px; padding: 8px 12px;">
+                <div class="modal-metric-card-label">PSA 10 · latest</div>
+                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--text-main);">${p_p}</span></div>
              </div>
-             <div class="modal-metric-card" style="min-width: 130px; padding: 8px 12px;">
-                <div class="modal-metric-card-label">Spread · 7D Vol</div>
-                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--accent-purple);">${spread_txt}</span><span style="color:var(--accent-cyan); font-size: 13px; font-weight: 700;">${card_info.totalCount} listings</span></div>
+             <div class="modal-metric-card" style="min-width: 100px; padding: 8px 12px;">
+                <div class="modal-metric-card-label">eBay Listings · 7D</div>
+                <div class="modal-metric-card-value" style="font-size: 16px;"><span style="color:var(--accent-cyan);">${card_info.totalCount}</span></div>
              </div>
           </div>
         </div>
@@ -759,9 +738,8 @@
               <tr>
                 ${th('cardname', 'Card Identifier', 'sticky-card-col', 'Card name, version, rarity, and collector number.')}
                 ${th('c_pct_30d', 'Chronos (30D)', '', 'Projected 30-day price change from the Chronos-2 forecast (an input to the Buy/Hold/Sell signal, not a separate call). A rising forecast with a HOLD usually means the card is already expensive vs. its range.')}
-                ${th('delta', 'Market Spread', 'hide-on-mobile', 'Absolute gap between the current TCG market price and the recent median ungraded eBay sale price.')}
                 ${th('totalCount', 'eBay 7D Vol', 'hide-on-mobile', 'Count of unique validated eBay listings seen in the last 7 days — all grades and both auction and fixed-price/best-offer listings.')}
-                ${th('psa_10_med', 'PSA 10 (7D)', 'hide-on-mobile', 'Median graded PSA 10 eBay price over the last 7 days.')}
+                ${th('psa_10_med', 'PSA 10', 'hide-on-mobile', 'Median PSA 10 eBay price on the most recent pull date.')}
                 ${th('c_err_30d', 'Chronos Acc', 'hide-on-mobile', 'Backtested 30-day forecast error (MdAPE) — lower is more accurate.')}
               </tr>
             </thead>
@@ -771,8 +749,7 @@
                 let t_price = d.current_price ? `$${d.current_price.toFixed(2)}` : 'N/A';
                 let e_price = d.recent_ebay_med ? `$${d.recent_ebay_med.toFixed(2)}` : 'N/A';
                 let psa_txt = d.psa_10_med ? `$${d.psa_10_med.toFixed(2)}` : '<span style="color:var(--text-muted)">N/A</span>';
-                let diff_txt = d.delta !== null ? `<span style="color:var(--accent-purple); font-weight:700;">$${d.delta.toFixed(2)}</span>` : '<span style="color:var(--text-muted)">N/A</span>';
-              
+
                 return `
                 <tr class="card-row" data-cardname="${escaped_name}">
                   <td class="sticky-card-col">
@@ -788,7 +765,6 @@
                     </div>
                   </td>
                   <td>${formatPct(d.c_pct_30d, d.c_pred_30d)}</td>
-                  <td class="hide-on-mobile">${diff_txt}</td>
                   <td class="hide-on-mobile"><span style="background: var(--bg-base); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); color: var(--accent-cyan); font-weight: 700;">${d.totalCount}</span></td>
                   <td class="hide-on-mobile">${psa_txt}</td>
                   <td class="hide-on-mobile">${formatErr(d.c_err_30d)}</td>
@@ -836,39 +812,12 @@
         }
       }
 
-      // Calculate historical rolling 30D eBay data splits
       let masterCardListings = clean_ebay_master.filter(d => d.cardname === cardname);
       // Auction-free view drives every price/median line; masterCardListings (incl auctions) drives volume.
       let pricedCardListings = masterCardListings.filter(d => !d.is_auction);
-      let raw_dates = masterCardListings.map(d => new Date(d.date_pulled + "T12:00:00").getTime());
-      let cur_eb_ungraded = card_info.recent_ebay_med;
-      let cur_eb_psa10 = card_info.psa_10_med;
-      let eb_ung_pct = null, eb_psa_pct = null;
-
-      if (raw_dates.length > 0) {
-        const current_end = Math.max(...raw_dates);
-        const past_end = current_end - (30 * 24 * 60 * 60 * 1000);
-      
-        function get7DayMedianAtTime(listings, end_timestamp) {
-           const start_timestamp = end_timestamp - (7 * 24 * 60 * 60 * 1000);
-           let window_listings = listings.filter(e => {
-              const d_ms = new Date(e.date_pulled + "T12:00:00").getTime();
-              return d_ms >= start_timestamp && d_ms <= end_timestamp;
-           });
-           let prices = window_listings.map(e => e.clean_price).sort((a,b) => a - b);
-           if (prices.length === 0) return null;
-           if (prices.length < 4) return prices[Math.floor(prices.length/2)];
-           let q1 = prices[Math.floor(prices.length * 0.25)], q3 = prices[Math.floor(prices.length * 0.75)];
-           let filtered = prices.filter(p => p >= q1 && p <= q3);
-           return filtered.length > 0 ? filtered[Math.floor(filtered.length/2)] : prices[Math.floor(prices.length/2)];
-        }
-      
-        const past_eb_ungraded = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "Ungraded"), past_end);
-        const past_eb_psa10 = get7DayMedianAtTime(pricedCardListings.filter(d => d.label === "PSA 10"), past_end);
-      
-        if (cur_eb_ungraded && past_eb_ungraded) eb_ung_pct = ((cur_eb_ungraded - past_eb_ungraded) / past_eb_ungraded) * 100;
-        if (cur_eb_psa10 && past_eb_psa10) eb_psa_pct = ((cur_eb_psa10 - past_eb_psa10) / past_eb_psa10) * 100;
-      }
+      // Header prices reflect the latest pull date (auction-free); the 7D medians still power the trend plot.
+      let cur_eb_ungraded = getLatestDateMedian(pricedCardListings.filter(d => d.label === "Ungraded"));
+      let cur_eb_psa10 = getLatestDateMedian(pricedCardListings.filter(d => d.label === "PSA 10"));
 
       const formatHeaderIndicator = (pct) => {
          if (pct === null || pct === undefined || isNaN(pct)) return '<span style="font-size:11px; color:var(--text-muted); font-weight:400; margin-left:4px;">(--)</span>';
@@ -896,12 +845,16 @@
                     <div class="modal-metric-card-value"><span style="color:var(--accent-yellow);">${t_p}</span>${formatHeaderIndicator(tcg_pct_30d)}</div>
                  </div>
                  <div class="modal-metric-card">
-                    <div class="modal-metric-card-label">eBay Ungraded (7D)</div>
-                    <div class="modal-metric-card-value"><span style="color:var(--accent-blue);">${e_p}</span>${formatHeaderIndicator(eb_ung_pct)}</div>
+                    <div class="modal-metric-card-label">eBay Ungraded · latest</div>
+                    <div class="modal-metric-card-value"><span style="color:var(--accent-blue);">${e_p}</span></div>
                  </div>
                  <div class="modal-metric-card">
-                    <div class="modal-metric-card-label">PSA 10 Median (7D)</div>
-                    <div class="modal-metric-card-value"><span style="color:var(--text-main);">${p_p}</span>${formatHeaderIndicator(eb_psa_pct)}</div>
+                    <div class="modal-metric-card-label">PSA 10 · latest</div>
+                    <div class="modal-metric-card-value"><span style="color:var(--text-main);">${p_p}</span></div>
+                 </div>
+                 <div class="modal-metric-card">
+                    <div class="modal-metric-card-label">eBay Listings · 7D</div>
+                    <div class="modal-metric-card-value"><span style="color:var(--accent-cyan);">${card_info.totalCount}</span></div>
                  </div>
               </div>
             </div>
