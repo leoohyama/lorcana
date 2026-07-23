@@ -258,9 +258,12 @@
     .modal-graph-main { height: 320px !important; min-height: 320px !important; margin-bottom: 25px !important; }
     .modal-graph-err { height: 250px !important; }
     .modal-graph-ebay { height: 250px !important; margin-bottom: 15px !important; }
-    #modal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
-    #modal-header > div > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
-    #modal-header > div > div:last-child { width: 100%; box-sizing: border-box; }
+    /* Scope to :first-child (the metrics block) only — the appended Buy/Hold/Sell
+       panel is a sibling and must keep its default full-width (stretch) children,
+       or the pills collapse to content width. */
+    #modal-header > div:first-child { flex-direction: column !important; align-items: flex-start !important; gap: 15px !important; }
+    #modal-header > div:first-child > div:first-child { flex-direction: column !important; align-items: center !important; text-align: center; width: 100%; }
+    #modal-header > div:first-child > div:last-child { width: 100%; box-sizing: border-box; }
   }
   @media (max-width: 560px) {
     /* Phones: drop the Price column — the 7D change column already carries the $ move */
