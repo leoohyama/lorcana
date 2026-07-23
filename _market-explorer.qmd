@@ -112,7 +112,20 @@
   // probability, so a higher HOLD reads as a stronger hue and a lower HOLD fades
   // to a weaker one (same for buy/sell); the top call gets a bold border.
   function buildSignalPanel(ci) {
-    if (ci == null || ci.signal_call == null || ci.p_buy == null) return null;
+    // Placeholder (never null) so a card with no calibrated signal — e.g. a brand
+    // new release — still renders a panel of consistent structure and doesn't
+    // break the side-by-side compare alignment.
+    if (ci == null || ci.signal_call == null || ci.p_buy == null) {
+      const ph = document.createElement("div");
+      ph.className = "modal-panel";
+      ph.style.padding = "12px 15px";
+      ph.innerHTML = `
+        <h4 class="panel-title" style="margin-bottom:8px;">Buy / Hold / Sell Signal</h4>
+        <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:12px; font-style:italic; background:rgba(15,23,42,0.4); border:1px dashed var(--border-subtle); border-radius:8px;">
+          No calibrated signal yet — this card is too new (or has too little price history) for a Buy / Hold / Sell call.
+        </div>`;
+      return ph;
+    }
     const pill = (label, prob, rgb, accent, key) => {
       const a = (0.12 + 0.88 * prob).toFixed(2);
       const sel = ci.signal_call === key;
@@ -324,12 +337,16 @@
     }
 
     // ======= DETAIL PANE RENDERER (full deep dive per card) =======
+    // Returns the card's panels as an ordered array [hero, forecast, ebayTrend,
+    // ebayInventory]. renderDetails assembles them: a flex column for a single
+    // card, or — in compare mode — interleaved into one grid (heroA, heroB,
+    // forecastA, forecastB, …) so each section shares a row and both cards' cells
+    // match height, keeping the two columns aligned as you scroll.
     function buildDetailCard(cardname) {
       const card_info = unified_data.find(d => d.cardname === cardname);
       const compare_mode = active_selections.length > 1;
 
-      const wrapper = document.createElement("div");
-      wrapper.style.cssText = "display: flex; flex-direction: column; gap: 20px; min-width: 0;";
+      const sections = [];
 
       const c_hist = all_hist.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
       const c_fcst = all_fcst.filter(d => d.cardname === cardname && d.date >= t_ago && d.date <= t_fut).sort((a,b)=>a.date-b.date);
@@ -403,9 +420,8 @@
       hero.className = "detail-hero";
       if (card_info.image_path) hero.style.setProperty('--card-img', `url("${card_info.image_path}")`);
       hero.appendChild(header);
-      const sig_panel_d = buildSignalPanel(card_info);
-      if (sig_panel_d) hero.appendChild(sig_panel_d);
-      wrapper.appendChild(hero);
+      hero.appendChild(buildSignalPanel(card_info));  // always returns a panel (placeholder when no signal)
+      sections.push(hero);
 
       header.querySelector('.close-card-btn').addEventListener('click', () => {
          active_selections = active_selections.filter(c => c !== cardname);
@@ -454,7 +470,7 @@
       graph_panel.innerHTML = `<h4 class="panel-title">Price Forecast (30-Day Outlook)</h4>
         <div class="graph-main" style="width:100%; height:300px;"></div>
         <div style="margin-top:12px;">${accuracyStatsHTML(metrics_data)}</div>`;
-      wrapper.appendChild(graph_panel);
+      sections.push(graph_panel);
 
       // ===== eBay Median Price & Volume (own scale, decoupled from the forecast) =====
       const layout_ebay_trend = {
@@ -471,7 +487,7 @@
       const trend_panel = document.createElement("div");
       trend_panel.className = "modal-panel";
       trend_panel.innerHTML = `<h4 class="panel-title">eBay Median Price & Active Volume</h4><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">Median of ungraded fixed-price listings (line) and total daily listings across all grades (bars).</div><div class="graph-ebay-trend" style="width:100%; height:260px;"></div>`;
-      wrapper.appendChild(trend_panel);
+      sections.push(trend_panel);
 
       // ===== eBay Inventory Explorer (filters + stacked supply + live listing titles) =====
       const modalLanguages = ["All", ...new Set(masterCardListings.map(d => d.card_language))].sort();
@@ -488,7 +504,7 @@
         <div class="ebay-supply-target" style="width:100%; height:280px;"></div>
         <div class="ebay-listings-target" style="width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 15px; padding-top: 15px; border-top: 1px solid var(--border-subtle); margin-top: 12px;"></div>
       `;
-      wrapper.appendChild(ebay_panel);
+      sections.push(ebay_panel);
 
       function renderEbayDetails() {
         const selLang = ebay_panel.querySelector('.ebay-lang').value;
@@ -578,7 +594,7 @@
         renderEbayDetails();
       }, 50);
 
-      return wrapper;
+      return sections;
     }
 
     function renderDetails() {
@@ -595,12 +611,22 @@
       }
 
       if (active_selections.length === 1) {
-         detail_pane.appendChild(buildDetailCard(active_selections[0]));
+         const wrap = document.createElement("div");
+         wrap.style.cssText = "display: flex; flex-direction: column; gap: 20px; min-width: 0;";
+         buildDetailCard(active_selections[0]).forEach(sec => wrap.appendChild(sec));
+         detail_pane.appendChild(wrap);
       } else {
+         // Interleave both cards' sections into one grid so section i of card A
+         // sits in the same row as section i of card B → equal heights, so the
+         // two columns stay aligned no matter how their content differs.
          const grid = document.createElement("div");
          grid.className = "comparison-grid";
-         grid.appendChild(buildDetailCard(active_selections[0]));
-         grid.appendChild(buildDetailCard(active_selections[1]));
+         const secA = buildDetailCard(active_selections[0]);
+         const secB = buildDetailCard(active_selections[1]);
+         for (let i = 0; i < Math.max(secA.length, secB.length); i++) {
+            grid.appendChild(secA[i] || document.createElement("div"));
+            grid.appendChild(secB[i] || document.createElement("div"));
+         }
          detail_pane.appendChild(grid);
       }
     }

@@ -169,7 +169,11 @@
   .master-pane { flex: 0 0 450px; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); overflow-y: auto; display: flex; flex-direction: column; }
   /* padding-top:0 so the sticky hero sits flush against the pane's top edge */
   .detail-pane { flex: 1; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); overflow-y: auto; padding: 0 20px 20px; position: relative; }
-  .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; }
+  /* Compare view: both cards' sections are interleaved into this one grid
+     (heroA, heroB, forecastA, forecastB, …). Each section-pair shares an
+     auto-sized row and stretches to equal height, so the two columns stay
+     row-aligned no matter how the cards' content differs. */
+  .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; align-items: stretch; }
   .hover-table tbody tr.selected-row { background-color: var(--bg-hover); position: relative; }
   .hover-table tbody tr.selected-row td.sticky-card-col::before { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 4px; background-color: var(--accent-blue); }
 
