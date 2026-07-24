@@ -1,5 +1,97 @@
 # Market Explorer {orientation="rows"}
 
+```{ojs}
+//| echo: false
+//| output: false
+// ==============================================================================
+// SHARED: set-logo helpers used by the Cards filter (and the Sets page).
+//   setImgSrc — canonical logo path; filenames match set_name with spaces &
+//   apostrophes collapsed to "_" (see data/set_images/, R/setup.R folder_name).
+//   makeSetPicker — an image dropdown that replaces the plain <select> set
+//   filter: the button shows the chosen set's logo, the panel is a grid of
+//   logos, but the value passed to the caller is always the plain set_name so
+//   the existing filtering logic is untouched. Sets with no logo fall back to
+//   their text label (e.g. "Promo Set 2").
+// ==============================================================================
+setImgSrc = (name) => "data/set_images/" + String(name).replace(/[ ']/g, "_") + ".png";
+
+makeSetPicker = function (sets, initial, onChange) {
+  let value = initial || "All Sets";
+  const wrap = document.createElement("div");
+  wrap.className = "set-picker";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "set-picker-btn";
+
+  const panel = document.createElement("div");
+  panel.className = "set-picker-panel";
+
+  // Swap a broken logo <img> for a plain text label (handles Promo sets etc.).
+  const withFallback = (img, name) => {
+    img.addEventListener("error", () => {
+      const span = document.createElement("span");
+      span.className = "set-picker-fallback";
+      span.textContent = name;
+      img.replaceWith(span);
+    });
+    return img;
+  };
+
+  const renderBtn = () => {
+    btn.textContent = "";
+    if (value === "All Sets") {
+      const s = document.createElement("span");
+      s.className = "set-picker-all"; s.textContent = "All Sets";
+      btn.appendChild(s);
+    } else {
+      const img = document.createElement("img");
+      img.src = setImgSrc(value); img.alt = value;
+      btn.appendChild(withFallback(img, value));
+    }
+    const caret = document.createElement("span");
+    caret.className = "set-picker-caret"; caret.textContent = "▾";
+    btn.appendChild(caret);
+  };
+
+  const makeOpt = (name) => {
+    const o = document.createElement("div");
+    o.className = "set-picker-opt" + (name === value ? " active" : "");
+    o.title = name;
+    if (name === "All Sets") {
+      const s = document.createElement("span");
+      s.className = "set-picker-all-opt"; s.textContent = "All Sets";
+      o.appendChild(s);
+    } else {
+      const img = document.createElement("img");
+      img.src = setImgSrc(name); img.alt = name; img.loading = "lazy";
+      o.appendChild(withFallback(img, name));
+    }
+    o.addEventListener("click", (e) => {
+      e.stopPropagation();
+      value = name;
+      panel.querySelectorAll(".set-picker-opt").forEach(el => el.classList.toggle("active", el.title === name));
+      renderBtn();
+      panel.classList.remove("open");
+      onChange(value);
+    });
+    return o;
+  };
+
+  ["All Sets", ...sets].forEach(s => panel.appendChild(makeOpt(s)));
+
+  btn.addEventListener("click", (e) => { e.stopPropagation(); panel.classList.toggle("open"); });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => panel.classList.remove("open"));
+
+  renderBtn();
+  wrap.appendChild(btn);
+  wrap.appendChild(panel);
+  wrap.getValue = () => value;
+  return wrap;
+};
+```
+
 ## Row {.flow}
 
 ```{ojs}
@@ -249,10 +341,8 @@
     search_input.className = "explorer-search";
     search_input.style.cssText = "flex: 1; min-width: 0; padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 13px; font-family: Inter;";
 
-    const set_select = document.createElement("select");
-    set_select.style.cssText = "padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 13px; cursor: pointer; font-family: Inter; width: 120px;";
-    const u_sets = ["All Sets", ...new Set(unified_data.map(d => d.set_name).filter(Boolean))].sort();
-    u_sets.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; set_select.appendChild(opt); });
+    const set_list = [...new Set(unified_data.map(d => d.set_name).filter(Boolean))].sort();
+    const set_select = makeSetPicker(set_list, "All Sets", () => renderTable());
 
     filter_bar.appendChild(search_input); filter_bar.appendChild(set_select);
     master_pane.appendChild(filter_bar);
@@ -282,7 +372,7 @@
 
 
     function renderTable() {
-      const q = search_input.value.toLowerCase(); const r = set_select.value;
+      const q = search_input.value.toLowerCase(); const r = set_select.getValue();
       let filtered_data = unified_data.filter(d => d.cardname.toLowerCase().includes(q) && (r === "All Sets" || d.set_name === r));
       let sorted_data = filtered_data.sort((a, b) => {
         let valA = a[current_sort] !== null && a[current_sort] !== undefined ? a[current_sort] : -9999;
@@ -629,7 +719,6 @@
 
     // ======= EVENT BINDING =======
     search_input.addEventListener("input", renderTable);
-    set_select.addEventListener("change", renderTable);
     table_container.addEventListener("do_sort", (e) => {
       if(current_sort === e.detail) { is_asc = !is_asc; } else { current_sort = e.detail; is_asc = current_sort === 'cardname'; }
       renderTable();
@@ -710,10 +799,8 @@
     search_input.className = "explorer-search";
     search_input.style.cssText = "flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; font-family: Inter;";
   
-    const set_select = document.createElement("select"); 
-    set_select.style.cssText = "padding: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-base); color: var(--text-main); font-size: 14px; cursor: pointer; font-family: Inter; min-width: 150px;";
-    const u_sets = ["All Sets", ...new Set(unified_data.map(d => d.set_name).filter(Boolean))].sort();
-    u_sets.forEach(r => { let opt = document.createElement("option"); opt.value = r; opt.text = r; set_select.appendChild(opt); });
+    const set_list = [...new Set(unified_data.map(d => d.set_name).filter(Boolean))].sort();
+    const set_select = makeSetPicker(set_list, "All Sets", () => renderTable());
 
     filter_bar.appendChild(search_input); filter_bar.appendChild(set_select);
     page_wrapper.appendChild(filter_bar);
@@ -733,7 +820,7 @@
     const formatErr = (val) => val !== null && val !== undefined ? `<span style="color:var(--accent-blue); font-weight:600;">±${val.toFixed(1)}%</span>` : '<span style="color:var(--text-muted);">N/A</span>';
 
     function renderTable() {
-      const q = search_input.value.toLowerCase(); const r = set_select.value;
+      const q = search_input.value.toLowerCase(); const r = set_select.getValue();
       let filtered_data = unified_data.filter(d => d.cardname.toLowerCase().includes(q) && (r === "All Sets" || d.set_name === r));
       let sorted_data = filtered_data.sort((a, b) => {
         let valA = a[current_sort] !== null && a[current_sort] !== undefined ? a[current_sort] : -9999;
@@ -796,7 +883,6 @@
     }
 
     search_input.addEventListener("input", renderTable);
-    set_select.addEventListener("change", renderTable);
     container.addEventListener("do_sort", (e) => {
       if(current_sort === e.detail) { is_asc = !is_asc; } else { current_sort = e.detail; is_asc = current_sort === 'cardname'; }
       renderTable();

@@ -1,0 +1,265 @@
+# Sets {orientation="rows"}
+
+## Row {height="content"}
+
+```{ojs}
+//| echo: false
+//| padding: 0px
+//| classes: transparent-card
+// ==============================================================================
+// SECTION 5: SETS OVERVIEW — set-level roll-ups of the per-card metrics.
+// One row per Lorcana set, aggregating the same signals the Cards page shows
+// per card. A tier toggle (Iconic & Enchanted / Epic) re-scopes every metric,
+// since from Fabled onward each set ships both tiers (older sets are Enchanted
+// only, so their Epic view is empty).
+//
+// Reuses page-wide helpers already defined on the Overview page:
+//   safeTranspose, clean_ebay_master, ebay_today_master, ebay_card_day_rows,
+//   ebay_counts_map, openInExplorer  — plus setImgSrc from the Cards page.
+// ==============================================================================
+{
+  const info = safeTranspose(ojs_info) || [];
+  if (info.length === 0) return html`<div style="padding:20px; color:var(--text-muted); font-style:italic;">Awaiting initial database sync…</div>`;
+
+  const NOW = Date.now();
+  const YEAR = 365.25 * 24 * 60 * 60 * 1000;
+  const median = arr => { const p = [...arr].sort((a, b) => a - b); const m = Math.floor(p.length / 2); return p.length ? (p.length % 2 ? p[m] : (p[m - 1] + p[m]) / 2) : null; };
+
+  // ---- Per-card derived metrics (mirror the Cards page) --------------------
+  const cardMeta = new Map(info.map(d => [d.cardname, d]));
+
+  // eBay ungraded latest-date median per card (auction-free) — same recipe as Cards.
+  const ungByCard = new Map();
+  (clean_ebay_master || []).filter(d => d.label === "Ungraded" && !d.is_auction && d.clean_price > 0)
+    .forEach(d => {
+      if (!ungByCard.has(d.cardname)) ungByCard.set(d.cardname, new Map());
+      const days = ungByCard.get(d.cardname);
+      if (!days.has(d.date_pulled)) days.set(d.date_pulled, []);
+      days.get(d.date_pulled).push(d.clean_price);
+    });
+  const ebayMedFor = (name) => {
+    const days = ungByCard.get(name); if (!days) return null;
+    let latest = null; days.forEach((v, k) => { if (!latest || k > latest) latest = k; });
+    return latest ? median(days.get(latest)) : null;
+  };
+
+  // Latest Chronos forecast price per card.
+  const fByCard = new Map();
+  (safeTranspose(ojs_forecast) || []).filter(f => f.model === "Chronos").forEach(f => {
+    const cur = fByCard.get(f.cardname);
+    if (!cur || f.date > cur.date) fByCard.set(f.cardname, f);
+  });
+  const fcstFor = (name) => { const f = fByCard.get(name); return f ? f.price : null; };
+
+  // Per-card supply churn: total day-over-day change in unique active listings
+  // across the observed window (a supply-turnover proxy — the closest per-card
+  // read on churn from the shipped aggregates).
+  const dayRowsByCard = new Map();
+  (ebay_card_day_rows || []).forEach(d => {
+    if (!dayRowsByCard.has(d.cardname)) dayRowsByCard.set(d.cardname, []);
+    dayRowsByCard.get(d.cardname).push(d);
+  });
+  const churnFor = (name) => {
+    const rows = dayRowsByCard.get(name); if (!rows || rows.length < 2) return 0;
+    const s = [...rows].sort((a, b) => a.date_pulled < b.date_pulled ? -1 : 1);
+    let c = 0; for (let i = 1; i < s.length; i++) c += Math.abs(s[i].n - s[i - 1].n);
+    return c;
+  };
+
+  // Today's listings grouped by card, for tier-scoped graded/ungraded shares.
+  const listingsByCard = new Map();
+  (ebay_today_master || []).forEach(r => {
+    if (!listingsByCard.has(r.cardname)) listingsByCard.set(r.cardname, []);
+    listingsByCard.get(r.cardname).push(r);
+  });
+
+  // ---- Set grouping + release dates ---------------------------------------
+  const tierOf = (d) => String(d.rarity || '').toLowerCase() === 'epic' ? 'Epic' : 'IconicEnchanted';
+  const bySet = new Map();
+  info.forEach(d => {
+    if (!d.set_name) return;
+    if (!bySet.has(d.set_name)) bySet.set(d.set_name, []);
+    bySet.get(d.set_name).push(d);
+  });
+  const releaseOf = (cards) => {
+    const ds = cards.map(c => c.released_at ? new Date(c.released_at).getTime() : NaN).filter(x => !isNaN(x));
+    return ds.length ? Math.min(...ds) : null;
+  };
+
+  // ---- Formatting helpers --------------------------------------------------
+  const fmtUSD = (v) => v == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: v >= 1000 ? 0 : 2 }).format(v);
+  const escAttr = s => String(s).replace(/"/g, '&quot;');
+  const imgFor = (name) => { const d = cardMeta.get(name); return d ? d.image_path : ''; };
+  const ageLabel = (ms) => {
+    if (ms == null) return '';
+    const yrs = (NOW - ms) / YEAR;
+    if (yrs < 0) return 'upcoming';
+    if (yrs < 1) return Math.max(1, Math.round(yrs * 12)) + 'mo old';
+    return yrs.toFixed(1) + 'y old';
+  };
+  const relLabel = (ms) => ms == null ? '—' : new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+  // ---- Build a set row object for a given tier scope ----------------------
+  const buildRow = (setName, cards) => {
+    if (cards.length === 0) return null;
+    const names = new Set(cards.map(c => c.cardname));
+
+    // Most listed (trailing-7d unique vol) & most churn (supply turnover).
+    let mostListed = null, mlVol = -1, mostChurn = null, mcVal = -1;
+    cards.forEach(c => {
+      const vol = ebay_counts_map.get(c.cardname) || 0;
+      if (vol > mlVol) { mlVol = vol; mostListed = c.cardname; }
+      const ch = churnFor(c.cardname);
+      if (ch > mcVal) { mcVal = ch; mostChurn = c.cardname; }
+    });
+
+    // Collection ("one of each") value at TCG market & eBay ungraded median.
+    let tcgVal = 0, ebayVal = 0, projVal = 0, projBase = 0;
+    cards.forEach(c => {
+      if (c.current_price > 0) tcgVal += c.current_price;
+      const em = ebayMedFor(c.cardname); if (em > 0) ebayVal += em;
+      const fp = fcstFor(c.cardname);
+      if (fp > 0 && c.current_price > 0) { projVal += fp; projBase += c.current_price; }
+    });
+    const projPct = projBase > 0 ? (projVal - projBase) / projBase * 100 : null;
+
+    // Graded share among this tier's active listings today.
+    let graded = 0, totalL = 0;
+    cards.forEach(c => (listingsByCard.get(c.cardname) || []).forEach(r => {
+      totalL++; if (r.grading_company && r.grading_company !== 'UNG') graded++;
+    }));
+    const gradedPct = totalL ? Math.round(graded / totalL * 100) : null;
+
+    // Mean Buy / Hold / Sell weights across rated cards in scope.
+    const rated = cards.filter(c => c.p_buy != null);
+    const mean = k => rated.length ? rated.reduce((s, c) => s + (c[k] || 0), 0) / rated.length : null;
+    const bhs = rated.length ? { buy: mean('p_buy'), hold: mean('p_hold'), sell: mean('p_sell') } : null;
+
+    const rel = releaseOf(bySet.get(setName) || cards);
+
+    return {
+      setName, count: cards.length, mostListed, mlVol, mostChurn, mcVal,
+      tcgVal, ebayVal, projVal, projPct, gradedPct, bhs, rel
+    };
+  };
+
+  // ---- Cell renderers ------------------------------------------------------
+  const setCell = (r) => `
+    <div class="set-cell">
+      <img src="${setImgSrc(r.setName)}" alt="${escAttr(r.setName)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'set-name',textContent:this.alt}))">
+      <div class="set-meta">
+        <span class="set-name">${r.setName}</span>
+        <span class="set-sub">${relLabel(r.rel)} · ${ageLabel(r.rel)}</span>
+      </div>
+    </div>`;
+  const miniCard = (name, valHTML) => name ? `
+    <div class="set-mini-card open-card" data-cardname="${escAttr(name)}" title="Open in Cards →" style="cursor:pointer;">
+      <img src="${imgFor(name)}" loading="lazy" onerror="this.style.display='none'">
+      <div class="smc-txt"><span class="smc-name">${name}</span><span class="smc-val">${valHTML}</span></div>
+    </div>` : '<span style="color:var(--text-muted);">—</span>';
+  const valueCell = (r) => `
+    <div style="line-height:1.5;">
+      <div><span class="set-val-tcg">${fmtUSD(r.tcgVal || null)}</span> <span style="color:var(--text-muted); font-size:10px;">TCG</span></div>
+      <div><span class="set-val-ebay">${fmtUSD(r.ebayVal || null)}</span> <span style="color:var(--text-muted); font-size:10px;">eBay</span></div>
+    </div>`;
+  const projCell = (r) => {
+    if (!r.projVal) return '<span style="color:var(--text-muted);">—</span>';
+    const up = r.projPct >= 0;
+    const col = up ? 'var(--accent-green)' : 'var(--accent-red)';
+    const pct = r.projPct == null ? '' : `<div style="color:${col}; font-size:11px; font-weight:700;">${up ? '▲' : '▼'} ${Math.abs(r.projPct).toFixed(1)}%</div>`;
+    return `<div style="font-weight:700; color:var(--text-main);">${fmtUSD(r.projVal)}</div>${pct}`;
+  };
+  const gradedCell = (r) => r.gradedPct == null ? '<span style="color:var(--text-muted);">—</span>' :
+    `<div style="display:flex; align-items:center; gap:8px; justify-content:flex-end;">
+       <span class="set-graded-bar"><span style="width:${r.gradedPct}%;"></span></span>
+       <span style="font-weight:700; color:var(--text-main); min-width:34px;">${r.gradedPct}%</span>
+     </div>`;
+  const bhsCell = (r) => {
+    if (!r.bhs) return '<span style="color:var(--text-muted);">—</span>';
+    const b = Math.round(r.bhs.buy * 100), h = Math.round(r.bhs.hold * 100), s = Math.round(r.bhs.sell * 100);
+    return `<div style="display:flex; flex-direction:column; align-items:flex-end;">
+        <div class="set-bhs-bar">
+          <div style="width:${b}%; background:var(--accent-green);"></div>
+          <div style="width:${h}%; background:var(--text-muted);"></div>
+          <div style="width:${s}%; background:var(--accent-red);"></div>
+        </div>
+        <div class="set-bhs-legend">
+          <span style="color:var(--accent-green);">B ${b}</span>
+          <span style="color:var(--text-muted);">H ${h}</span>
+          <span style="color:var(--accent-red);">S ${s}</span>
+        </div>
+      </div>`;
+  };
+
+  // ---- Sortable table shell -----------------------------------------------
+  const cols = [
+    { key: 'setName',   label: 'Set',            cls: '',    tip: 'Lorcana set, release month, and age.', render: setCell },
+    { key: 'count',     label: 'Cards',          cls: 'num', tip: 'Chase cards tracked in this set for the selected tier.', render: r => `<span style="font-weight:700;">${r.count}</span>` },
+    { key: 'mlVol',     label: 'Most Listed',    cls: '',    tip: 'Card with the most unique eBay listings in the trailing 7 days.', render: r => miniCard(r.mostListed, `${r.mlVol} listings (7d)`) },
+    { key: 'mcVal',     label: 'Most Churn',     cls: '',    tip: 'Card with the most supply turnover — the largest total day-over-day change in active listing count.', render: r => miniCard(r.mostChurn, `Δ ${r.mcVal} listings`) },
+    { key: 'ebayVal',   label: 'Set Value',      cls: 'num', tip: 'One-of-each chase-card value: sum of every tracked card priced at its TCG market price and its eBay ungraded median.', render: valueCell },
+    { key: 'projVal',   label: 'Projected',      cls: 'num', tip: 'Set value projected forward with the Chronos-2 forecast (cards with a live forecast), and its % change vs current TCG value.', render: projCell },
+    { key: 'gradedPct', label: 'Graded Share',   cls: 'num', tip: 'Share of this tier\'s active eBay listings today that are professionally graded (PSA / CGC / BGS / SGC).', render: gradedCell },
+    { key: 'bhs',       label: 'Signal (B/H/S)', cls: 'num', tip: 'Mean Buy / Hold / Sell probability across rated cards in scope.', render: bhsCell }
+  ];
+
+  const tiers = { all: 'All chase cards', IconicEnchanted: 'Iconic & Enchanted', Epic: 'Epic' };
+  let tier = 'all';
+  let sortKey = 'ebayVal', asc = false;
+
+  const sortVal = (r) => {
+    if (sortKey === 'setName') return r.setName;
+    if (sortKey === 'bhs') return r.bhs ? r.bhs.buy : -1;
+    const v = r[sortKey];
+    return (v == null) ? -Infinity : v;
+  };
+
+  const wrap = document.createElement("div");
+  wrap.style.width = "100%";
+
+  function render() {
+    const rows = [...bySet.keys()].map(setName => {
+      const cards = tier === 'all' ? bySet.get(setName) : bySet.get(setName).filter(c => tierOf(c) === tier);
+      return buildRow(setName, cards);
+    }).filter(Boolean);
+
+    rows.sort((a, b) => {
+      const va = sortVal(a), vb = sortVal(b);
+      if (typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return asc ? va - vb : vb - va;
+    });
+
+    const th = (c) => {
+      const arrow = sortKey === c.key ? (asc ? ' ↑' : ' ↓') : '';
+      return `<th class="${c.cls}" title="${escAttr(c.tip)}" style="cursor:pointer;" data-key="${c.key}">${c.label}${arrow}</th>`;
+    };
+    const td = (c, r) => `<td class="${c.cls}">${c.render(r)}</td>`;
+
+    wrap.innerHTML = `
+      <div class="seg-tabs" style="margin-bottom:14px;">
+        ${Object.entries(tiers).map(([k, lbl]) => `<button class="seg-tab ${k === tier ? 'active' : ''}" data-tier="${k}">${lbl}</button>`).join('')}
+      </div>
+      <div style="width:100%; background:var(--bg-card); border-radius:12px; border:1px solid var(--border-subtle); overflow:auto; max-height:820px;">
+        <table class="sets-table">
+          <thead><tr>${cols.map(th).join('')}</tr></thead>
+          <tbody>${rows.map(r => `<tr>${cols.map(c => td(c, r)).join('')}</tr>`).join('') ||
+            `<tr><td colspan="${cols.length}" style="padding:18px; color:var(--text-muted); font-style:italic;">No cards in this tier yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:10px; font-style:italic;">
+        Set Value & Projected are one-of-each chase-card totals (each card counted once). Churn is total day-over-day change in active listings. Graded Share reflects today's live eBay listings.
+      </div>`;
+
+    wrap.querySelectorAll('.seg-tab').forEach(btn => btn.addEventListener('click', () => { tier = btn.dataset.tier; render(); }));
+    wrap.querySelectorAll('th[data-key]').forEach(h => h.addEventListener('click', () => {
+      const k = h.dataset.key;
+      if (sortKey === k) { asc = !asc; } else { sortKey = k; asc = (k === 'setName'); }
+      render();
+    }));
+    wrap.querySelectorAll('.open-card').forEach(el => el.addEventListener('click', () => openInExplorer(el.dataset.cardname)));
+  }
+
+  render();
+  return wrap;
+}
+```

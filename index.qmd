@@ -17,6 +17,7 @@ execute:
   warning: false
 resources:
   - "data/enchanteds/images/"
+  - "data/set_images/"
   - "lorecaster_logo.png"
 ---
 
@@ -40,6 +41,8 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 {{< include _styles.qmd >}}
 
 {{< include _market-explorer.qmd >}}
+
+{{< include _market-sets.qmd >}}
 
 {{< include _market-player.qmd >}}
 
