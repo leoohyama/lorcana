@@ -24,7 +24,7 @@
 
 🚀 **UPDATE: Lorecaster is up and is also mobile friendly!**
 
-[![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/5890e5b9-3c4a-43de-b9ef-a480722ce660)](http://lorecaster.ink)
+[![Lorecaster Dashboard Preview](https://github.com/user-attachments/assets/6f25e2ab-3b8a-493f-a5de-3be66d335570)](http://lorecaster.ink)
 *Click the image above to explore the live market forecasts.*
 
 
