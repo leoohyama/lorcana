@@ -37,8 +37,8 @@ The biggest 7-day price risers and fallers. Use the toggle to flip between two v
 **Buy / Hold / Sell signals**
 Every day, a model rates each card with three percentages that add up to 100% — the chance the price **rises** (Buy), **stays flat** (Hold), or **drops** (Sell) over roughly the next 3 weeks. A "BUY 70%" doesn't mean "the price will definitely rise" — it means that in situations that looked like this historically, prices rose about 7 times out of 10.
 
-**The "Model confidence" badge (top menu)**
-The badge in the navigation menu summarizes how sure the model is about today's calls, averaged across all cards. **Confident** (green) means today's ratings are decisive; **Cautious** (red) means the market looks murky and today's calls are closer to coin flips — size your trust accordingly.
+**The navbar gauges (top menu)**
+Two live readouts sit in the navigation bar. **Graded share** — the radial dial — is the percentage of today's active eBay listings that are professionally graded (PSA / CGC / BGS / SGC) rather than raw; a higher share means more of the market is certified condition. **On Market** is the total dollar value of every active eBay listing today, with each card priced at its eBay median. Tap either to jump to the Overview.
 
 **TCG price vs. eBay median — why two prices?**
 They're two different marketplaces. TCGplayer is the reference rate; eBay is where much of the high-end action happens. The gap between them (the "spread") can be interesting: an eBay median well below the TCG price may point to deals — or to condition issues dragging listings down.
@@ -103,6 +103,6 @@ Yes — they're retrained from scratch every week on the latest data, so a shift
 
 **Buy / Hold / Sell probability** — the estimated chance a card's price meaningfully rises / stays put / drops over about the next 3 weeks. The three always sum to 100%, and the largest one becomes the card's headline call.
 
-**Model confidence** — how decisive today's calls are on average, shown in the top menu. Low confidence days aren't broken — they're the model honestly saying "the market is hard to read right now."
+**Model confidence** — how decisive today's calls are on average, shown in the model-health readout on the Cards tab. Low confidence days aren't broken — they're the model honestly saying "the market is hard to read right now."
 
 **eBay Hype Gauge / anchor gap** — how far a card's eBay asking prices sit above (or below) that card's *own* usual premium over the TCG price. Asks running unusually hot have historically corrected back toward the TCG price rather than pulled it up — so a hot gauge is a caution flag, not a green light.

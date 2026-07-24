@@ -111,13 +111,82 @@
   .mv-trend { width: 96px; }
   .mv-empty { color: var(--text-muted); font-style: italic; padding: 12px 8px; }
 
-  /* Navbar model-confidence badge — lives in the menu on every page */
-  .nav-conf-badge { display: flex; align-items: center; gap: 8px; margin-left: auto; padding: 6px 14px; border: 1px solid var(--border-subtle); border-radius: 999px; background: rgba(15, 23, 42, 0.5); text-decoration: none !important; white-space: nowrap; cursor: pointer; transition: border-color 0.15s; }
-  .nav-conf-badge:hover { border-color: var(--brand); }
-  .nav-conf-badge .nav-conf-text { font-size: 13px !important; color: var(--text-muted); font-weight: 600 !important; }
-  .nav-conf-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  /* ============================================================
+     NAVBAR REDESIGN — centered brand+nav cluster over a muted
+     card-art wash, an "More" dropdown for the secondary pages, and
+     two live metric gauges (graded share + total eBay market value).
+     Structural moves + data are wired up in _market-overview.qmd
+     (SECTION 2.5.1), which reuses the old badge-injection pattern.
+     ============================================================ */
+
+  /* Card-art background wash. --nav-bg-card-img is set by JS to the priciest
+     card's art (by eBay median); until then a plain brand gradient shows. The
+     ::after gradient keeps text legible over any art. */
+  /* z-index keeps the navbar (and its "More" dropdown) above the page panels */
+  .navbar.slim { position: relative; z-index: 1050; border-bottom: 1px solid var(--border-subtle); }
+  .navbar.slim::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background-image: var(--nav-bg-card-img, none);
+    background-size: cover; background-position: center 22%;
+    opacity: 0.48; filter: saturate(1.4) contrast(1.05);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+            mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  }
+  /* Lighter veil than before so the card art keeps its color; still enough to
+     hold text/gauge contrast (heavier at the bottom edge where links sit). */
+  .navbar.slim::after {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(15,23,42,0.42) 0%, rgba(15,23,42,0.66) 55%, rgba(15,23,42,0.80) 100%);
+  }
+  /* Content rides above both wash layers */
+  .navbar.slim > .navbar-container { position: relative; z-index: 1; }
+
+  /* Center the logo + nav as one cluster (was hugging the left via me-auto) */
+  .navbar .navbar-container { display: flex; align-items: center; justify-content: center; gap: 26px; }
+  .navbar .navbar-nav.me-auto { margin-right: 0 !important; }
+  .navbar #dashboard-collapse { flex: 0 1 auto; }
+  .navbar .navbar-nav { gap: 4px; align-items: center; }
+  .navbar-brand-container { flex: 0 0 auto; }
+
+  /* "More" dropdown — dark-theme menu holding Guide / Support / Experimental */
+  .navbar .nav-link.dropdown-toggle { cursor: pointer; }
+  .navbar .dropdown-menu {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 6px; margin-top: 10px; z-index: 2000;
+    box-shadow: 0 14px 30px -10px rgba(0,0,0,0.65);
+  }
+  .navbar .dropdown-menu .dropdown-item, .navbar .dropdown-menu .quarto-dashboard-link {
+    color: var(--text-muted) !important; border-radius: 7px; padding: 9px 14px;
+    font-size: 15px !important; font-weight: 600 !important;
+    display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap;
+  }
+  .navbar .dropdown-menu .dropdown-item:hover, .navbar .dropdown-menu .dropdown-item:focus,
+  .navbar .dropdown-menu .dropdown-item.active, .navbar .dropdown-menu .quarto-dashboard-link:hover {
+    background: var(--bg-hover); color: var(--text-main) !important;
+  }
+  .navbar .dropdown-menu .bi { font-size: 15px; opacity: 0.85; }
+
+  /* Metric gauges — pinned to the right on desktop so they don't push the
+     centered cluster off-center; fall into normal flow on tablet/phone. */
+  #nav-metrics { display: flex; align-items: center; gap: 12px; z-index: 2; }
+  .nav-gauge {
+    display: flex; align-items: center; gap: 9px; text-decoration: none !important;
+    cursor: pointer; padding: 5px 14px 5px 7px; border: 1px solid var(--border-subtle);
+    border-radius: 999px; background: rgba(15,23,42,0.55); backdrop-filter: blur(3px);
+    transition: border-color 0.15s, background 0.15s; white-space: nowrap;
+  }
+  .nav-gauge:hover { border-color: var(--brand); background: rgba(15,23,42,0.75); }
+  .nav-gauge svg { flex-shrink: 0; display: block; }
+  .nav-gauge-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .nav-gauge-label { font-size: 10px !important; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); font-weight: 700 !important; }
+  .nav-gauge-value { font-size: 16px !important; font-weight: 800 !important; }
+
+  @media (min-width: 992px) {
+    #nav-metrics { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); }
+  }
   @media (max-width: 991px) {
-    .nav-conf-badge { margin: 10px 0 6px 0; width: fit-content; }
+    .navbar .navbar-container { justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    #nav-metrics { order: 3; margin-left: auto; }
   }
 
   /* Main Core Table Typography & Scroll Margins */
@@ -239,7 +308,11 @@
   @media (max-width: 768px) {
     .navbar-brand img, .navbar-logo, .navbar-brand-logo { max-height: 45px !important; }
     .navbar-nav .nav-link, .navbar-title { font-size: 15px !important; }
-    
+    #nav-metrics { gap: 8px; }
+    .nav-gauge { padding: 4px 11px 4px 5px; gap: 7px; }
+    .nav-gauge-value { font-size: 14px !important; }
+    .nav-gauge svg { width: 32px; height: 32px; }
+
     .hero-tiles { gap: 12px; }
     .hero-tile { padding: 14px 16px; }
     .hero-tile-value { font-size: 24px; margin-top: 6px; }

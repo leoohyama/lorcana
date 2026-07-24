@@ -230,12 +230,8 @@
 
   // ======= DESKTOP: MASTER-DETAIL SPLIT EXPLORER =======
   function renderDesktopExplorer() {
-    const banner = document.createElement("div");
-    banner.className = "momentum-box"; banner.style.marginTop = "20px";
-    banner.innerHTML = "<strong>Unified Market Explorer</strong><p style='font-size: 14px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Select a card to open its full deep dive — forecasts, eBay medians, supply volumes, and live listings. Select a second card to compare side-by-side.</p>";
-    page_wrapper.appendChild(banner);
     const mh_card = buildModelHealthCard(signal_metrics);
-    if (mh_card) page_wrapper.appendChild(mh_card);
+    if (mh_card) { mh_card.style.marginTop = "20px"; page_wrapper.appendChild(mh_card); }
 
     // Split Container Setup
     const split_container = document.createElement("div");
@@ -703,12 +699,8 @@
     initialModal.addEventListener("click", (e) => { if (e.target === initialModal) initialModal.style.display = "none"; });
 
 
-    const banner = document.createElement("div");
-    banner.className = "momentum-box"; banner.style.marginTop = "20px";
-    banner.innerHTML = "<strong>Unified Market Explorer</strong><p style='font-size: 14px; color: var(--text-muted); margin-top:5px; margin-bottom:0;'>Click any row below to open the complete deep dive containing forecasts, eBay volumes, and listings.</p>";
-    page_wrapper.appendChild(banner);
     const mh_card = buildModelHealthCard(signal_metrics);
-    if (mh_card) page_wrapper.appendChild(mh_card);
+    if (mh_card) { mh_card.style.marginTop = "20px"; page_wrapper.appendChild(mh_card); }
 
     const filter_bar = document.createElement("div");
     filter_bar.style.cssText = "display: flex; gap: 15px; margin-bottom: 20px; background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-subtle); align-items: center; flex-wrap: wrap;";

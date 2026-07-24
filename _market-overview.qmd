@@ -209,30 +209,135 @@ ebay_today_master = (safeTranspose(ojs_ebay_today) || []).map(d => {
 
 ebay_title_map = new Map(ebay_today_master.map(d => [String(d.item_id).trim(), d.listing_title]));
 
-// Navbar menu badge: today's Buy/Hold/Sell model confidence, always visible.
-// Clicking it jumps to the Market Explorer, which carries the full health readout.
+// ==============================================================================
+// SECTION 2.5.1: NAVBAR ENHANCEMENTS — reuses the badge-injection pattern to
+//   (1) rename the visible tab labels (keeping ids/anchors so every
+//       #market-explorer deep-link elsewhere keeps working),
+//   (2) group the secondary pages (Guide / Support / Experimental) under a
+//       "More" dropdown,
+//   (3) wash the navbar with the priciest card's art, and
+//   (4) render two live metric gauges: graded share + total eBay market value.
+// ==============================================================================
 {
-  const m = (safeTranspose(ojs_signal_metrics) || [])[0];
+  const navbar = document.querySelector('.navbar');
   const nav = document.querySelector('.navbar #dashboard-collapse');
-  const old = document.getElementById('nav-model-conf');
-  if (old) old.remove();
-  if (!m || m.avg_confidence == null || !nav) return;
-  const conf = Math.round(m.avg_confidence * 100);
-  const tone = m.avg_confidence >= 0.60 ? ['var(--pos)', 'Confident']
-             : m.avg_confidence >= 0.45 ? ['var(--accent-yellow)', 'Moderate']
-             : ['var(--neg)', 'Cautious'];
-  const badge = document.createElement('a');
-  badge.id = 'nav-model-conf';
-  badge.className = 'nav-conf-badge';
-  badge.href = '#market-explorer';
-  badge.title = `Buy/Hold/Sell model — average confidence today ${conf}% (${tone[1].toLowerCase()}) · reliability AUC ${Number(m.auc).toFixed(2)} · ${m.horizon}-day outlook. Click for the full model health readout in the Market Explorer.`;
-  badge.innerHTML = `<span class="nav-conf-dot" style="background:${tone[0]}; box-shadow:0 0 6px ${tone[0]};"></span><span class="nav-conf-text">Model confidence: <b style="color:${tone[0]};">${conf}% · ${tone[1]}</b></span>`;
-  badge.addEventListener('click', (e) => {
-    e.preventDefault();
-    const t = document.getElementById('tab-market-explorer');
-    if (t) t.click();
+  const menu = document.querySelector('.navbar .navbar-nav');
+  if (!navbar || !nav || !menu) return;
+
+  // Retire the old model-confidence badge if a prior build left one behind.
+  const oldBadge = document.getElementById('nav-model-conf');
+  if (oldBadge) oldBadge.remove();
+
+  // (1) Rename tabs in place — ids/anchors (#market-explorer, tab-*) are untouched.
+  const relabel = {
+    'tab-market-explorer': 'Cards', 'tab-market-player': 'Simulator',
+    'tab-market-overview': 'Overview', 'tab-dashboard-guide-faq': 'Guide',
+    'tab-support-the-project': 'Support'
+  };
+  Object.entries(relabel).forEach(([id, txt]) => {
+    const el = document.querySelector('#' + id + ' .nav-link-text');
+    if (el) el.textContent = txt;
   });
-  nav.appendChild(badge);
+
+  // (2) Build the "More" dropdown once, moving the secondary pages into it.
+  if (!navbar.dataset.moreBuilt) {
+    const guideA = document.querySelector('#tab-dashboard-guide-faq');
+    const supportA = document.querySelector('#tab-support-the-project');
+    const expA = document.querySelector('.quarto-dashboard-links .quarto-dashboard-link');
+
+    const drop = document.createElement('li');
+    drop.className = 'nav-item dropdown';
+    drop.id = 'nav-more-dropdown';
+    drop.innerHTML = `<a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false"><span class="nav-link-text">More</span></a><ul class="dropdown-menu dropdown-menu-end"></ul>`;
+    const dmenu = drop.querySelector('.dropdown-menu');
+
+    const addItem = (anchor, icon) => {
+      if (!anchor) return;
+      anchor.classList.add('dropdown-item');
+      if (icon && !anchor.querySelector('.bi')) {
+        const i = document.createElement('i'); i.className = 'bi ' + icon;
+        anchor.prepend(i);
+      }
+      const li = document.createElement('li');
+      li.appendChild(anchor);           // moves the live anchor (keeps its tab wiring)
+      dmenu.appendChild(li);
+    };
+    const guideLi = guideA ? guideA.closest('.nav-item') : null;
+    const supportLi = supportA ? supportA.closest('.nav-item') : null;
+    addItem(guideA, 'bi-book');
+    addItem(supportA, 'bi-heart-fill');
+    addItem(expA, null);                 // already carries a bi-flask icon
+    if (guideLi) guideLi.remove();
+    if (supportLi) supportLi.remove();
+    menu.appendChild(drop);
+    navbar.dataset.moreBuilt = '1';
+  }
+
+  // (3)+(4) Live metrics from today's eBay listing rows.
+  const info = safeTranspose(ojs_info) || [];
+  const imgByCard = new Map(info.filter(d => d.image_path).map(d => [d.cardname, d.image_path]));
+  const rows = ebay_today_master || [];
+  const median = (a) => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; };
+
+  let graded = 0; const total = rows.length;
+  const byCard = new Map();
+  rows.forEach(r => {
+    if (r.grading_company && r.grading_company !== 'UNG') graded++;
+    if (r.clean_price > 0) {
+      if (!byCard.has(r.cardname)) byCard.set(r.cardname, []);
+      byCard.get(r.cardname).push(r.clean_price);
+    }
+  });
+  let marketValue = 0, topCard = null, topMed = -1;
+  byCard.forEach((prices, card) => {
+    const m = median(prices);
+    marketValue += m * prices.length;             // value everything at its eBay median
+    if (m > topMed) { topMed = m; topCard = card; }
+  });
+  const gradedPct = total ? Math.round(graded / total * 100) : 0;
+
+  // Card-art wash: priciest card by eBay median.
+  const topImg = topCard ? imgByCard.get(topCard) : null;
+  if (topImg) navbar.style.setProperty('--nav-bg-card-img', `url("${topImg}")`);
+
+  // Render the gauge cluster (rebuilt each run so it tracks the latest data).
+  const oldMetrics = document.getElementById('nav-metrics');
+  if (oldMetrics) oldMetrics.remove();
+
+  const fmtUSD = (v) => {
+    if (v >= 1e6) return '$' + (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + 'M';   // $4.5M
+    if (v >= 1e3) return '$' + Math.round(v / 1e3) + 'k';                    // $850k
+    return '$' + Math.round(v);
+  };
+  const fullUSD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(marketValue);
+
+  const R = 15, CIRC = 2 * Math.PI * R, off = CIRC * (1 - gradedPct / 100);
+  const gaugeSvg = `<svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
+    <circle cx="19" cy="19" r="${R}" fill="none" stroke="var(--bg-hover)" stroke-width="4"></circle>
+    <circle cx="19" cy="19" r="${R}" fill="none" stroke="var(--grade-psa)" stroke-width="4"
+      stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 19 19)"></circle>
+    <text x="19" y="20" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="800" fill="var(--text-main)" font-family="Inter, sans-serif">${gradedPct}%</text>
+  </svg>`;
+
+  const metrics = document.createElement('div');
+  metrics.id = 'nav-metrics';
+  metrics.innerHTML = `
+    <a class="nav-gauge" href="#market-overview"
+       title="${graded.toLocaleString()} of ${total.toLocaleString()} active eBay listings today are professionally graded (PSA / CGC / BGS / SGC).">
+      ${gaugeSvg}
+      <span class="nav-gauge-text"><span class="nav-gauge-label">Graded</span><span class="nav-gauge-label" style="letter-spacing:.3px;">share</span></span>
+    </a>
+    <a class="nav-gauge" href="#market-overview"
+       title="Total value of every active eBay listing today, each priced at its eBay median — ${fullUSD} across ${byCard.size.toLocaleString()} cards.">
+      <span class="nav-gauge-text"><span class="nav-gauge-label">On Market</span><span class="nav-gauge-value" style="color:var(--price);">${fmtUSD(marketValue)}</span></span>
+    </a>`;
+  metrics.querySelectorAll('a').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const t = document.getElementById('tab-market-overview');
+    if (t) t.click();
+  }));
+  navbar.querySelector('.navbar-container').appendChild(metrics);
 }
 ```
 
