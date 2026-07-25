@@ -51,7 +51,9 @@ MIN_HISTORY      <- 180   # min raw history to TRAIN/label a card (reliable fwd-
 SCORE_MIN_HISTORY <- as.integer(Sys.getenv("BHS_SCORE_MIN_HISTORY", "45"))  # min history to SCORE; newer cards get calibrated probs from the shared-dynamics model. Lower toward ~31 = thinner/imputed features
 EMBARGO          <- HORIZON_DAYS
 TEST_DAYS        <- 60       # future holdout window (also split into monthly walk-forward chunks)
-CAL_DAYS         <- 60       # size of the recent slice used to (re)fit the calibrator
+CAL_DAYS         <- 120      # size of the recent slice used to (re)fit the calibrator -- widened from
+                              # 60 so rarer classes (esp. "sell") have enough examples for beta
+                              # calibration to converge; see the 2026-07-20/07-25 saturation incidents
 SWEEP            <- as.logical(Sys.getenv("BHS_SWEEP", "TRUE"))
 PUSH             <- as.logical(Sys.getenv("BHS_PUSH", "TRUE"))
 USE_CHRONOS      <- as.logical(Sys.getenv("BHS_CHRONOS", "TRUE"))  # stack Chronos-2 forecast features
@@ -225,12 +227,15 @@ make_labeled <- function(df, horizon, buy_thr, sell_thr) {
       label = factor(label, levels = c("buy", "hold", "sell")))
 }
 
+# No impute/normalize step: XGBoost learns an optimal default split direction for
+# missing values natively (median-imputing churn_rate/net_flow/ebay_prem would
+# throw away the signal in "no eBay listings that day"), and tree splits are
+# scale-invariant so normalization is a no-op here.
 recipe_for <- function(train_df) {
   recipe(label ~ ., data = train_df %>% select(label, card_id, name, date, all_of(PRED))) %>%
     update_role(card_id, name, date, new_role = "id") %>%
-    step_impute_median(all_numeric_predictors()) %>%
     step_novel(all_nominal_predictors()) %>% step_dummy(all_nominal_predictors()) %>%
-    step_zv(all_predictors()) %>% step_normalize(all_numeric_predictors())
+    step_zv(all_predictors())
 }
 
 # Clip predicted probabilities off exact 0/1 before calibrating. glmnet can emit
@@ -267,13 +272,39 @@ fit_calibrator <- function(preds_df) {
     })
 }
 
-tune_best <- function(train_df, grid_levels = c(6, 4)) {
+# Model hyperparameters are only tuned on sweep day (BHS_SWEEP=TRUE); daily runs
+# load the persisted pick from CONFIG_PATH and skip tune_grid() entirely. XGBoost's
+# per-fit cost is high enough (vs. glmnet) that re-tuning on every daily run would
+# blow well past the "finishes in a couple minutes" daily budget.
+HP_COLS <- c("trees", "tree_depth", "learn_rate", "min_n", "loss_reduction", "sample_size")
+
+tune_best <- function(train_df, grid_size = 20) {
+  wf <- workflow() %>% add_recipe(recipe_for(train_df)) %>%
+    add_model(boost_tree(trees = tune(), tree_depth = tune(), learn_rate = tune(),
+                          min_n = tune(), loss_reduction = tune(), sample_size = tune()) %>%
+                set_engine("xgboost") %>% set_mode("classification"))
+
+  if (!SWEEP && !is.null(cfg) && all(HP_COLS %in% names(cfg))) {
+    message("   Using persisted model hyperparameters (skip tuning).")
+    best <- cfg %>% transmute(trees = as.integer(trees), tree_depth = as.integer(tree_depth),
+                              learn_rate = as.numeric(learn_rate), min_n = as.integer(min_n),
+                              loss_reduction = as.numeric(loss_reduction),
+                              sample_size = as.numeric(sample_size))
+    return(list(wf = wf, best = best, cv_auc = suppressWarnings(as.numeric(cfg$auc[1]))))
+  }
+
   folds <- sliding_period(train_df %>% arrange(date), index = date,
                           period = "month", lookback = Inf, assess_stop = 1, skip = 1)
-  wf <- workflow() %>% add_recipe(recipe_for(train_df)) %>%
-    add_model(multinom_reg(penalty = tune(), mixture = tune()) %>%
-                set_engine("glmnet") %>% set_mode("classification"))
-  grid <- grid_regular(penalty(range = c(-4, -0.5)), mixture(range = c(0, 1)), levels = grid_levels)
+  # grid_space_filling (not grid_regular): a full factorial grid over 6 hyperparameters
+  # would explode combinatorially; a space-filling design gives better coverage per fit.
+  params <- extract_parameter_set_dials(wf) %>%
+    update(trees          = trees(c(50L, 500L)),
+           tree_depth     = tree_depth(c(2L, 8L)),
+           learn_rate     = learn_rate(c(-3, -0.5)),
+           min_n          = min_n(c(5L, 40L)),
+           loss_reduction = loss_reduction(c(-6, 1)),
+           sample_size    = sample_prop(c(0.5, 1)))
+  grid  <- grid_space_filling(params, size = grid_size)
   tuned <- tune_grid(wf, resamples = folds, grid = grid,
                      metrics = metric_set(roc_auc), control = control_grid(save_pred = FALSE))
   list(wf = wf, best = select_best(tuned, metric = "roc_auc"),
@@ -313,7 +344,7 @@ if (SWEEP) {
     lab <- make_labeled(attach_chronos(feat_train, h, thr), h, thr, thr) %>% filter(!is.na(fwd_ret))
     max_d <- max(lab$date); ts <- max_d - TEST_DAYS; te <- ts - h
     tr <- lab %>% filter(date <= te)
-    tb <- tune_best(tr, grid_levels = c(5, 3))
+    tb <- tune_best(tr, grid_size = 8)
     ev <- walkforward_eval(lab, tb$wf, tb$best, te, ts)
     bal <- lab %>% count(label) %>% mutate(p = n / sum(n))
     tibble(horizon = h, thr = thr,
@@ -330,10 +361,9 @@ if (SWEEP) {
   choose <- list(h = pick$horizon, buy = pick$thr, sell = pick$thr)
   cat(sprintf("\n>> chosen config: horizon=%d, buy/sell threshold=+/-%.0f%% (AUC %.3f, buy %.1f%%, sell %.1f%%)\n\n",
               choose$h, 100 * choose$buy, pick$auc, pick$buy_pct, pick$sell_pct))
-  # persist the pick so daily (sweep-off) runs use it until the next sweep
-  write_csv(tibble(horizon = choose$h, buy_thr = choose$buy, sell_thr = choose$sell,
-                   auc = pick$auc, tuned_on = Sys.Date()), CONFIG_PATH)
-  message(sprintf("   chosen config persisted to %s", CONFIG_PATH))
+  # horizon/threshold + model hyperparameters are persisted together, below,
+  # after section 4 re-tunes on the full chosen config (not the coarse per-combo
+  # fit above) -- that's the more representative fit and the one daily runs reuse.
 }
 
 # ============================================================================
@@ -344,18 +374,35 @@ HORIZON_DAYS <- choose$h; BUY_THR <- choose$buy; SELL_THR <- choose$sell; EMBARG
 labeled <- make_labeled(attach_chronos(feat_train, HORIZON_DAYS, BUY_THR),
                         HORIZON_DAYS, BUY_THR, SELL_THR) %>% filter(!is.na(fwd_ret))
 max_date <- max(labeled$date); test_start <- max_date - TEST_DAYS; train_end <- test_start - EMBARGO
-tb <- tune_best(labeled %>% filter(date <= train_end))
+tb <- tune_best(labeled %>% filter(date <= train_end), grid_size = 20)
 ev <- walkforward_eval(labeled, tb$wf, tb$best, train_end, test_start)
 
-cat("\n============== BUY / HOLD / SELL  (multinomial logistic) ==============\n")
+cat("\n============== BUY / HOLD / SELL  (calibrated XGBoost) ==============\n")
 cat(sprintf("  Horizon %dd | buy>=+%.0f%% & pos<=%.2f | sell<=-%.0f%%\n",
             HORIZON_DAYS, 100*BUY_THR, LOW_POS, 100*SELL_THR))
-cat(sprintf("  best penalty=%.4g mixture=%.2f | rolling-CV AUC=%.3f\n",
-            tb$best$penalty, tb$best$mixture, tb$cv_auc))
+cat(sprintf("  best trees=%d depth=%d lr=%.4g min_n=%d loss_red=%.3g sample=%.2f | rolling-CV AUC=%s\n",
+            tb$best$trees, tb$best$tree_depth, tb$best$learn_rate, tb$best$min_n,
+            tb$best$loss_reduction, tb$best$sample_size,
+            if (is.na(tb$cv_auc)) "n/a (persisted)" else sprintf("%.3f", tb$cv_auc)))
 cat(sprintf("  WALK-FORWARD holdout macro-AUC : %.3f\n", ev$auc))
 cat(sprintf("  Calibrated Brier               : %.3f\n", ev$brier))
 cat(sprintf("  Calibrated log-loss            : %.3f\n", ev$logloss))
 cat("======================================================================\n\n")
+
+# Persist horizon/threshold + model hyperparameters together so daily (sweep-off)
+# runs reuse this exact config until the next sweep. Uses ev$auc (the full
+# walk-forward AUC on the actually-chosen config) rather than the coarse
+# per-combo AUC from the sweep loop above -- more representative of what
+# daily runs will actually see.
+if (SWEEP) {
+  write_csv(tibble(horizon = HORIZON_DAYS, buy_thr = BUY_THR, sell_thr = SELL_THR,
+                   auc = round(ev$auc, 3), tuned_on = Sys.Date(),
+                   trees = tb$best$trees, tree_depth = tb$best$tree_depth,
+                   learn_rate = tb$best$learn_rate, min_n = tb$best$min_n,
+                   loss_reduction = tb$best$loss_reduction, sample_size = tb$best$sample_size),
+           CONFIG_PATH)
+  message(sprintf("   chosen config + hyperparameters persisted to %s", CONFIG_PATH))
+}
 
 cat("Calibration of P(buy) on walk-forward holdout (pred vs empirical):\n")
 ev$pooled %>% mutate(bin = cut(.pred_buy, breaks = seq(0, 1, 0.1), include.lowest = TRUE)) %>%

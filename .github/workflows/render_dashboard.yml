@@ -2,8 +2,11 @@ name: Daily Dashboard Render
 
 on:
   # Render LAST in the daily chain: eBay Market Float -> Buy/Hold/Sell Signal -> render.
-  # The signal fires on the eBay float, so keying render off the signal guarantees
-  # every daily job (prices, eBay clean, forecasts, buy/hold/sell) is done first.
+  # Keying off the signal's completion (not its success) guarantees every daily
+  # job that CAN finish has finished before we render -- but a broken/rejected
+  # signal run (e.g. its safety gate refusing degenerate scores) must never
+  # block fresh prices/eBay listings from reaching the dashboard. Worst case,
+  # the render just carries yesterday's last-good buy/hold/sell scores.
   # workflow_dispatch stays independent, so a manual render never re-runs the signal.
   workflow_run:
     workflows: ["Daily Buy/Hold/Sell Signal"]
@@ -11,10 +14,9 @@ on:
       - completed
   workflow_dispatch:
 
-jobs:  
-  render-site:    
+jobs:
+  render-site:
     runs-on: self-hosted    # 💻 Routes directly to your MacBook Air
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}    
     
     steps:      
       - name: 📥 Checkout Repository        

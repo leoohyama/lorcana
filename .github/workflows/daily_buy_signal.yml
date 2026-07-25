@@ -25,7 +25,8 @@ on:
 jobs:
   buy-signal:
     runs-on: self-hosted
-    timeout-minutes: 60   # sweep days need the headroom; sweep-off runs finish in minutes
+    timeout-minutes: 90   # sweep days need the headroom (XGBoost tuning costs more per-fit than
+                           # glmnet did); sweep-off runs skip tuning entirely and finish in minutes
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
