@@ -78,21 +78,42 @@ if __name__ == "__main__":
     for col in ['inkwell', 'cost_scaled', 'days_scaled', 'churn_rate', 'ebay_mask']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    for col in ['set_idx', 'rarity_idx', 'ink_idx']: 
+    cat_cols = ['set_idx', 'rarity_idx', 'ink_idx']
+    for col in cat_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-
-    vocabs = [int(df[c].max() + 1) for c in ['set_idx', 'rarity_idx', 'ink_idx']]
 
     for seq_len in [ACTIVE_WINDOW]:
         print(f"Generating future forecasts for {seq_len}-day window...")
         weights_path = f'data/pytorch/lorcana_gru_weights_{seq_len}.pth'
-        
+
         if not os.path.exists(weights_path):
             print(f"Weights not found at {weights_path}. Skipping.")
             continue
 
+        # Size the embeddings from the CHECKPOINT, not the live data. If the daily
+        # price pull adds a new set/rarity/ink before the weekly retrain catches up,
+        # the data vocab can exceed the trained vocab; building the model from the
+        # data would make load_state_dict fail with a size mismatch and take the
+        # whole pipeline down (see run #147, 2026-08-02: set vocab 10 -> 11).
+        state_dict = torch.load(weights_path, map_location=device)
+        vocabs = [
+            state_dict['emb_set.weight'].shape[0],
+            state_dict['emb_rarity.weight'].shape[0],
+            state_dict['emb_ink.weight'].shape[0],
+        ]
+
+        # Clamp any category the model has never seen into range so it maps to a
+        # valid (fallback) embedding row instead of crashing. Untrained categories
+        # get approximate forecasts until the weekly retrain expands the embedding.
+        for col, vsize in zip(cat_cols, vocabs):
+            over = df[col] >= vsize
+            if over.any():
+                print(f"⚠️ {int(over.sum())} rows have {col} >= trained vocab {vsize}; "
+                      f"clamping to {vsize - 1} until retrain.")
+                df.loc[over, col] = vsize - 1
+
         model = HybridLorcanaGRU(vocabs).to(device)
-        model.load_state_dict(torch.load(weights_path))
+        model.load_state_dict(state_dict)
         model.eval()
 
         all_card_forecasts = []
