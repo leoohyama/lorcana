@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: 🔧 Fix Git Buffer
         run: |
@@ -54,4 +55,4 @@ jobs:
         with:
           commit_message: "🧠 Auto-train: New model weights and diagnostics"
           file_pattern: 'data/pytorch/*.pth data/pytorch/*.csv data/*.csv'
-          push_options: '--force'
+          push_options: '--force-with-lease'

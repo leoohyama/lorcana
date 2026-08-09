@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       # Weekly re-tune: sweep on Sundays (still downstream of the eBay chain, so
       # it tunes on fresh data). Manual dispatch with sweep=true also forces it.
@@ -53,4 +54,4 @@ jobs:
         with:
           commit_message: "🎯 Auto-signal: Daily buy/hold/sell probabilities updated"
           file_pattern: 'data/pytorch/buy_hold_sell_scores.csv data/pytorch/bhs_config.csv'
-          push_options: '--force'
+          push_options: '--force-with-lease'
