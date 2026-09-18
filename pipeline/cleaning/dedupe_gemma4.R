@@ -67,7 +67,7 @@ ask_gemma_json <- function(target_card, ebay_title) {
 }
 
 # ==========================================
-# 2. DOWNLOAD & IDENTIFY DUPES
+# 2. CONNECT & PREPARE THE VERDICT LEDGER
 # ==========================================
 message("🔌 Connecting to MotherDuck...")
 md_token <- trimws(Sys.getenv("MOTHERDUCK_TOKEN"))
@@ -98,30 +98,66 @@ if (!dbExistsTable(con, "lorcana_active_listings")) {
   quit(save = "no", status = 0)
 }
 
-message("📥 Downloading raw eBay identifiers...")
-raw_listings <- dbGetQuery(con, "SELECT DISTINCT item_id, id, listing_title FROM lorcana_active_listings")
+# PERSISTENT VERDICT LEDGER. Without this every (item_id, id) conflict Gemma has
+# ever approved stays conflicted in the table forever and gets re-asked on every
+# single run — the queue grows monotonically and never drains.
+dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS llm_dedupe_verdicts (
+    item_id VARCHAR,
+    id VARCHAR,
+    is_valid BOOLEAN,
+    evaluated_on DATE,
+    PRIMARY KEY (item_id, id)
+  );
+")
 
-# VERY IMPORTANT: Disconnect to release DuckDB's memory back to the OS so Ollama can use maximum RAM
-dbDisconnect(con, shutdown = TRUE)
-message("🔒 Disconnected from MotherDuck to free resources.")
+# ==========================================
+# 3. RE-APPLY KNOWN REJECTIONS (NO LLM)
+# ==========================================
+# The scraper re-inserts a fresh snapshot every day, so pairs deleted yesterday
+# reappear this morning. Re-killing them from the ledger is pure SQL — it must
+# never cost another Gemma call.
+n_repurged <- dbExecute(con, "
+  DELETE FROM lorcana_active_listings t
+  WHERE EXISTS (
+    SELECT 1 FROM llm_dedupe_verdicts v
+    WHERE v.item_id = t.item_id AND v.id = t.id AND v.is_valid = FALSE
+  );
+")
+message(sprintf("♻️ Re-purged %d resurrected rows from previously rejected pairs.", n_repurged))
 
-message("🔍 Identifying cross-pollinated listings...")
-suspected_dupes <- raw_listings %>%
-  group_by(item_id) %>%
-  mutate(ndistinctcardid = n_distinct(id)) %>%
-  filter(ndistinctcardid > 1) %>% 
-  ungroup()
+# ==========================================
+# 4. BUILD THE INCREMENTAL QUEUE
+# ==========================================
+# Scoped to the newest scrape day: a conflict on a listing that stopped being
+# returned by eBay months ago is dead weight, and re-judging it changes nothing.
+# Anti-joined against the ledger so each pair is judged exactly once.
+message("🔍 Identifying new cross-pollinated listings...")
+processing_queue <- dbGetQuery(con, "
+  WITH live AS (
+    SELECT DISTINCT item_id, id, listing_title
+    FROM lorcana_active_listings
+    WHERE date_pulled = (SELECT max(date_pulled) FROM lorcana_active_listings)
+  ),
+  conflicted AS (
+    SELECT item_id FROM live GROUP BY item_id HAVING count(DISTINCT id) > 1
+  )
+  SELECT l.item_id, l.id, l.listing_title
+  FROM live l
+  JOIN conflicted c ON l.item_id = c.item_id
+  LEFT JOIN llm_dedupe_verdicts v
+    ON v.item_id = l.item_id AND v.id = l.id
+  WHERE v.item_id IS NULL
+")
 
-if(nrow(suspected_dupes) == 0) {
-  message("✅ No cross-pollinated duplicates found! Database is clean.")
-  quit()
+if (nrow(processing_queue) == 0) {
+  message("✅ No unjudged cross-pollinated duplicates found! Database is clean.")
+  dbDisconnect(con, shutdown = TRUE)
+  quit(save = "no", status = 0)
 }
 
-message(sprintf("⚠️ Found %d listing conflicts to evaluate.", nrow(suspected_dupes)))
+message(sprintf("⚠️ Found %d new listing conflicts to evaluate.", nrow(processing_queue)))
 
-# ==========================================
-# 3. PREP METADATA & LLM QUEUE
-# ==========================================
 metadata <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE) %>%
   mutate(
     id = as.character(id),
@@ -129,39 +165,95 @@ metadata <- read_csv("data/target_cards_with_epids2.csv", show_col_types = FALSE
   ) %>%
   select(id, card_name)
 
-processing_queue <- suspected_dupes %>%
-  mutate(id = as.character(id)) %>%
+processing_queue <- processing_queue %>%
+  mutate(item_id = as.character(item_id), id = as.character(id)) %>%
   left_join(metadata, by = "id") %>%
   drop_na(card_name, listing_title)
 
-evaluations <- processing_queue %>% mutate(is_valid = NA)
+if (nrow(processing_queue) == 0) {
+  message("✅ No conflicts left after joining the card dictionary.")
+  dbDisconnect(con, shutdown = TRUE)
+  quit(save = "no", status = 0)
+}
+
+# VERY IMPORTANT: Disconnect to release DuckDB's memory back to the OS so Ollama
+# can use maximum RAM. The flush helper reconnects only for the brief writes.
+dbDisconnect(con, shutdown = TRUE)
+message("🔒 Disconnected from MotherDuck to free resources for Ollama.")
 
 # ==========================================
-# 4. RUN GEMMA EVALUATIONS
+# 5. RUN GEMMA EVALUATIONS (INCREMENTAL COMMITS)
 # ==========================================
+# Record the verdict AND action it in the same transaction window, every
+# FLUSH_EVERY rows, so an interrupted run keeps its progress instead of
+# re-asking Gemma for the same pairs tomorrow.
+flush_verdicts <- function(df) {
+  if (is.null(df) || nrow(df) == 0) return(invisible(0))
+  con <- connect_motherduck()
+  on.exit(dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # Composite-key upsert. Both statements run entirely cloud-side (no local temp
+  # table joined against a MotherDuck table), matching the pattern the cleaner uses.
+  pair_keys <- paste0("'", df$item_id, "|", df$id, "'", collapse = ",")
+  dbExecute(con, sprintf(
+    "DELETE FROM llm_dedupe_verdicts WHERE (item_id || '|' || id) IN (%s)", pair_keys))
+  dbWriteTable(con, "llm_dedupe_verdicts", df, append = TRUE)
+
+  # Action the rejections. Idempotent and ledger-driven, so it also re-kills
+  # anything the scraper resurrected mid-run.
+  n_del <- dbExecute(con, "
+    DELETE FROM lorcana_active_listings t
+    WHERE EXISTS (
+      SELECT 1 FROM llm_dedupe_verdicts v
+      WHERE v.item_id = t.item_id AND v.id = t.id AND v.is_valid = FALSE
+    );
+  ")
+  message(sprintf("💾 Committed %d verdicts (%d listing rows deleted).", nrow(df), n_del))
+  invisible(nrow(df))
+}
+
 message(paste("🤖 Asking Gemma to evaluate", nrow(processing_queue), "combinations..."))
 message("--------------------------------------------------")
 
+FLUSH_EVERY <- 250
+pending <- list()
+n_judged <- 0
+n_errors <- 0
+today <- Sys.Date()
+
 for (i in 1:nrow(processing_queue)) {
-  
-  curr_title <- processing_queue$listing_title[i]
+
+  curr_title  <- processing_queue$listing_title[i]
   curr_target <- processing_queue$card_name[i]
-  
+
   result_list <- ask_gemma_json(curr_target, curr_title)
 
   # SKIP on ERROR: an unreachable / timed-out Ollama must NOT count as "No Match" —
-  # that would DELETE legitimate listings. Leaving is_valid = NA excludes the row
-  # from the kill list, and the conflict is re-evaluated on the next run.
+  # that would DELETE legitimate listings. Writing no verdict leaves the pair in
+  # the queue so it is re-evaluated on the next run.
   if (is.null(result_list$validity) || identical(result_list$validity, "ERROR")) {
+    n_errors <- n_errors + 1
     message(sprintf("[%d/%d] ⚠️ LLM ERROR — skipping (will re-evaluate next run)", i, nrow(processing_queue)))
     message(sprintf("   Target : %s", curr_target))
     message(sprintf("   Listing: %s", curr_title))
     message("--------------------------------------------------")
+
+    # Abort early if literally every call so far has failed — Ollama is down.
+    if (n_errors >= 25 && n_errors == i) {
+      flush_verdicts(bind_rows(pending))
+      stop("🛑 First 25 LLM calls all failed — is Ollama running? Aborting; unjudged pairs will be retried next run.")
+    }
     next
   }
 
   is_match <- isTRUE(result_list$validity == "Match")
-  evaluations$is_valid[i] <- is_match
+
+  pending[[length(pending) + 1]] <- tibble(
+    item_id      = processing_queue$item_id[i],
+    id           = processing_queue$id[i],
+    is_valid     = is_match,
+    evaluated_on = today
+  )
 
   # Action-friendly logging
   eval_status <- ifelse(is_match, "✅ MATCH", "❌ NO MATCH (WILL DELETE)")
@@ -169,35 +261,19 @@ for (i in 1:nrow(processing_queue)) {
   message(sprintf("   Target : %s", curr_target))
   message(sprintf("   Listing: %s", curr_title))
   message("--------------------------------------------------")
+
+  if (length(pending) >= FLUSH_EVERY) {
+    n_judged <- n_judged + flush_verdicts(bind_rows(pending))
+    pending <- list()
+  }
 }
 
 # ==========================================
-# 5. EXECUTE CLOUD DELETIONS
+# 6. FINAL FLUSH & SUMMARY
 # ==========================================
-kill_list <- evaluations %>% filter(is_valid == FALSE)
+n_judged <- n_judged + flush_verdicts(bind_rows(pending))
 
 message("\n==================================================")
-message("☠️ EXECUTING LIVE DELETIONS")
+message(sprintf("✨ Dedupe complete! %d pairs judged and recorded, %d LLM errors left in queue.",
+                n_judged, n_errors))
 message("==================================================")
-
-if(nrow(kill_list) > 0) {
-  message(sprintf("Gemma identified %d false matches. Reconnecting to MotherDuck...", nrow(kill_list)))
-  
-  # RECONNECT with the explicit extension load (see connect_motherduck above)
-  con <- connect_motherduck()
-  
-  for(i in 1:nrow(kill_list)) {
-    # Use standard parameterized queries (safer and cleaner than glue_sql)
-    dbExecute(
-      con,
-      "DELETE FROM lorcana_active_listings WHERE item_id = ? AND id = ?",
-      params = list(kill_list$item_id[i], kill_list$id[i])
-    )
-  }
-  
-  dbDisconnect(con, shutdown = TRUE)
-  message("✅ Deletions complete! Database is clean.")
-  
-} else {
-  message("✅ Gemma determined all pairings were somehow valid. No deletions made.")
-}
