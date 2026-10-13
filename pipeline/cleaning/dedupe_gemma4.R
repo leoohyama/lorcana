@@ -51,7 +51,7 @@ ask_gemma_json <- function(target_card, ebay_title) {
         options = list(temperature = 0.0) 
       ),
       encode = "json",
-      timeout(15) 
+      timeout(30) 
     )
   }, error = function(e) return(NULL))
   

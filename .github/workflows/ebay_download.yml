@@ -46,6 +46,14 @@ jobs:
           nohup /usr/local/bin/ollama serve > ollama.log 2>&1 &
           sleep 5 
           curl -I http://localhost:11434/ || echo "Ollama failed to start"
+          # Pre-load the model. A cold load of gemma4:e2b takes ~13s, which used
+          # to be charged to the first inference call and blow its per-call
+          # timeout — enough consecutive failures trips the "first 25 calls
+          # failed" abort. keep_alive holds it resident across both gemma jobs.
+          curl -s -m 300 http://localhost:11434/api/generate \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gemma4:e2b","keep_alive":"30m"}' || echo "Model pre-warm failed"
+          curl -s -m 10 http://localhost:11434/api/ps
 
       - name: 🧹 Run Gemma Cleaner
         env:
@@ -68,6 +76,14 @@ jobs:
           nohup /usr/local/bin/ollama serve > ollama.log 2>&1 &
           sleep 5 
           curl -I http://localhost:11434/ || echo "Ollama failed to start"
+          # Pre-load the model. A cold load of gemma4:e2b takes ~13s, which used
+          # to be charged to the first inference call and blow its per-call
+          # timeout — enough consecutive failures trips the "first 25 calls
+          # failed" abort. keep_alive holds it resident across both gemma jobs.
+          curl -s -m 300 http://localhost:11434/api/generate \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gemma4:e2b","keep_alive":"30m"}' || echo "Model pre-warm failed"
+          curl -s -m 10 http://localhost:11434/api/ps
 
       - name: ✂️ Run Gemma Deduplication
         env:
