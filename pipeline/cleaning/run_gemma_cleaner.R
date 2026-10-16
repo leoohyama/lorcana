@@ -7,49 +7,89 @@ library(duckdb)
 # ==========================================
 # 1. THE GEMMA JSON FUNCTION (SEQUENTIAL)
 # ==========================================
+# Grading is pure pattern-matching, so regex does it instead of the model: it is
+# exact, free, and removes the model's worst failure mode (reading the 10 in
+# "PSA 10" as card number 10 and rejecting a valid listing). The model is left
+# with the one judgement call — does this listing match this printing.
+GRADE_RX <- regex("(psa|bgs|beckett|cgc|sgc|pcg|ace|tag)\\s*#?\\s*([0-9]+(?:\\.[0-9])?)",
+                  ignore_case = TRUE)
+
+extract_grading <- function(ebay_title) {
+  m <- str_match(ebay_title, GRADE_RX)
+  if (is.na(m[1, 1])) {
+    return(list(is_graded = FALSE, grading_company = "NA", grade_value = "NA"))
+  }
+  comp <- toupper(m[1, 2])
+  if (comp == "BECKETT") comp <- "BGS"
+  list(is_graded = TRUE, grading_company = comp, grade_value = m[1, 3])
+}
+
 ask_gemma_json <- function(target_card, ebay_title) {
+  grading <- extract_grading(ebay_title)
+
+  # Strip grading scores before the model sees the title, so no grade can be
+  # mistaken for a collector number.
+  clean_title <- str_squish(str_remove_all(ebay_title, GRADE_RX))
+
   prompt_text <- paste0(
-    "You are a strict data extraction assistant for Disney Lorcana TCG. ",
-    "Your primary job is to identify and filter out standard versions of cards that sellers are mislabeling with high-value terms like 'Iconic', 'Enchanted', 'Epic'.\n\n",
-    "RULES:\n",
-    "1. 'validity': Output 'Match' or 'No Match'.\n",
-    "2. THE COLLECTOR NUMBER MATCH (CRITICAL): The Target Card string ends with a specific collector number. Inspect the eBay Title for any isolated card numbers or fractional identifiers (e.g., '191/204'). If the eBay title explicitly contains a DIFFERENT card number than the target number, you MUST output 'No Match'. NOTE: A fractional format in the title like '242/204' is an EXACT match for a target number of '242'.\n",
-    "3. OMITTED NUMBERS: If the title omits any card number but matches the exact character name and subtitle, it can be a 'Match'.\n",
-    "4. 'is_graded': true or false.\n",
-    "5. 'grading_company': Extract ('PSA', 'BGS', 'Beckett', 'CGC', 'SGC', 'PCG', 'ACE', 'TAG'). Output 'NA' if ungraded.\n",
-    "6. 'grade_value': Extract numeric grade. Output 'NA' if ungraded.\n\n",
+    "You are a strict data extraction assistant for Disney Lorcana TCG.\n",
+    "Decide if an eBay listing is the SAME printing as the Target Card.\n",
+    "The Target Card string ends with its collector number.\n\n",
+    "DECISION PROCEDURE for 'validity' - follow in order:\n",
+    "STEP 1. Find any card number in the eBay Title (forms: '205', '025/204', '19/204').\n",
+    "STEP 2. If NO card number appears in the title: output 'Match' as long as the character name and subtitle match the target. A missing number is NOT a reason to reject. This is common and valid.\n",
+    "STEP 3. If a card number IS present: compare it to the target number, ignoring leading zeros and any '/204' denominator. Equal -> 'Match'. Different -> 'No Match'.\n",
+    "STEP 4. If the character name or subtitle is a different card entirely -> 'No Match'.\n\n",
+    "EXAMPLES:\n",
+    "Target: Aurora - Delightful Musician - Enchanted - 223 | Title: 'Disney Lorcana Aurora - Delightful Musician ENCHANTED NM' -> Match (no number present)\n",
+    "Target: Aurora - Delightful Musician - Enchanted - 223 | Title: 'Disney Lorcana - Hyperia City - Aurora - Delightful Musician ENCHANTED NM' -> Match (set name is not a card number)\n",
+    "Target: Aurora - Delightful Musician - Enchanted - 223 | Title: 'Aurora - Delightful Musician 19/204 Nm' -> No Match (19 != 223)\n",
+    "Target: Aurora - Delightful Musician - Enchanted - 223 | Title: 'Aurora Delightful Musician 223/204' -> Match (223 == 223)\n\n",
     "Target Card: ", target_card, "\n",
-    "eBay Title: ", ebay_title, "\n",
+    "eBay Title: ", clean_title, "\n",
     "JSON Output:"
   )
-  
+
+  # Constrained decoding pins the key, so the model cannot invent one and make
+  # parsing silently fail (without it, it emitted {"Match": "Match"}).
+  response_schema <- list(
+    type = "object",
+    properties = list(
+      validity = list(type = "string", enum = c("Match", "No Match"))
+    ),
+    required = c("validity")
+  )
+
   res <- tryCatch({
     POST(
       url = "http://localhost:11434/api/generate",
       body = list(
-        model = "gemma4:e2b", 
+        model = "gemma4:e2b",
         prompt = prompt_text,
         stream = FALSE,
-        format = "json",
-        options = list(temperature = 0.0) 
+        format = response_schema,
+        # gemma4:e2b is a thinking model and its reasoning was ~94% of every
+        # response (609 generated tokens for a ~40-token answer), then thrown
+        # away unread. Disabling it is the bulk of the ~13x speed-up.
+        think = FALSE,
+        options = list(temperature = 0.0)
       ),
       encode = "json",
-      timeout(30) 
+      timeout(30)
     )
   }, error = function(e) return(NULL))
-  
-  fallback <- list(validity="ERROR", is_graded=FALSE, grading_company="NA", grade_value="NA")
-  
+
+  fallback <- list(validity = "ERROR", is_graded = FALSE,
+                   grading_company = "NA", grade_value = "NA")
+
   if (!is.null(res) && status_code(res) == 200) {
-    unpacked <- tryCatch({
-      raw_text <- content(res, "text", encoding = "UTF-8")
-      parsed <- fromJSON(raw_text)
-      fromJSON(parsed$response)
-    }, error = function(e) return(fallback))
-    return(unpacked)
-  } else {
-    return(fallback)
+    validity <- tryCatch({
+      fromJSON(fromJSON(content(res, "text", encoding = "UTF-8"))$response)$validity
+    }, error = function(e) NULL)
+    if (is.null(validity)) return(fallback)
+    return(c(list(validity = validity), grading))
   }
+  fallback
 }
 
 # ==========================================
@@ -122,8 +162,11 @@ query <- "
 processing_queue <- dbGetQuery(con, query)
 
 if(nrow(processing_queue) == 0) {
+  # stop() exits 1, which marks the whole workflow failed on a day when there is
+  # simply nothing new to clean. Exit 0 like the missing-table guard above.
+  message("✅ All unique listings checked. No new data to process. Exiting gracefully.")
   dbDisconnect(con, shutdown = TRUE)
-  stop("✅ All unique listings checked. No new data to process. Exiting gracefully.", call. = FALSE)
+  quit(save = "no", status = 0)
 }
 
 # Join dictionary and clean text patterns
@@ -161,8 +204,30 @@ deterministic_mismatches <- processing_queue %>%
 llm_queue <- processing_queue %>%
   filter(!has_forbidden_words)
 
-print(sprintf("📉 Pre-filtered out %d rows natively. Processing Remaining %d rows via LLM sequentially...", 
-              nrow(deterministic_mismatches), nrow(llm_queue)))
+# ==========================================
+# --- 4b. REUSE PRIOR VERDICTS FOR REPEAT LISTINGS ---
+# ==========================================
+# 40-60% of each day's "new" item_ids are relists of a title this pipeline has
+# already judged. The verdict depends on the (target card, title) PAIR, not the
+# title alone — 2,449 titles in the table map to 2+ different target cards — so
+# the pair is the cache key. card_language is still recomputed per row above.
+prior_verdicts <- dbGetQuery(con, "
+  SELECT DISTINCT ON (a.id, a.listing_title)
+         a.id, a.listing_title, m.is_valid, m.is_graded, m.grading_company, m.grade_val
+  FROM lorcana_active_listings a
+  JOIN llm_listing_metadata m ON a.item_id = m.item_id
+  ORDER BY a.id, a.listing_title, m.item_id
+")
+
+cached_hits <- llm_queue %>%
+  inner_join(prior_verdicts, by = c("id", "listing_title")) %>%
+  select(item_id, id, is_valid, is_graded, grading_company, grade_val, card_language)
+
+llm_queue <- llm_queue %>%
+  anti_join(prior_verdicts, by = c("id", "listing_title"))
+
+print(sprintf("📉 Pre-filtered %d rows natively, %d reused from prior verdicts. Processing remaining %d rows via LLM sequentially...",
+              nrow(deterministic_mismatches), nrow(cached_hits), nrow(llm_queue)))
 
 # ==========================================
 # 5. SEQUENTIAL LLM PROCESSING (INCREMENTAL COMMITS)
@@ -179,10 +244,11 @@ flush_payload <- function(df) {
   invisible(nrow(df))
 }
 
-# Commit the deterministic regex rejects up front — no LLM needed for these
+# Commit the deterministic regex rejects and cache hits up front — no LLM needed
 flush_payload(deterministic_mismatches)
+flush_payload(cached_hits)
 
-total_written <- nrow(deterministic_mismatches)
+total_written <- nrow(deterministic_mismatches) + nrow(cached_hits)
 n_errors <- 0
 FLUSH_EVERY <- 250
 llm_results_list <- list()
