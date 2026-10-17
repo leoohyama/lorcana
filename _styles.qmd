@@ -110,6 +110,15 @@
   .mv-pct { display: block; font-size: 11px; font-weight: 600; opacity: 0.85; }
   .mv-trend { width: 96px; }
   .mv-empty { color: var(--text-muted); font-style: italic; padding: 12px 8px; }
+  /* Sparkline draw-in: the line traces left → right once when it first comes
+     into view, then today's dot lands. .spark-armed is only added by JS (and
+     not for reduced-motion users), so otherwise sparklines render static.
+     --len is the polyline's length, computed in spark(). */
+  .spark-armed .spark-line, .spark-armed .spark-dot { visibility: hidden; }
+  .spark-armed.spark-draw .spark-line { visibility: visible; stroke-dasharray: var(--len); animation: spark-draw 0.8s ease-out both; }
+  .spark-armed.spark-draw .spark-dot { visibility: visible; transform-box: fill-box; transform-origin: center; animation: spark-dot 0.25s ease-out 0.7s both; }
+  @keyframes spark-draw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+  @keyframes spark-dot { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: none; } }
 
   /* ============================================================
      NAVBAR REDESIGN — centered brand+nav cluster over a muted

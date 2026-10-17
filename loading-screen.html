@@ -37,6 +37,9 @@
     var el = document.getElementById('lc-loader');
     function hide() {
       if (!el || el.classList.contains('lc-done')) return;
+      // Tell the page it's visible (e.g. the Overview sparklines start drawing).
+      window.lorecasterReady = true;
+      document.dispatchEvent(new Event('lorecaster:ready'));
       el.classList.add('lc-done');
       setTimeout(function () { el.remove(); }, 400);
     }
