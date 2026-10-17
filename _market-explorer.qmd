@@ -136,21 +136,33 @@ makeSetPicker = function (sets, initial, onChange) {
      return prices.length % 2 !== 0 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
   }
 
+  // Index forecasts / metrics / eBay rows by card once. Re-scanning the full
+  // arrays for every card was most of this page's load time.
+  const groupBy = (rows, key) => {
+    const m = new Map();
+    for (const r of rows) { const k = key(r); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }
+    return m;
+  };
+  const fcst_by_card = groupBy(all_fcst, f => f.cardname);
+  const metrics_by_id = groupBy(all_metrics, m => m.tcgplayer_id);
+  const ebay_by_card = groupBy(clean_ebay_master, e => e.cardname);
+
   // Construct Primary Master Core table rows data mapping
   let unified_data = (safeTranspose(ojs_info) || []).map(d => {
-    const c_fcst = all_fcst.filter(f => f.cardname === d.cardname);
+    const c_fcst = fcst_by_card.get(d.cardname) || [];
     const cur_price = d.current_price || 0;
     const live_c = c_fcst.filter(f => f.model === "Chronos").sort((a,b)=>a.date-b.date);
     const c_pred = live_c.length > 0 ? live_c[live_c.length - 1].price : null;
     const c_pct = (c_pred !== null && cur_price > 0) ? ((c_pred - cur_price) / cur_price) * 100 : null;
 
-    const card_metrics = all_metrics.filter(m => m.tcgplayer_id === d.tcgplayer_id && m.horizon === 30);
+    const card_metrics = (metrics_by_id.get(d.tcgplayer_id) || []).filter(m => m.horizon === 30);
     const c_err = card_metrics.find(m => m.model === "Chronos");
 
     // Latest-date prices: ungraded (or PSA 10), auction-free — the list mirrors
     // the deep-dive header, which shows the most recent pull rather than a 7D median.
-    let latest_ung = getLatestDateMedian(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "Ungraded" && !e.is_auction));
-    let latest_psa = getLatestDateMedian(clean_ebay_master.filter(e => e.cardname === d.cardname && e.label === "PSA 10" && !e.is_auction));
+    const card_ebay = ebay_by_card.get(d.cardname) || [];
+    let latest_ung = getLatestDateMedian(card_ebay.filter(e => e.label === "Ungraded" && !e.is_auction));
+    let latest_psa = getLatestDateMedian(card_ebay.filter(e => e.label === "PSA 10" && !e.is_auction));
     // 7D volume: ALL listings for the card — every grade + auctions. Unique
     // item counting needs listing identity, so it's precomputed in R
     // (ojs_ebay_counts -> ebay_counts_map); same trailing-7-day window.
@@ -360,7 +372,7 @@ makeSetPicker = function (sets, initial, onChange) {
     page_wrapper.appendChild(split_container);
 
     // ======= STATE MANAGEMENT =======
-    let current_sort = "current_price"; let is_asc = false;
+    let current_sort = "recent_ebay_med"; let is_asc = false; // default: eBay ungraded price, high → low
     let active_selections = []; // Max 2 for comparison
 
     const formatPct = (val, price) => {
@@ -809,7 +821,7 @@ makeSetPicker = function (sets, initial, onChange) {
     container.style.cssText = "max-height: 800px; overflow-y: auto; overflow-x: hidden; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-subtle); width: 100%; flex: 1;";
     page_wrapper.appendChild(container);
 
-    let current_sort = "current_price"; let is_asc = false;
+    let current_sort = "recent_ebay_med"; let is_asc = false; // default: eBay ungraded price, high → low
 
     const formatPct = (val, price) => {
       if (val === null || val === undefined) return '<span style="color:var(--text-muted);">N/A</span>';
@@ -1156,6 +1168,10 @@ makeSetPicker = function (sets, initial, onChange) {
   renderMode();
   let resize_timer = null;
   window.addEventListener("resize", () => { clearTimeout(resize_timer); resize_timer = setTimeout(renderMode, 250); });
+
+  // The card list is built — lift the full-screen loading screen
+  // (loading-screen.html). Deferred a frame so the list is in the DOM first.
+  requestAnimationFrame(() => { if (window.lorecasterHideLoader) window.lorecasterHideLoader(); });
 
   return page_wrapper;
 }

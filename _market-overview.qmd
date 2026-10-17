@@ -32,8 +32,9 @@ safeTranspose = (data) => {
   // --- Market-pulse aggregates (computed client-side from live signals & forecasts) ---
   const info = safeTranspose(ojs_info) || [];
 
-  const priceByCard = new Map(info.filter(d => d.current_price).map(d => [d.cardname, d.current_price]));
-  const cardsTracked = priceByCard.size;
+  // Every card on the roster, not just those with a TCGplayer price — newer
+  // sets (e.g. Hyperia City) are eBay-only until TCGplayer IDs exist.
+  const cardsTracked = info.length;
   const totalListings = stats.total_ebay_listings;
 
   // Buy / Hold / Sell split — share of rated cards by today's signal call

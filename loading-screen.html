@@ -1,0 +1,52 @@
+<!--
+  Full-screen loading screen (injected right after <body> via include-before-body).
+  The page embeds ~10 MB of data and builds every card's stats in the browser,
+  so it can sit half-empty for several seconds on phones / slow connections.
+  This covers it until the Cards list finishes rendering — the explorer cell in
+  _market-explorer.qmd calls window.lorecasterHideLoader() when it's done.
+-->
+<div id="lc-loader" role="status" aria-live="polite">
+  <img src="lorecaster_logo.png" alt="Lorecaster" class="lc-loader-logo">
+  <div class="lc-loader-spinner" aria-hidden="true"></div>
+  <div class="lc-loader-msg">Loading today's market data…</div>
+  <div class="lc-loader-sub" id="lc-loader-sub">Crunching prices, forecasts and eBay listings for every tracked card.</div>
+</div>
+<style>
+  #lc-loader {
+    position: fixed; inset: 0; z-index: 99999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 16px; text-align: center;
+    background: #0f172a; color: #f8fafc;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    transition: opacity 0.35s ease;
+  }
+  #lc-loader.lc-done { opacity: 0; pointer-events: none; }
+  .lc-loader-logo { width: 120px; height: auto; margin-bottom: 6px; }
+  .lc-loader-spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid #334155; border-top-color: #38bdf8;
+    animation: lc-spin 0.9s linear infinite;
+  }
+  .lc-loader-msg { font-size: 17px; font-weight: 700; }
+  .lc-loader-sub { font-size: 13px; color: #94a3b8; max-width: 360px; line-height: 1.5; }
+  @keyframes lc-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .lc-loader-spinner { animation-duration: 2.4s; } }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById('lc-loader');
+    function hide() {
+      if (!el || el.classList.contains('lc-done')) return;
+      el.classList.add('lc-done');
+      setTimeout(function () { el.remove(); }, 400);
+    }
+    window.lorecasterHideLoader = hide;
+    // Reassure slow devices that it's still working...
+    setTimeout(function () {
+      var sub = document.getElementById('lc-loader-sub');
+      if (sub && el.isConnected) sub.textContent = 'Still working — this can take up to 30 seconds on phones and slower connections.';
+    }, 8000);
+    // ...and never trap the page if the explorer errors before it can signal.
+    setTimeout(hide, 45000);
+  })();
+</script>

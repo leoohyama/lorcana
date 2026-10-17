@@ -8,6 +8,7 @@ format:
     scrolling: true
     orientation: columns
     include-in-header: google-analytics.html
+    include-before-body: loading-screen.html
     nav-buttons:
       - text: "Experimental"
         href: experimental.html
@@ -40,13 +41,13 @@ ojs_define(ojs_movers = movers, ojs_hist = hist_flat, ojs_forecast = forecast_fl
 
 {{< include _styles.qmd >}}
 
+{{< include _market-overview.qmd >}}
+
 {{< include _market-explorer.qmd >}}
 
 {{< include _market-sets.qmd >}}
 
 {{< include _market-player.qmd >}}
-
-{{< include _market-overview.qmd >}}
 
 {{< include _guide-faq.qmd >}}
 
