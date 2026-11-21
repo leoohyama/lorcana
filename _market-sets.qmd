@@ -9,9 +9,8 @@
 // ==============================================================================
 // SECTION 5: SETS OVERVIEW — set-level roll-ups of the per-card metrics.
 // One row per Lorcana set, aggregating the same signals the Cards page shows
-// per card. A tier toggle (Iconic & Enchanted / Epic) re-scopes every metric,
-// since from Fabled onward each set ships both tiers (older sets are Enchanted
-// only, so their Epic view is empty).
+// per card. (Epics were dropped from tracking on 2026-11-21, which removed the
+// old Iconic & Enchanted / Epic tier toggle.)
 //
 // Reuses page-wide helpers already defined on the Overview page:
 //   safeTranspose, clean_ebay_master, ebay_today_master, ebay_card_day_rows,
@@ -66,7 +65,7 @@
     return c;
   };
 
-  // Today's listings grouped by card, for tier-scoped graded/ungraded shares.
+  // Today's listings grouped by card, for per-set graded/ungraded shares.
   const listingsByCard = new Map();
   (ebay_today_master || []).forEach(r => {
     if (!listingsByCard.has(r.cardname)) listingsByCard.set(r.cardname, []);
@@ -74,7 +73,6 @@
   });
 
   // ---- Set grouping + release dates ---------------------------------------
-  const tierOf = (d) => String(d.rarity || '').toLowerCase() === 'epic' ? 'Epic' : 'IconicEnchanted';
   const bySet = new Map();
   info.forEach(d => {
     if (!d.set_name) return;
@@ -99,7 +97,7 @@
   };
   const relLabel = (ms) => ms == null ? '—' : new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
-  // ---- Build a set row object for a given tier scope ----------------------
+  // ---- Build a set row object ---------------------------------------------
   const buildRow = (setName, cards) => {
     if (cards.length === 0) return null;
     const names = new Set(cards.map(c => c.cardname));
@@ -123,7 +121,7 @@
     });
     const projPct = projBase > 0 ? (projVal - projBase) / projBase * 100 : null;
 
-    // Graded share among this tier's active listings today.
+    // Graded share among this set's active listings today.
     let graded = 0, totalL = 0;
     cards.forEach(c => (listingsByCard.get(c.cardname) || []).forEach(r => {
       totalL++; if (r.grading_company && r.grading_company !== 'UNG') graded++;
@@ -194,17 +192,15 @@
   // ---- Sortable table shell -----------------------------------------------
   const cols = [
     { key: 'setName',   label: 'Set',            cls: '',    tip: 'Lorcana set, release month, and age.', render: setCell },
-    { key: 'count',     label: 'Cards',          cls: 'num', tip: 'Chase cards tracked in this set for the selected tier.', render: r => `<span style="font-weight:700;">${r.count}</span>` },
+    { key: 'count',     label: 'Cards',          cls: 'num', tip: 'Chase cards tracked in this set.', render: r => `<span style="font-weight:700;">${r.count}</span>` },
     { key: 'mlVol',     label: 'Most Listed',    cls: '',    tip: 'Card with the most unique eBay listings in the trailing 7 days.', render: r => miniCard(r.mostListed, `${r.mlVol} listings (7d)`) },
     { key: 'mcVal',     label: 'Most Churn',     cls: '',    tip: 'Card with the most supply turnover — the largest total day-over-day change in active listing count.', render: r => miniCard(r.mostChurn, `Δ ${r.mcVal} listings`) },
     { key: 'ebayVal',   label: 'Set Value',      cls: 'num', tip: 'One-of-each chase-card value: sum of every tracked card priced at its TCG market price and its eBay ungraded median.', render: valueCell },
     { key: 'projVal',   label: 'Projected',      cls: 'num', tip: 'Set value projected forward with the Chronos-2 forecast (cards with a live forecast), and its % change vs current TCG value.', render: projCell },
-    { key: 'gradedPct', label: 'Graded Share',   cls: 'num', tip: 'Share of this tier\'s active eBay listings today that are professionally graded (PSA / CGC / BGS / SGC).', render: gradedCell },
+    { key: 'gradedPct', label: 'Graded Share',   cls: 'num', tip: 'Share of this set\'s active eBay listings today that are professionally graded (PSA / CGC / BGS / SGC).', render: gradedCell },
     { key: 'bhs',       label: 'Signal (B/H/S)', cls: 'num', tip: 'Mean Buy / Hold / Sell probability across rated cards in scope.', render: bhsCell }
   ];
 
-  const tiers = { all: 'All chase cards', IconicEnchanted: 'Iconic & Enchanted', Epic: 'Epic' };
-  let tier = 'all';
   let sortKey = 'ebayVal', asc = false;
 
   const sortVal = (r) => {
@@ -218,10 +214,7 @@
   wrap.style.width = "100%";
 
   function render() {
-    const rows = [...bySet.keys()].map(setName => {
-      const cards = tier === 'all' ? bySet.get(setName) : bySet.get(setName).filter(c => tierOf(c) === tier);
-      return buildRow(setName, cards);
-    }).filter(Boolean);
+    const rows = [...bySet.keys()].map(setName => buildRow(setName, bySet.get(setName))).filter(Boolean);
 
     rows.sort((a, b) => {
       const va = sortVal(a), vb = sortVal(b);
@@ -236,21 +229,17 @@
     const td = (c, r) => `<td class="${c.cls}">${c.render(r)}</td>`;
 
     wrap.innerHTML = `
-      <div class="seg-tabs" style="margin-bottom:14px;">
-        ${Object.entries(tiers).map(([k, lbl]) => `<button class="seg-tab ${k === tier ? 'active' : ''}" data-tier="${k}">${lbl}</button>`).join('')}
-      </div>
       <div style="width:100%; background:var(--bg-card); border-radius:12px; border:1px solid var(--border-subtle); overflow:auto; max-height:820px;">
         <table class="sets-table">
           <thead><tr>${cols.map(th).join('')}</tr></thead>
           <tbody>${rows.map(r => `<tr>${cols.map(c => td(c, r)).join('')}</tr>`).join('') ||
-            `<tr><td colspan="${cols.length}" style="padding:18px; color:var(--text-muted); font-style:italic;">No cards in this tier yet.</td></tr>`}</tbody>
+            `<tr><td colspan="${cols.length}" style="padding:18px; color:var(--text-muted); font-style:italic;">No cards yet.</td></tr>`}</tbody>
         </table>
       </div>
       <div style="font-size:11px; color:var(--text-muted); margin-top:10px; font-style:italic;">
         Set Value & Projected are one-of-each chase-card totals (each card counted once). Churn is total day-over-day change in active listings. Graded Share reflects today's live eBay listings.
       </div>`;
 
-    wrap.querySelectorAll('.seg-tab').forEach(btn => btn.addEventListener('click', () => { tier = btn.dataset.tier; render(); }));
     wrap.querySelectorAll('th[data-key]').forEach(h => h.addEventListener('click', () => {
       const k = h.dataset.key;
       if (sortKey === k) { asc = !asc; } else { sortKey = k; asc = (k === 'setName'); }

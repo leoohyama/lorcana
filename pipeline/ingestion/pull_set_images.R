@@ -10,7 +10,7 @@
 library(tidyverse)
 library(jsonlite)
 
-TARGET_RARITIES <- c("Enchanted", "Iconic", "Epic")
+TARGET_RARITIES <- c("Enchanted", "Iconic")  # Epics dropped 2026-11-21
 root_dir <- "data/enchanteds/images"
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -36,7 +36,7 @@ targets <- cards %>%
   filter(!is.na(image_url))
 
 if (nrow(targets) == 0) {
-  message("⚠️ No Enchanted/Iconic/Epic cards with images revealed yet. Nothing to do.")
+  message("⚠️ No Enchanted/Iconic cards with images revealed yet. Nothing to do.")
   quit(save = "no", status = 0)
 }
 

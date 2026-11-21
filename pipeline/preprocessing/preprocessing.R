@@ -142,7 +142,10 @@ df_final <- df_merged %>%
   mutate(
     name_idx = as.integer(as.factor(name)) - 1L,
     set_idx = as.integer(as.factor(set_name)) - 1L,
-    rarity_idx = as.integer(as.factor(rarity)) - 1L,
+    # Levels pinned so indices survive roster changes: Epics were dropped from the
+    # roster 2026-11-21, and as.factor() would have shifted Iconic 2 -> 1 (onto the
+    # trained Epic embedding row). Epic's row is now simply unused.
+    rarity_idx = as.integer(factor(rarity, levels = c("Enchanted", "Epic", "Iconic"))) - 1L,
     ink_idx = as.integer(as.factor(ink_clean)) - 1L
   ) %>%
   arrange(card_id, date)

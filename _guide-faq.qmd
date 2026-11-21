@@ -10,7 +10,7 @@
 Lorecaster tracks the prices of high-end Disney Lorcana trading cards and estimates where those prices are headed over the next ~30 days. Think of it like a weather forecast, but for card prices: it won't be right every time, but it's an educated estimate based on patterns in the data — much better than guessing.
 
 **Which cards does it cover?**
-Only the high-rarity collector cards: **Epic, Enchanted, and Iconic**. Cheaper cards rise and fall with whatever deck is winning tournaments that month, which is a very different (and noisier) thing to predict. High-rarity card prices are driven by collector demand — beloved characters, special artwork, scarcity — and those patterns are steadier.
+Only the high-rarity collector cards: **Enchanted and Iconic**. Cheaper cards rise and fall with whatever deck is winning tournaments that month, which is a very different (and noisier) thing to predict. High-rarity card prices are driven by collector demand — beloved characters, special artwork, scarcity — and those patterns are steadier.
 
 **Where does the data come from?**
 Two places, refreshed every morning:

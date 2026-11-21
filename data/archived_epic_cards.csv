@@ -1,0 +1,108 @@
+,id,tcgplayer_id,name,version,set_name,rarity,released_at,cost,inkwell,ink_clean,epid,collector_number
+134,crd_61593ca4abb44723ae95ab9228e27aee,650141,The Queen,Conceited Ruler,Fabled,Epic,8/29/25,3,TRUE,Amber,28084733938,205
+135,crd_d292fcaa144d4f739bda2c14948da2ce,650142,Aurora,Holding Court,Fabled,Epic,8/29/25,1,TRUE,Amber,5084729354,206
+136,crd_6ccc388f32064927a08d9914aad4bc8f,650143,Stitch,Alien Dancer,Fabled,Epic,8/29/25,2,TRUE,Amber,11084707207,207
+137,crd_48ccbae93afd4032a54bf09f03f6a0c2,650145,Ursula,Sea Witch,Fabled,Epic,8/29/25,3,FALSE,Amethyst,18084734095,208
+138,crd_21489dcd479a4d209a1b740f356fff6f,647657,Kuzco,Wanted Llama,Fabled,Epic,8/29/25,2,TRUE,Amethyst,11084407534,209
+139,crd_2b5958e1524648629b663fb210bb7f76,647660,Elsa,Snow Queen,Fabled,Epic,8/29/25,3,TRUE,Amethyst,23084428888,210
+140,crd_bc96b5e1045e45a38da57c302c634ba2,650147,Goofy,Set for Adventure,Fabled,Epic,8/29/25,2,TRUE,Emerald,11084706935,211
+141,crd_5623b1aaf330477aa9d14cd755597509,650149,Pegasus,Gift for Hercules,Fabled,Epic,8/29/25,1,TRUE,Emerald,22084723305,212
+142,crd_7b7cb2bd63084cf6942b7174b07be8c0,647659,Stand Out,NA,Fabled,Epic,8/29/25,3,TRUE,Emerald,20084431225,213
+143,crd_4d1c2c4913d1417294da21592cee8363,650150,Max Goof,Rockin' Teen,Fabled,Epic,8/29/25,3,TRUE,Ruby,18084734116,214
+144,crd_e234293cec8f422eb1d613594771e5ee,650151,Powerline,Musical Superstar,Fabled,Epic,8/29/25,3,TRUE,Ruby,11084707165,215
+145,crd_d47a329c9f87420c8c2714ea6f7fffde,650152,Be King Undisputed,NA,Fabled,Epic,8/29/25,4,FALSE,Ruby,19084722070,216
+146,crd_54148f51de174f4a93a475eec138365e,647656,Alice,Accidentally Adrift,Fabled,Epic,8/29/25,4,TRUE,Sapphire,4084426690,217
+147,crd_d911158c4175449e9814484f3c5adb06,650153,Anna,Braving the Storm,Fabled,Epic,8/29/25,2,TRUE,Sapphire,25084710206,218
+148,crd_2124e542c7de4cadb69cb6e1887547ee,650154,The Queen,Mirror Seeker,Fabled,Epic,8/29/25,4,TRUE,Sapphire,15084754587,219
+149,crd_888f26474eba4f569f94c99251eddf06,650155,Robin Hood,Capable Fighter,Fabled,Epic,8/29/25,2,FALSE,Steel,20084729671,220
+150,crd_a78a6d864bae48dca06ed1dc25e75e3f,650156,Mickey Mouse,Standard Bearer,Fabled,Epic,8/29/25,2,TRUE,Steel,7084734752,221
+151,crd_ae1714b13cbc42a4a83ec36fee365526,650157,One Last Hope,NA,Fabled,Epic,8/29/25,3,FALSE,Steel,27084730244,222
+172,crd_6283ca50c61544b7a6226fadbc7f0a17,660359,Goofy,Ghost Hunter,Whispers in the Well,Epic,11/7/25,4,TRUE,Amber,22086769684,205
+173,crd_22fb811c179742f6b17bead54e0d68f2,657888,Gaston,Frightful Bully,Whispers in the Well,Epic,11/7/25,2,FALSE,Amber,6086433032,206
+174,crd_faf17cc51b9748daa7187f81103430d0,660013,The Horseman Strikes!,NA,Whispers in the Well,Epic,11/7/25,3,TRUE,Amber,6086698629,207
+175,crd_04d59c2ff0e648eb9dad622fa82ce49b,660188,Elsa,Exploring the Unknown,Whispers in the Well,Epic,11/7/25,3,TRUE,Amethyst,16086731649,208
+176,crd_d51cdd2a1d904e03adb5e255a2b53a22,660189,Merlin,Completing His Research,Whispers in the Well,Epic,11/7/25,2,FALSE,Amethyst,4086775656,209
+177,crd_ffc221e006704b97a8b62c29180b33b2,658323,The Horned King,Triumphant Ghoul,Whispers in the Well,Epic,11/7/25,2,TRUE,Amethyst,23086554525,210
+178,crd_63194dcb766c473093e3802f309030e0,660190,Webby Vanderquack,Mystery Enthusiast,Whispers in the Well,Epic,11/7/25,1,TRUE,Emerald,12086757669,211
+179,crd_f2d99b79354c466ebcaaeadcba69678e,660191,Kaa,Secretive Snake,Whispers in the Well,Epic,11/7/25,7,TRUE,Emerald,17086778746,212
+180,crd_78c11305e1674d348fe8839940f029a5,658217,Megara,Secret Keeper,Whispers in the Well,Epic,11/7/25,3,TRUE,Emerald,12086390266,213
+181,crd_1eeb3d6d93bf4e228fafce3b3d4cdcff,660268,Tinker Bell,Fancy Footwork,Whispers in the Well,Epic,11/7/25,1,TRUE,Ruby,14086754161,214
+182,crd_082177dd6df34573a455c5f1b2ddad31,660362,Mulan,Standing Her Ground,Whispers in the Well,Epic,11/7/25,3,TRUE,Ruby,24086748323,215
+183,crd_eca465c4f9f6483db912ae876f8011ce,660269,Aladdin,Barreling Through,Whispers in the Well,Epic,11/7/25,3,TRUE,Ruby,15086747760,216
+184,crd_8076e7de5c3a4681b8a91629932092e5,660363,Daisy Duck,Ghost Finder,Whispers in the Well,Epic,11/7/25,2,TRUE,Sapphire,21086772302,217
+185,crd_c74126bc80ba4d52bc7c499ba67dce25,660270,Kristoff,Mining the Ruins,Whispers in the Well,Epic,11/7/25,3,TRUE,Sapphire,22086769390,218
+186,crd_7101d6f7aaba488e9a508b0d40172743,660271,Sudden Scare,NA,Whispers in the Well,Epic,11/7/25,4,TRUE,Sapphire,21086772218,219
+187,crd_1ad6e15d73174d7ab0d55b27d770e14d,660364,Minnie Mouse,Ghost Hunter,Whispers in the Well,Epic,11/7/25,2,TRUE,Steel,23086757093,220
+188,crd_9a7e83a63b8444438f4bc7714df6faf9,660272,Robin Hood,Ephemeral Archer,Whispers in the Well,Epic,11/7/25,4,TRUE,Steel,23086757624,221
+189,crd_de5dfda85c534def9ee3a0d93cb55597,660026,He Hurled His Thunderbolt,NA,Whispers in the Well,Epic,11/7/25,4,FALSE,Steel,15086673314,222
+210,crd_801cd6ba9a3048499af41d6186fa4100,677142,Tiana,Warm and Happy,Winterspell,Epic,2/13/26,4,TRUE,Amber,24089997450,205
+211,crd_d8dddac12b0749ba9c6510af447895bd,677143,Grandmother Willow,Ancient Advisor,Winterspell,Epic,2/13/26,2,FALSE,Amber,4090017378,206
+212,crd_899fe35731aa4f609bb72a19d7e831c8,677144,Tigger,Bouncing All the Way,Winterspell,Epic,2/13/26,4,TRUE,Amethyst,15090004504,208
+213,crd_9702c37c04864acd9912592d55d9dce0,677145,Anna,Little Sister,Winterspell,Epic,2/13/26,2,TRUE,Amethyst,18090039450,209
+214,crd_13f9925099454b7a8fd6225381d11061,675280,Genie,Magical Researcher,Winterspell,Epic,2/13/26,3,TRUE,Amethyst,26089635470,210
+215,crd_629d577b144c424286035635ec968b4a,677146,Aladdin,On the Edge of Adventure,Winterspell,Epic,2/13/26,3,TRUE,Emerald,12089995493,211
+216,crd_239773eb4b194139916d4c31bba66356,677147,Mushu,Sneaky Dragon,Winterspell,Epic,2/13/26,5,FALSE,Emerald,26090024956,212
+217,crd_84aa488aa433406493abed00a9d99611,677148,Minnie Mouse,Mrs. Cratchit,Winterspell,Epic,2/13/26,5,TRUE,Emerald,27090043123,213
+218,crd_366f46e2c0bc4366832935158a49cdb4,677149,Hercules,Spectral Demigod,Winterspell,Epic,2/13/26,1,TRUE,Ruby,6090041032,214
+219,crd_d66016477d454f19abf12684a50221ef,677150,Elsa,Concerned Sister,Winterspell,Epic,2/13/26,3,TRUE,Ruby,18090039045,215
+220,crd_05285db16a3b4cb28941b7a24913d33f,677151,Goofy,Klutzy Skier,Winterspell,Epic,2/13/26,3,FALSE,Ruby,10089997686,216
+221,crd_5da5944a7e9240aab2d30466337643c3,677152,Winnie the Pooh,Hungry Bear,Winterspell,Epic,2/13/26,4,TRUE,Sapphire,14089990510,217
+222,crd_ea1ae83b3c414a2a838398390473ebc6,677153,Jiminy Cricket,Ghost of Christmas Past,Winterspell,Epic,2/13/26,3,TRUE,Sapphire,25089996300,218
+223,crd_7379a15083914913b21c37d59e503c0c,677154,Mickey Mouse,Bob Cratchit,Winterspell,Epic,2/13/26,2,TRUE,Sapphire,26090024525,219
+224,crd_197bd1d5d07843d49d892ea9536fcbed,677155,Donald Duck,Along for the Ride,Winterspell,Epic,2/13/26,5,TRUE,Steel,28090066658,220
+225,crd_b7a2a60eb9d34fd986cf0bd44e2a1f1a,677156,Judy Hopps,Snowball Patrol,Winterspell,Epic,2/13/26,2,TRUE,Steel,17090037089,221
+226,crd_b3924beae9a04927adc0e542f5656aa0,677157,Rapunzel,Ethereal Protector,Winterspell,Epic,2/13/26,3,FALSE,Steel,27090043122,222
+247,crd_2eb1fa4c7ab0498b8d4cfcd28f56a8cf,692203,Woody,Waiting for a Friend,Wilds Unknown,Epic,5/8/26,1,TRUE,Amber,2364444194,205
+248,crd_70e7c418c5034714b2eb7889c89e3c86,692204,Rex,Protective Dinosaur,Wilds Unknown,Epic,5/8/26,2,TRUE,Amber,9093398687,206
+249,crd_1747f940605e4b6eb87f5df5ee96d9d8,692088,Isabela Madrigal,Such a Lovely Voice,Wilds Unknown,Epic,5/8/26,3,TRUE,Amber,20093301840,207
+250,crd_31ae4e3c265448b894f74dcaf1914a3a,692205,Mirage,Super Recruiter,Wilds Unknown,Epic,5/8/26,4,TRUE,Amethyst,20093390133,208
+251,crd_fb68c593a65344d5ad1585cb7a67777f,692206,Edna Mode,Fashion Designer,Wilds Unknown,Epic,5/8/26,3,TRUE,Amethyst,2364444202,209
+252,crd_fd529e637c964866821ab9f2946451cb,692207,Doc,Taking Notes,Wilds Unknown,Epic,5/8/26,4,TRUE,Amethyst,4093402951,210
+253,crd_dc61d69860c541f6bca41a4a9b8c17f1,692208,Buzz Lightyear,Space Ranger,Wilds Unknown,Epic,5/8/26,2,TRUE,Emerald,6093445023,211
+254,crd_5186a8ffa2ac448c9108a110b747e4e5,692209,Donald Duck,Distracted Traveler,Wilds Unknown,Epic,5/8/26,5,TRUE,Emerald,8093387863,212
+255,crd_52404c741d6e424e8a8f901408ccb11a,692235,Merida,Gifted Archer,Wilds Unknown,Epic,5/8/26,5,TRUE,Emerald,23093399081,213
+256,crd_ab041a63b5204af49dbe1cbc49cbabe2,692210,Lyle Tiberius Rourke,Crystallized Commander,Wilds Unknown,Epic,5/8/26,6,FALSE,Ruby,8093387708,214
+257,crd_04e84b2e5eca458da5e3ce89ac7b19cb,692211,Mr. Incredible,Bob Parr,Wilds Unknown,Epic,5/8/26,1,TRUE,Ruby,16093359183,215
+258,crd_995abfb15ba34115bbf2283bd853c2c2,690555,Daisy Duck,Trendy Traveler,Wilds Unknown,Epic,5/8/26,3,TRUE,Ruby,22093182204,216
+259,crd_4f772bcbcd244314a99264fb106166dd,692212,Kida,Guardian of the Path,Wilds Unknown,Epic,5/8/26,2,TRUE,Sapphire,27093420219,217
+260,crd_60e4bcd50631400eac4cf9544951e4ad,692213,Bruno Madrigal,Oasis Oracle,Wilds Unknown,Epic,5/8/26,5,TRUE,Sapphire,9093398599,218
+261,crd_c3586bda90744abf8eb5c15db3b0b766,692214,Minnie Mouse,Practical Traveler,Wilds Unknown,Epic,5/8/26,1,TRUE,Sapphire,12093387197,219
+262,crd_5b512fbc3a31425eb70175752010d69c,692215,Pocahontas,Steadfast Traveler,Wilds Unknown,Epic,5/8/26,4,TRUE,Steel,7093426214,220
+263,crd_705137b1ace0487ba1f71ee39019989a,692216,Incrediboy,Buddy Pine,Wilds Unknown,Epic,5/8/26,2,TRUE,Steel,13093376172,221
+264,crd_8bc3e60c6a77434ca8ba598742c86362,690215,Three Arrows,NA,Wilds Unknown,Epic,5/8/26,3,TRUE,Steel,5093916461,222
+285,crd_c6b467dc278f49959393348e55a5c991,704700,Jasmine,Vine Expert,Attack of the Vine!,Epic,7/17/26,4,TRUE,Amber,16096327420,208
+286,crd_f93119f5a78844d3ab1141cf8a94582b,704701,Boo,In Disguise,Attack of the Vine!,Epic,7/17/26,2,TRUE,Amber,18096344271,209
+287,crd_23040e61b60249f5b87587befb367d10,704702,Meilin Lee,Losing Control,Attack of the Vine!,Epic,7/17/26,3,TRUE,Amber,4096320646,210
+288,crd_1e46755f07de4f88a0039a236fdc86e5,704703,Heihei,Created by the Vine,Attack of the Vine!,Epic,7/17/26,2,TRUE,Amethyst,24096293857,211
+289,crd_c6b34ebb083f4f60a61fc54be715197a,702665,Winnie the Pooh,Hunny Archmage,Attack of the Vine!,Epic,7/17/26,2,TRUE,Amethyst,22095874141,212
+290,crd_59f3338b5aa642849d3646909844a459,704704,Mrs. Incredible,Created by the Vine,Attack of the Vine!,Epic,7/17/26,4,TRUE,Amethyst,21096339872,213
+291,crd_24a5f322e5664f43a3f9b2d9974905ab,704705,Mother Gothel,Evil as Ever,Attack of the Vine!,Epic,7/17/26,2,FALSE,Emerald,6096427596,214
+292,crd_68cc92f879004461b4d059ae003c6112,704706,Kevin,Flightless Bird,Attack of the Vine!,Epic,7/17/26,2,TRUE,Emerald,25096341017,215
+293,crd_25b0c2af6a7e482687ccdf1c28972104,704707,Peter Pan,Created by the Vine,Attack of the Vine!,Epic,7/17/26,3,FALSE,Emerald,13096334733,216
+294,crd_2095f0242cc7467984376aa49a3eb9e1,704708,Randall Boggs,Envious Coworker,Attack of the Vine!,Epic,7/17/26,2,TRUE,Ruby,6096427628,217
+295,crd_1dea0be378f04625ac06b1fde1dccbc8,704709,Sun Yee,Red Panda Spirit,Attack of the Vine!,Epic,7/17/26,5,TRUE,Ruby,13096334740,218
+296,crd_560f3e9fca1642a89b302a6210340f36,704710,Dash Parr,Dodgeball Dynamo,Attack of the Vine!,Epic,7/17/26,1,TRUE,Ruby,21096339879,219
+297,crd_b12f16b6b97f4586a0bf79c33227dfd5,704711,Henry J. Waternoose III,Chief Executive Officer,Attack of the Vine!,Epic,7/17/26,6,FALSE,Sapphire,19096427904,220
+298,crd_0ef0b1a9abfa42dd8663c3c6d05f467b,704712,Roz,Always Watching,Attack of the Vine!,Epic,7/17/26,2,TRUE,Sapphire,13096334736,221
+299,crd_2012eaacef8b4caf9b342fb8fe08624b,704713,Hundred Acre Wood,Hunny Campsite,Attack of the Vine!,Epic,7/17/26,3,FALSE,Sapphire,16096327454,222
+300,crd_3307cd46596847d09d0e439814734a25,704714,Kronk,Meat Hut Cook,Attack of the Vine!,Epic,7/17/26,2,TRUE,Steel,24096293851,223
+301,crd_e31cf106ef9248fe963d706ecc7411d3,704715,Mulan,Created by the Vine,Attack of the Vine!,Epic,7/17/26,4,TRUE,Steel,4096320630,224
+302,crd_e4be9183226c4eb0b888e765ef00c5f5,704716,Megavolt,Electrical Menace,Attack of the Vine!,Epic,7/17/26,4,TRUE,Steel,6096427586,225
+323,crd_94427710aba2473aa3e070b35fcd3c71,722555,Nick Wilde,Providing Backup,Hyperia City,Epic,10/16/26,2,TRUE,Amber,,205
+324,crd_221f3fb504ec46d4a86ef5d11b641e1f,722556,Judy Hopps,Always Vigilant,Hyperia City,Epic,10/16/26,4,TRUE,Amber,,206
+325,crd_ca62b23026f14a3c9090010b171982a6,722557,Ancestral Guitar,,Hyperia City,Epic,10/16/26,2,TRUE,Amber,,207
+326,crd_1c0a0efd9b3f4c74951cf280e3be9d47,722558,Dante,Enthusiastic Stray,Hyperia City,Epic,10/16/26,2,TRUE,Amethyst,,208
+327,crd_59990004a70c46d0b93d72f4541db2b0,722559,Tinker Bell,Curious Fairy,Hyperia City,Epic,10/16/26,1,TRUE,Amethyst,,209
+328,crd_4715b6ae170c4deea5b16601457f0ab3,722560,Archimedes,Messenger Owl,Hyperia City,Epic,10/16/26,3,FALSE,Amethyst,,210
+329,crd_c37f864e17104b9dbb6f113ed2ad03d5,722561,Go Go Tomago,Extreme Tester,Hyperia City,Epic,10/16/26,2,TRUE,Emerald,,211
+330,crd_b4671626a9e7404dbda5dbace12e7ffd,722562,Belle,Reflective Writer,Hyperia City,Epic,10/16/26,2,TRUE,Emerald,,212
+331,crd_021ca84d720e4bdc9264b1b0bda5765d,722563,Baymax,Lab Assistant,Hyperia City,Epic,10/16/26,4,TRUE,Emerald,,213
+332,crd_cd0645ab4e334b0dab3f07185e192050,722564,Meilin Lee,Ecstatic Fan,Hyperia City,Epic,10/16/26,3,TRUE,Ruby,,214
+333,crd_c76cf6855a78405794d7a16ad25a8133,722565,Héctor Rivera,Street Musician,Hyperia City,Epic,10/16/26,1,TRUE,Ruby,,215
+334,crd_1811df26dc33410bbabe5a73314ddb90,722566,Though I Have to Say Goodbye,,Hyperia City,Epic,10/16/26,2,TRUE,Ruby,,216
+335,crd_5ade5a813e254678871953a2a1585a46,722567,Daisy Duck,Savvy Investor,Hyperia City,Epic,10/16/26,3,FALSE,Sapphire,,217
+336,crd_eb5e0692c8914ddb936e30e79dd43fdc,722568,Wasabi,Future Thinker,Hyperia City,Epic,10/16/26,5,TRUE,Sapphire,,218
+337,crd_27e985b18a6744d39c63e1456e1c27c6,722569,Priscilla,Efficient Clerk,Hyperia City,Epic,10/16/26,3,TRUE,Sapphire,,219
+338,crd_1432d5de11a9480182827a63ab2be74d,722570,Tiana,Restauranteur,Hyperia City,Epic,10/16/26,2,TRUE,Steel,,220
+339,crd_74592466009c446da1d35f3d5a393903,722571,Toulouse,Rough and Tumble,Hyperia City,Epic,10/16/26,2,TRUE,Steel,,221
+340,crd_782a1dbadc0940918cbba6f0972bbc13,722572,Flash,Efficient Clerk,Hyperia City,Epic,10/16/26,2,FALSE,Steel,,222

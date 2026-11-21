@@ -510,20 +510,17 @@ ebay_title_map = new Map(ebay_today_master.map(d => [String(d.item_id).trim(), d
 
 ## Row
 
-### 💰 Daily Signals — Top Buys & Sells (by rarity)
+### 💰 Daily Signals — Top Buys & Sells
 
 ```{ojs}
 //| echo: false
 // ==============================================================================
-// SECTION 2.5.5: TOP BUY / SELL SIGNAL TABLES — split by rarity, deep-linked
+// SECTION 2.5.5: TOP BUY / SELL SIGNAL TABLES — deep-linked
 // ==============================================================================
 {
   const info = safeTranspose(ojs_info) || [];
   const rated = info.filter(d => d.p_buy != null && d.current_price);
 
-  // Rarity buckets: Enchanted + Iconic grouped together; Epic on its own.
-  const isEnchIconic = d => { const r = String(d.rarity || '').toLowerCase(); return r === 'enchanted' || r === 'iconic'; };
-  const isEpic = d => String(d.rarity || '').toLowerCase() === 'epic';
   const escAttr = s => String(s).replace(/"/g, '&quot;');
 
   const money = v => v != null ? '$' + Number(v).toFixed(2) : 'N/A';
@@ -557,12 +554,11 @@ ebay_title_map = new Map(ebay_today_master.map(d => [String(d.item_id).trim(), d
       </div>`;
   };
 
-  const topN = (pred, key) => [...rated].filter(pred).sort((a, b) => b[key] - a[key]).slice(0, 8);
+  const topN = (key) => [...rated].sort((a, b) => b[key] - a[key]).slice(0, 8);
 
   const groupHtml = (accent, probKey) => `
     <div style="display:flex; gap:20px; flex-wrap:wrap; width:100%;">
-      ${buildTable('Enchanted &amp; Iconic', topN(isEnchIconic, probKey), probKey, accent)}
-      ${buildTable('Epic', topN(isEpic, probKey), probKey, accent)}
+      ${buildTable('Enchanted &amp; Iconic', topN(probKey), probKey, accent)}
     </div>`;
 
   // Tabbed view: flip between Buys and Sells in place instead of scrolling past both.

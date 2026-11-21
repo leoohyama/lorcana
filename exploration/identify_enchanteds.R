@@ -25,7 +25,7 @@ all_lorcast_cards <- bind_rows(list_of_data)
 message("Filtering for Enchanted and Iconic cards...")
 all_lorcast_cards$purchase_uris
 target_cards <- all_lorcast_cards %>%
-  filter(rarity %in% c("Enchanted", "Iconic", "Epic")) %>%
+  filter(rarity %in% c("Enchanted", "Iconic")) %>%  # Epics dropped 2026-11-21
   mutate(
     image_url = image_uris$digital$normal,
     set_name = set$name,
