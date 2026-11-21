@@ -33,7 +33,6 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: main
 
       # Weekly re-tune: sweep on Sundays (still downstream of the eBay chain, so

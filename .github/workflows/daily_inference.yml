@@ -18,7 +18,6 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: main
 
       - name: 📊 1. Run PyTorch Preprocessing
